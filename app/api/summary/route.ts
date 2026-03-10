@@ -17,6 +17,14 @@ const schemaDescription = `Return JSON with exactly these keys:
   "caregiver_summary_text": "string"
 }`;
 
+const synthesisRules = `Requirements:
+- Summarize and normalize the caregiver's answers instead of copying their wording.
+- Deduplicate overlap across sections.
+- Keep each bullet concise and specific, usually 1 sentence or short phrase.
+- caregiver_summary_text must be a 3-5 sentence synthesis of the overall pattern, not a transcript recap.
+- Do not invent facts. If something is unclear, leave the section sparse and use unresolved_questions.
+- Write in neutral, supportive language suitable for review and editing.`;
+
 async function generateSummaryWithOpenAI(turns: ConversationTurn[]) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -31,11 +39,11 @@ async function generateSummaryWithOpenAI(turns: ConversationTurn[]) {
       {
         role: "system",
         content:
-          "You structure caregiver reflections into concise, neutral summaries. Never invent facts. If detail is missing, leave the relevant array empty or add an unresolved question."
+          "You turn caregiver reflections into concise, synthesized summaries for review. Prefer abstraction over quotation. Never invent facts."
       },
       {
         role: "user",
-        content: `${schemaDescription}\n\nConversation transcript:\n${buildTranscript(turns)}`
+        content: `${schemaDescription}\n\n${synthesisRules}\n\nConversation transcript:\n${buildTranscript(turns)}`
       }
     ]
   });

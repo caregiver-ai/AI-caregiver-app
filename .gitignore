@@ -1,6 +1,8 @@
 .next
+.next.stale*
 node_modules
 .env.local
 dist
 coverage
 *.swp
+*.tsbuildinfo

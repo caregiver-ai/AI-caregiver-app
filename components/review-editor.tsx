@@ -16,7 +16,7 @@ const FIELD_LABELS: Record<keyof StructuredSummary, string> = {
   situations_to_avoid: "Situations to avoid",
   conditions_for_successful_respite: "Conditions for successful respite",
   unresolved_questions: "Unresolved questions",
-  caregiver_summary_text: "Caregiver summary"
+  caregiver_summary_text: "Synthesized caregiver summary"
 };
 
 function arrayToTextarea(items: string[]) {
@@ -102,7 +102,7 @@ export function ReviewEditor() {
   return (
     <AppShell
       title="Review and edit"
-      subtitle="The summary is editable before final save. Each list field accepts one item per line."
+      subtitle="This page shows the AI-structured summary. Edit any section before final save. Each list field accepts one item per line."
     >
       <div className="space-y-4">
         {arrayFields.map((field) => (
