@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { buildTranscript } from "@/lib/reflection";
 import { buildFallbackSummary, normalizeStructuredSummary } from "@/lib/summary";
@@ -20,35 +19,135 @@ const schemaDescription = `Return JSON with exactly these keys:
 const synthesisRules = `Requirements:
 - Summarize and normalize the caregiver's answers instead of copying their wording.
 - Deduplicate overlap across sections.
-- Keep each bullet concise and specific, usually 1 sentence or short phrase.
-- caregiver_summary_text must be a 3-5 sentence synthesis of the overall pattern, not a transcript recap.
+- Keep each bullet concise and specific, usually a short phrase or 1 short sentence.
+- Prefer 1-2 bullets per section unless there is a strong reason for more.
+- caregiver_summary_text must be a 2-3 sentence synthesis of the overall pattern, not a transcript recap.
+- Keep caregiver_summary_text under 75 words.
+- Emphasize the main themes, tradeoffs, and what would make respite feel possible.
+- When multiple details express the same issue, collapse them into one clearer summary point.
+- Avoid repeating the same idea in multiple sections unless it is necessary for clarity.
 - Do not invent facts. If something is unclear, leave the section sparse and use unresolved_questions.
-- Write in neutral, supportive language suitable for review and editing.`;
+- Write in neutral, supportive language suitable for review and editing.
+- The final result should read like a polished case summary, not raw notes.`;
 
-async function generateSummaryWithOpenAI(turns: ConversationTurn[]) {
-  const apiKey = process.env.OPENAI_API_KEY;
+const summarySchema = {
+  type: "object",
+  properties: {
+    key_barriers: {
+      type: "array",
+      items: {
+        type: "string"
+      }
+    },
+    emotional_concerns: {
+      type: "array",
+      items: {
+        type: "string"
+      }
+    },
+    safety_considerations: {
+      type: "array",
+      items: {
+        type: "string"
+      }
+    },
+    past_negative_experiences: {
+      type: "array",
+      items: {
+        type: "string"
+      }
+    },
+    situations_to_avoid: {
+      type: "array",
+      items: {
+        type: "string"
+      }
+    },
+    conditions_for_successful_respite: {
+      type: "array",
+      items: {
+        type: "string"
+      }
+    },
+    unresolved_questions: {
+      type: "array",
+      items: {
+        type: "string"
+      }
+    },
+    caregiver_summary_text: {
+      type: "string"
+    }
+  },
+  required: [
+    "key_barriers",
+    "emotional_concerns",
+    "safety_considerations",
+    "past_negative_experiences",
+    "situations_to_avoid",
+    "conditions_for_successful_respite",
+    "unresolved_questions",
+    "caregiver_summary_text"
+  ]
+};
+
+async function generateSummaryWithGemini(turns: ConversationTurn[]) {
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return buildFallbackSummary(turns);
   }
 
-  const openai = new OpenAI({ apiKey });
-  const completion = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You turn caregiver reflections into concise, synthesized summaries for review. Prefer abstraction over quotation. Never invent facts."
+  const model = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey
       },
-      {
-        role: "user",
-        content: `${schemaDescription}\n\n${synthesisRules}\n\nConversation transcript:\n${buildTranscript(turns)}`
-      }
-    ]
-  });
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [
+            {
+              text: "You are summarizing caregiver reflections into polished structured notes for review. Your job is to synthesize, compress, and clarify. Prefer abstraction over quotation, prioritize only the most decision-relevant themes, keep the output concise, and never invent facts."
+            }
+          ]
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `${schemaDescription}\n\n${synthesisRules}\n\nConversation transcript:\n${buildTranscript(turns)}`
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseJsonSchema: summarySchema
+        }
+      })
+    }
+  );
 
-  const content = completion.choices[0]?.message?.content;
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini request failed: ${errorText}`);
+  }
+
+  const data = (await response.json()) as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          text?: string;
+        }>;
+      };
+    }>;
+  };
+
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!content) {
     return buildFallbackSummary(turns);
   }
@@ -83,7 +182,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const summary = await generateSummaryWithOpenAI(body.turns);
+    const summary = await generateSummaryWithGemini(body.turns);
 
     if (supabase) {
       const { error: summaryError } = await supabase.from("summaries").upsert(

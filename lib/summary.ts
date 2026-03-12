@@ -38,12 +38,58 @@ function dedupe(items: string[]) {
   });
 }
 
+function limitItems(items: string[], limit = 2) {
+  return dedupe(items).slice(0, limit);
+}
+
+function shortenSummaryText(text: string) {
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const limitedBySentence: string[] = [];
+  for (const sentence of sentences) {
+    const candidate = [...limitedBySentence, sentence].join(" ");
+    const wordCount = candidate.split(/\s+/).filter(Boolean).length;
+
+    if (candidate.length > 320 || wordCount > 75) {
+      break;
+    }
+
+    limitedBySentence.push(sentence);
+  }
+
+  if (limitedBySentence.length > 0) {
+    return limitedBySentence.join(" ");
+  }
+
+  const words = (sentences[0] ?? text)
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const limitedWords: string[] = [];
+  for (const word of words) {
+    const candidate = [...limitedWords, word].join(" ");
+    if (candidate.length > 280 || limitedWords.length >= 45) {
+      break;
+    }
+
+    limitedWords.push(word);
+  }
+
+  const fallback = limitedWords.join(" ").replace(/[,\s;:]+$/, "");
+  return fallback ? `${fallback}.` : "";
+}
+
 function pickMatches(sentences: string[], pattern: RegExp, limit = 3) {
-  return dedupe(
+  return limitItems(
     sentences
       .filter((item) => pattern.test(item))
       .map((item) => toSentenceCase(item.replace(/\bi want to avoid\b/gi, "").trim()))
-  ).slice(0, limit);
+  , limit);
 }
 
 function summarizeBarriers(sentences: string[]) {
@@ -62,7 +108,7 @@ function summarizeBarriers(sentences: string[]) {
     results.push("Finding reliable caregiver coverage is a major barrier.");
   }
 
-  return dedupe(results).slice(0, 3);
+  return limitItems(results, 2);
 }
 
 function summarizeConditions(sentences: string[]) {
@@ -81,7 +127,7 @@ function summarizeConditions(sentences: string[]) {
     results.push("Clear communication and updates during respite would help the caregiver feel comfortable.");
   }
 
-  return dedupe(results).slice(0, 3);
+  return limitItems(results, 2);
 }
 
 function buildSummaryText(summary: Omit<StructuredSummary, "caregiver_summary_text">) {
@@ -101,15 +147,20 @@ function buildSummaryText(summary: Omit<StructuredSummary, "caregiver_summary_te
     firstSafety
       ? `Safety remains a concern, especially around ${firstSafety.charAt(0).toLowerCase()}${firstSafety.slice(1)}`
       : "",
-    firstPastIssue
-      ? `Past experiences continue to shape trust in outside help, including ${firstPastIssue.charAt(0).toLowerCase()}${firstPastIssue.slice(1)}`
-      : "",
     firstCondition
       ? `Respite appears more realistic if ${firstCondition.charAt(0).toLowerCase()}${firstCondition.slice(1)}`
       : "A more reliable and reassuring support setup would likely make respite feel more achievable."
   ].filter(Boolean);
 
-  return sentences.map((sentence) => sentence.replace(/[.]*$/, ".")).join(" ");
+  if (firstPastIssue && sentences.length < 3) {
+    sentences.splice(
+      2,
+      0,
+      `Past experiences still affect trust in outside help, including ${firstPastIssue.charAt(0).toLowerCase()}${firstPastIssue.slice(1)}`
+    );
+  }
+
+  return shortenSummaryText(sentences.map((sentence) => sentence.replace(/[.]*$/, ".")).join(" "));
 }
 
 export function buildFallbackSummary(turns: ConversationTurn[]): StructuredSummary {
@@ -137,7 +188,7 @@ export function buildFallbackSummary(turns: ConversationTurn[]): StructuredSumma
   const conditions_for_successful_respite = [
     ...summarizeConditions(sentences),
     ...pickMatches(sentences, /(need|want|prefer|comfortable|would feel better|acceptable)/i, 2)
-  ].slice(0, 3);
+  ].slice(0, 2);
 
   const summaryBase = {
     ...EMPTY_SUMMARY,
@@ -147,7 +198,7 @@ export function buildFallbackSummary(turns: ConversationTurn[]): StructuredSumma
     past_negative_experiences,
     situations_to_avoid,
     conditions_for_successful_respite,
-    unresolved_questions: dedupe(
+    unresolved_questions: limitItems(
       [
         conditions_for_successful_respite.length === 0
           ? "What type of backup support would feel trustworthy enough to try first?"
@@ -157,7 +208,7 @@ export function buildFallbackSummary(turns: ConversationTurn[]): StructuredSumma
           : "",
         "What is the smallest next step that could test respite without adding more stress?"
       ].filter(Boolean)
-    ).slice(0, 3)
+    )
   };
 
   return {
@@ -172,28 +223,30 @@ export function normalizeStructuredSummary(input: unknown): StructuredSummary {
   const candidate = input as Partial<StructuredSummary> | undefined;
 
   return {
-    key_barriers: Array.isArray(candidate?.key_barriers) ? candidate.key_barriers.map(String) : [],
+    key_barriers: Array.isArray(candidate?.key_barriers)
+      ? limitItems(candidate.key_barriers.map(String))
+      : [],
     emotional_concerns: Array.isArray(candidate?.emotional_concerns)
-      ? candidate.emotional_concerns.map(String)
+      ? limitItems(candidate.emotional_concerns.map(String))
       : [],
     safety_considerations: Array.isArray(candidate?.safety_considerations)
-      ? candidate.safety_considerations.map(String)
+      ? limitItems(candidate.safety_considerations.map(String))
       : [],
     past_negative_experiences: Array.isArray(candidate?.past_negative_experiences)
-      ? candidate.past_negative_experiences.map(String)
+      ? limitItems(candidate.past_negative_experiences.map(String))
       : [],
     situations_to_avoid: Array.isArray(candidate?.situations_to_avoid)
-      ? candidate.situations_to_avoid.map(String)
+      ? limitItems(candidate.situations_to_avoid.map(String))
       : [],
     conditions_for_successful_respite: Array.isArray(candidate?.conditions_for_successful_respite)
-      ? candidate.conditions_for_successful_respite.map(String)
+      ? limitItems(candidate.conditions_for_successful_respite.map(String))
       : [],
     unresolved_questions: Array.isArray(candidate?.unresolved_questions)
-      ? candidate.unresolved_questions.map(String)
+      ? limitItems(candidate.unresolved_questions.map(String))
       : [],
     caregiver_summary_text:
       typeof candidate?.caregiver_summary_text === "string"
-        ? candidate.caregiver_summary_text
+        ? shortenSummaryText(candidate.caregiver_summary_text)
         : ""
   };
 }

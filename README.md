@@ -8,7 +8,7 @@ Lightweight MVP for the Phase 1 workflow: guided reflection -> AI-assisted struc
 - TypeScript
 - Tailwind CSS
 - Supabase for persistence
-- OpenAI API for structured summary generation
+- Gemini API for structured summary generation
 - Vercel-ready deployment
 
 ## What the prototype does
@@ -34,7 +34,7 @@ npm install
 cp .env.example .env.local
 ```
 
-3. Add values for Supabase and OpenAI.
+3. Add values for Supabase and Gemini.
 
 4. Run the dev server:
 
@@ -52,11 +52,11 @@ npm run dev
 
 The app will still run without Supabase credentials by keeping draft data in browser local storage, but server persistence is only active when Supabase is configured.
 
-## OpenAI setup
+## Gemini setup
 
-Add `OPENAI_API_KEY` to `.env.local`.
+Add `GEMINI_API_KEY` to `.env.local`.
 
-If no OpenAI key is present, the `/api/summary` route falls back to a lightweight heuristic summary so the end-to-end prototype still works.
+If no Gemini key is present, the `/api/summary` route falls back to a lightweight heuristic summary so the end-to-end prototype still works.
 
 ## Deploy to Vercel
 
@@ -70,7 +70,7 @@ If no OpenAI key is present, the `/api/summary` route falls back to a lightweigh
 The app uses a thin client/server split:
 
 - Client pages manage the reflection flow, route transitions, editable form state, and local draft persistence for MVP speed.
-- Server routes handle session creation, OpenAI summary generation, confirmation saves, and feedback writes.
+- Server routes handle session creation, Gemini summary generation, confirmation saves, and feedback writes.
 - Supabase stores `users`, `sessions`, `conversation_turns`, `summaries`, and `feedback`.
 - The reflection flow is deterministic by design: the client drives the initial prompts and selects follow-ups from a controlled bank with simple category coverage heuristics.
 
@@ -80,7 +80,7 @@ The app uses a thin client/server split:
 - `app/reflection/page.tsx`: guided reflection
 - `app/review/page.tsx`: review and edit
 - `app/complete/page.tsx`: completion and feedback
-- `app/api/summary/route.ts`: OpenAI summary route
+- `app/api/summary/route.ts`: Gemini summary route
 - `supabase/schema.sql`: database schema
 
 ## Note about the repo
