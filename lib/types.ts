@@ -1,21 +1,20 @@
-export type PromptCategory =
-  | "practical_barriers"
-  | "emotional_concerns"
-  | "safety_considerations"
-  | "past_negative_experiences"
-  | "support_preferences";
+export type ReflectionSectionId = "what_helps_the_day_go_well";
 
 export type TurnRole = "assistant" | "user";
 
-export type PromptType = "initial" | "follow_up" | "system";
+export type PromptType = "section_prompt" | "system";
 
 export interface ConversationTurn {
   id: string;
   role: TurnRole;
   promptType: PromptType;
-  category?: PromptCategory | "situations_to_avoid";
   content: string;
   createdAt: string;
+  sectionId?: ReflectionSectionId;
+  sectionTitle?: string;
+  promptLabel?: string;
+  promptExamples?: string[];
+  skipped?: boolean;
 }
 
 export interface StructuredSummary {
@@ -29,10 +28,19 @@ export interface StructuredSummary {
   caregiver_summary_text: string;
 }
 
+export interface SessionIntakeDetails {
+  caregiverName: string;
+  caregiverAge: string;
+  caregiverPhone: string;
+  careRecipientName: string;
+  careRecipientAge: string;
+}
+
 export interface SessionDraft {
   sessionId: string;
   email: string;
   consented: boolean;
+  intakeDetails: SessionIntakeDetails;
   turns: ConversationTurn[];
   structuredSummary?: StructuredSummary;
   editedSummary?: StructuredSummary;
@@ -42,8 +50,11 @@ export interface SessionDraft {
   };
 }
 
-export interface FollowUpQuestion {
+export interface ReflectionPrompt {
   id: string;
-  category: PromptCategory;
+  sectionId: ReflectionSectionId;
+  sectionTitle: string;
+  promptLabel: string;
   question: string;
+  examples: string[];
 }

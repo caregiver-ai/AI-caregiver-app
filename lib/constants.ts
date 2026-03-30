@@ -1,87 +1,57 @@
-import { FollowUpQuestion, PromptCategory, StructuredSummary } from "@/lib/types";
+import { ReflectionPrompt, StructuredSummary } from "@/lib/types";
 
-export const APP_NAME = "Caregiver Reflection Prototype";
+export const APP_NAME = "Caregiver Handoff";
 
-export const INITIAL_PROMPTS = [
+export const REFLECTION_PROMPTS: ReflectionPrompt[] = [
   {
-    id: "initial-1",
-    category: "practical_barriers" as const,
-    question: "What holds me back?"
+    id: "day-goes-well-communication",
+    sectionId: "what_helps_the_day_go_well",
+    sectionTitle: "What helps the day go well",
+    promptLabel: "Communication",
+    question: "What should another caregiver know about communication so the day goes more smoothly?",
+    examples: [
+      "gestures, words, sounds, or a communication device",
+      "whether they need extra time to respond",
+      "anything that helps them understand or express needs"
+    ]
   },
   {
-    id: "initial-2",
-    category: "emotional_concerns" as const,
-    question: "What is hard for me?"
+    id: "day-goes-well-health-safety",
+    sectionId: "what_helps_the_day_go_well",
+    sectionTitle: "What helps the day go well",
+    promptLabel: "Health & safety",
+    question: "What health or safety information matters most for another caregiver to know?",
+    examples: [
+      "allergies, medical conditions, or medications",
+      "equipment such as hearing aids, glasses, wheelchair, or feeding tube",
+      "anything another caregiver must do correctly to keep them safe"
+    ]
   },
   {
-    id: "initial-3",
-    category: "situations_to_avoid" as const,
-    question: "What would I want to avoid?"
+    id: "day-goes-well-daily-schedule",
+    sectionId: "what_helps_the_day_go_well",
+    sectionTitle: "What helps the day go well",
+    promptLabel: "Daily schedule",
+    question: "What routines, transitions, meals, or daily activities help the day stay on track?",
+    examples: [
+      "morning or bedtime routines",
+      "meal and snack timing",
+      "transition supports like countdowns or visual schedules"
+    ]
+  },
+  {
+    id: "day-goes-well-activities",
+    sectionId: "what_helps_the_day_go_well",
+    sectionTitle: "What helps the day go well",
+    promptLabel: "Activities & preferences",
+    question: "What activities, outings, people, or quiet-time preferences usually help things go well?",
+    examples: [
+      "favorite activities, videos, music, crafts, or walks",
+      "trusted people they do well with",
+      "rest, low-light, or sensory-space preferences"
+    ]
   }
 ];
-
-export const FOLLOW_UP_QUESTION_BANK: Record<PromptCategory, FollowUpQuestion[]> = {
-  practical_barriers: [
-    {
-      id: "practical-1",
-      category: "practical_barriers",
-      question: "Are there practical issues like cost, timing, transportation, or scheduling that make respite difficult?"
-    },
-    {
-      id: "practical-2",
-      category: "practical_barriers",
-      question: "What part of arranging coverage feels hardest to manage day to day?"
-    }
-  ],
-  emotional_concerns: [
-    {
-      id: "emotional-1",
-      category: "emotional_concerns",
-      question: "Are there emotions like guilt, worry, or feeling judged that make it harder to step away?"
-    },
-    {
-      id: "emotional-2",
-      category: "emotional_concerns",
-      question: "What thoughts come up when you imagine someone else taking over care for a while?"
-    }
-  ],
-  safety_considerations: [
-    {
-      id: "safety-1",
-      category: "safety_considerations",
-      question: "What safety or medical needs would you need another caregiver to handle correctly before you could take a break?"
-    },
-    {
-      id: "safety-2",
-      category: "safety_considerations",
-      question: "Are there warning signs or routines that make you feel the person you support cannot be left with just anyone?"
-    }
-  ],
-  past_negative_experiences: [
-    {
-      id: "past-1",
-      category: "past_negative_experiences",
-      question: "Have you had a past respite or caregiving experience that went badly and still affects your trust?"
-    },
-    {
-      id: "past-2",
-      category: "past_negative_experiences",
-      question: "Was there a moment when asking for help or taking a break created more stress instead of relief?"
-    }
-  ],
-  support_preferences: [
-    {
-      id: "support-1",
-      category: "support_preferences",
-      question: "If respite did feel workable, what kind of help or support setup would make it feel acceptable to you?"
-    },
-    {
-      id: "support-2",
-      category: "support_preferences",
-      question: "What would you want another caregiver or program to understand about your preferences before helping?"
-    }
-  ]
-};
 
 export const EMPTY_SUMMARY: StructuredSummary = {
   key_barriers: [],

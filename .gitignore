@@ -2,6 +2,7 @@
 .next.stale*
 node_modules
 .env.local
+.vercel
 dist
 coverage
 *.swp

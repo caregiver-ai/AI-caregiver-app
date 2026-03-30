@@ -2,14 +2,60 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase";
 
+function parseAge(value: unknown, required = false) {
+  if (typeof value !== "string" || !value.trim()) {
+    if (required) {
+      return { error: "Age is required." };
+    }
+
+    return { value: null };
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 0) {
+    return { error: "Age must be a valid non-negative number." };
+  }
+
+  return { value: parsed };
+}
+
 export async function POST(request: Request) {
-  const body = (await request.json()) as { email?: string; consented?: boolean };
+  const body = (await request.json()) as {
+    email?: string;
+    consented?: boolean;
+    caregiverName?: string;
+    caregiverAge?: string;
+    caregiverPhone?: string;
+    careRecipientName?: string;
+    careRecipientAge?: string;
+  };
   const sessionId = randomUUID();
   const email = body.email?.trim().toLowerCase();
   const consented = Boolean(body.consented);
+  const caregiverName = body.caregiverName?.trim();
+  const caregiverPhone = body.caregiverPhone?.trim() || null;
+  const careRecipientName = body.careRecipientName?.trim();
+  const caregiverAge = parseAge(body.caregiverAge);
+  const careRecipientAge = parseAge(body.careRecipientAge, true);
 
   if (!email) {
     return NextResponse.json({ error: "Email is required." }, { status: 400 });
+  }
+
+  if (!caregiverName) {
+    return NextResponse.json({ error: "Caregiver name is required." }, { status: 400 });
+  }
+
+  if (!careRecipientName) {
+    return NextResponse.json({ error: "Care recipient name is required." }, { status: 400 });
+  }
+
+  if (caregiverAge.error) {
+    return NextResponse.json({ error: caregiverAge.error }, { status: 400 });
+  }
+
+  if (careRecipientAge.error) {
+    return NextResponse.json({ error: careRecipientAge.error }, { status: 400 });
   }
 
   const supabase = createSupabaseServerClient();
@@ -47,7 +93,12 @@ export async function POST(request: Request) {
       id: sessionId,
       user_id: userRecord.id,
       consented,
-      status: "in_progress"
+      status: "in_progress",
+      caregiver_name: caregiverName,
+      caregiver_age: caregiverAge.value,
+      caregiver_phone: caregiverPhone,
+      care_recipient_name: careRecipientName,
+      care_recipient_age: careRecipientAge.value
     });
 
     if (sessionError) {

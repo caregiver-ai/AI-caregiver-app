@@ -3,7 +3,7 @@ import { ConversationTurn, StructuredSummary } from "@/lib/types";
 
 function userResponses(turns: ConversationTurn[]) {
   return turns
-    .filter((turn) => turn.role === "user")
+    .filter((turn) => turn.role === "user" && !turn.skipped)
     .map((turn) => turn.content.trim())
     .filter(Boolean);
 }

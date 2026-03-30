@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     const { error: summaryError } = await supabase.from("summaries").upsert(
       {
         session_id: body.sessionId,
+        summary_json: body.editedSummary,
         edited_json: body.editedSummary,
         summary_text: body.editedSummary.caregiver_summary_text,
         confirmed_at: new Date().toISOString()

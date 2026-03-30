@@ -82,7 +82,8 @@ export function ReviewEditor() {
       });
 
       if (!response.ok) {
-        throw new Error("Unable to save the confirmed summary.");
+        const data = (await response.json()) as { error?: string };
+        throw new Error(data.error ?? "Unable to save the confirmed summary.");
       }
 
       const draft = loadDraft();

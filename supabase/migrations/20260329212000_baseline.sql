@@ -56,8 +56,6 @@ create index if not exists idx_sessions_user_id on public.sessions(user_id);
 create index if not exists idx_conversation_turns_session_id on public.conversation_turns(session_id);
 create index if not exists idx_feedback_session_id on public.feedback(session_id);
 
--- All database access for this app goes through server-side routes.
--- Enabling RLS prevents public API access from anon/authenticated clients.
 alter table if exists public.users enable row level security;
 alter table if exists public.sessions enable row level security;
 alter table if exists public.conversation_turns enable row level security;
