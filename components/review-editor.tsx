@@ -1,23 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
 import { EMPTY_SUMMARY } from "@/lib/constants";
+import { getReviewCopy } from "@/lib/localization";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { StructuredSummary } from "@/lib/types";
-
-const FIELD_LABELS: Record<keyof StructuredSummary, string> = {
-  key_barriers: "Key barriers",
-  emotional_concerns: "Emotional concerns",
-  safety_considerations: "Safety considerations",
-  past_negative_experiences: "Past negative experiences",
-  situations_to_avoid: "Situations to avoid",
-  conditions_for_successful_respite: "Conditions for successful respite",
-  unresolved_questions: "Unresolved questions",
-  caregiver_summary_text: "Synthesized caregiver summary"
-};
+import { StructuredSummary, UiLanguage } from "@/lib/types";
 
 function arrayToTextarea(items: string[]) {
   return items.join("\n");
@@ -36,6 +26,8 @@ export function ReviewEditor() {
   const [sessionId, setSessionId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
+  const copy = useMemo(() => getReviewCopy(uiLanguage), [uiLanguage]);
 
   useEffect(() => {
     const draft = loadDraft();
@@ -46,6 +38,7 @@ export function ReviewEditor() {
 
     setSummary(draft.editedSummary ?? draft.structuredSummary);
     setSessionId(draft.sessionId);
+    setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
   }, [router]);
 
   function updateArrayField(field: Exclude<keyof StructuredSummary, "caregiver_summary_text">, value: string) {
@@ -83,7 +76,7 @@ export function ReviewEditor() {
 
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
-        throw new Error(data.error ?? "Unable to save the confirmed summary.");
+        throw new Error(data.error ?? copy.confirmFailed);
       }
 
       const draft = loadDraft();
@@ -94,21 +87,18 @@ export function ReviewEditor() {
 
       router.push("/complete");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Save failed.");
+      setError(requestError instanceof Error ? requestError.message : copy.saveFailed);
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <AppShell
-      title="Review and edit"
-      subtitle="This page shows the AI-structured summary. Edit any section before final save. Each list field accepts one item per line."
-    >
+    <AppShell title={copy.title} subtitle={copy.subtitle}>
       <div className="space-y-4">
         {arrayFields.map((field) => (
           <label key={field} className="block space-y-2">
-            <span className="text-sm font-medium text-slate-700">{FIELD_LABELS[field]}</span>
+            <span className="text-sm font-medium text-slate-700">{copy.fieldLabels[field]}</span>
             <textarea
               className="min-h-24 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
               value={arrayToTextarea(summary[field])}
@@ -118,9 +108,7 @@ export function ReviewEditor() {
         ))}
 
         <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-700">
-            {FIELD_LABELS.caregiver_summary_text}
-          </span>
+          <span className="text-sm font-medium text-slate-700">{copy.fieldLabels.caregiver_summary_text}</span>
           <textarea
             className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
             value={summary.caregiver_summary_text}
@@ -141,7 +129,7 @@ export function ReviewEditor() {
           type="button"
           onClick={handleConfirm}
         >
-          {saving ? "Saving..." : "Confirm and Save"}
+          {saving ? copy.savingButton : copy.saveButton}
         </button>
       </div>
     </AppShell>

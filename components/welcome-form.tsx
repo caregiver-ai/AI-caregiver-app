@@ -1,23 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBanner } from "@/components/status-banner";
 import { APP_NAME } from "@/lib/constants";
+import { UI_LANGUAGE_OPTIONS, getWelcomeCopy } from "@/lib/localization";
 import { saveDraft } from "@/lib/storage";
-import { SessionIntakeDetails } from "@/lib/types";
+import { SessionIntakeDetails, UiLanguage } from "@/lib/types";
 
 function FieldLabel({
   children,
-  optional = false
+  optional = false,
+  optionalLabel
 }: {
   children: string;
   optional?: boolean;
+  optionalLabel: string;
 }) {
   return (
     <span className="text-sm font-medium text-slate-700">
       {children}
-      {optional ? <span className="font-normal text-slate-500"> (optional)</span> : null}
+      {optional ? <span className="font-normal text-slate-500"> ({optionalLabel})</span> : null}
     </span>
   );
 }
@@ -33,10 +36,16 @@ export function WelcomeForm() {
     caregiverAge: "",
     caregiverPhone: "",
     careRecipientName: "",
-    careRecipientAge: ""
+    careRecipientAge: "",
+    preferredLanguage: "english"
   });
+  const uiLanguage = intakeDetails.preferredLanguage;
+  const copy = useMemo(() => getWelcomeCopy(uiLanguage), [uiLanguage]);
 
-  function updateField(field: keyof SessionIntakeDetails, value: string) {
+  function updateField<Field extends keyof SessionIntakeDetails>(
+    field: Field,
+    value: SessionIntakeDetails[Field]
+  ) {
     setIntakeDetails((current) => ({
       ...current,
       [field]: value
@@ -45,27 +54,27 @@ export function WelcomeForm() {
 
   async function handleStart() {
     if (!intakeDetails.caregiverName.trim()) {
-      setError("Enter your name to start.");
+      setError(copy.errors.caregiverName);
       return;
     }
 
     if (!intakeDetails.careRecipientName.trim()) {
-      setError("Enter the name of the person you support.");
+      setError(copy.errors.careRecipientName);
       return;
     }
 
     if (!intakeDetails.careRecipientAge.trim()) {
-      setError("Enter the age of the person you support.");
+      setError(copy.errors.careRecipientAge);
       return;
     }
 
     if (!email.trim()) {
-      setError("Enter an email address so we can connect this session to you.");
+      setError(copy.errors.email);
       return;
     }
 
     if (!consented) {
-      setError("Consent is required before starting.");
+      setError(copy.errors.consent);
       return;
     }
 
@@ -104,7 +113,7 @@ export function WelcomeForm() {
 
       router.push("/reflection");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to start the intake.");
+      setError(requestError instanceof Error ? requestError.message : copy.errors.startFailed);
     } finally {
       setLoading(false);
     }
@@ -113,40 +122,62 @@ export function WelcomeForm() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl items-center px-4 py-8 sm:px-6">
       <section className="w-full rounded-[32px] border border-border bg-white/95 p-6 shadow-card sm:p-8">
-        <div className="space-y-3">
+        <div className="space-y-4">
           <p className="text-xs font-semibold uppercase tracking-[0.26em] text-accent">{APP_NAME}</p>
-          <h1 className="text-3xl font-semibold text-ink sm:text-4xl">
-            Let's start with a few basics.
-          </h1>
-          <p className="max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-            We'll use these details to personalize this for you.
-          </p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="space-y-3">
+              <h1 className="text-3xl font-semibold text-ink sm:text-4xl">{copy.title}</h1>
+              <p className="max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+                {copy.subtitle}
+              </p>
+            </div>
+            <label className="block sm:w-56">
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                {copy.languageLabel}
+              </span>
+              <select
+                className="w-full rounded-2xl border border-border bg-white px-4 py-3 text-sm font-medium text-slate-700 outline-none transition focus:border-accent"
+                value={uiLanguage}
+                onChange={(event) =>
+                  updateField("preferredLanguage", event.target.value as UiLanguage)
+                }
+              >
+                {UI_LANGUAGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
         <div className="mt-8 space-y-8">
           <section className="space-y-4">
             <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-              About you
+              {copy.aboutYou}
             </h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block space-y-2">
-                <FieldLabel>Your name</FieldLabel>
+                <FieldLabel optionalLabel={copy.optional}>{copy.yourName}</FieldLabel>
                 <input
                   autoComplete="name"
                   className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-                  placeholder="Your name"
+                  placeholder={copy.placeholders.caregiverName}
                   type="text"
                   value={intakeDetails.caregiverName}
                   onChange={(event) => updateField("caregiverName", event.target.value)}
                 />
               </label>
               <label className="block space-y-2">
-                <FieldLabel optional>Your age</FieldLabel>
+                <FieldLabel optional optionalLabel={copy.optional}>
+                  {copy.yourAge}
+                </FieldLabel>
                 <input
                   className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
                   inputMode="numeric"
                   min="0"
-                  placeholder="Age"
+                  placeholder={copy.placeholders.caregiverAge}
                   type="number"
                   value={intakeDetails.caregiverAge}
                   onChange={(event) => updateField("caregiverAge", event.target.value)}
@@ -157,26 +188,26 @@ export function WelcomeForm() {
 
           <section className="space-y-4">
             <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-              About the person you support
+              {copy.aboutSupportedPerson}
             </h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block space-y-2">
-                <FieldLabel>Their name</FieldLabel>
+                <FieldLabel optionalLabel={copy.optional}>{copy.theirName}</FieldLabel>
                 <input
                   className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-                  placeholder="Their name"
+                  placeholder={copy.placeholders.careRecipientName}
                   type="text"
                   value={intakeDetails.careRecipientName}
                   onChange={(event) => updateField("careRecipientName", event.target.value)}
                 />
               </label>
               <label className="block space-y-2">
-                <FieldLabel>Their age</FieldLabel>
+                <FieldLabel optionalLabel={copy.optional}>{copy.theirAge}</FieldLabel>
                 <input
                   className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
                   inputMode="numeric"
                   min="0"
-                  placeholder="Age"
+                  placeholder={copy.placeholders.careRecipientAge}
                   type="number"
                   value={intakeDetails.careRecipientAge}
                   onChange={(event) => updateField("careRecipientAge", event.target.value)}
@@ -187,26 +218,28 @@ export function WelcomeForm() {
 
           <section className="space-y-4">
             <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-              How we can reach you
+              {copy.reachYou}
             </h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block space-y-2">
-                <FieldLabel>Email address</FieldLabel>
+                <FieldLabel optionalLabel={copy.optional}>{copy.emailAddress}</FieldLabel>
                 <input
                   autoComplete="email"
                   className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-                  placeholder="caregiver@example.com"
+                  placeholder={copy.placeholders.email}
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                 />
               </label>
               <label className="block space-y-2">
-                <FieldLabel optional>Phone number</FieldLabel>
+                <FieldLabel optional optionalLabel={copy.optional}>
+                  {copy.phoneNumber}
+                </FieldLabel>
                 <input
                   autoComplete="tel"
                   className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-                  placeholder="(555) 555-5555"
+                  placeholder={copy.placeholders.caregiverPhone}
                   type="tel"
                   value={intakeDetails.caregiverPhone}
                   onChange={(event) => updateField("caregiverPhone", event.target.value)}
@@ -222,10 +255,7 @@ export function WelcomeForm() {
               type="checkbox"
               onChange={(event) => setConsented(event.target.checked)}
             />
-            <span className="text-sm leading-6 text-slate-700">
-              I consent to entering caregiving information for transcript generation, summary
-              creation, and storage.
-            </span>
+            <span className="text-sm leading-6 text-slate-700">{copy.consent}</span>
           </label>
 
           {error ? <StatusBanner tone="error">{error}</StatusBanner> : null}
@@ -236,7 +266,7 @@ export function WelcomeForm() {
             type="button"
             onClick={handleStart}
           >
-            {loading ? "Starting..." : "Continue"}
+            {loading ? copy.startingLabel : copy.continueLabel}
           </button>
         </div>
       </section>

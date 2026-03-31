@@ -1,8 +1,8 @@
-import { REFLECTION_PROMPTS } from "@/lib/constants";
-import { ConversationTurn } from "@/lib/types";
+import { getLocalizedReflectionPrompts } from "@/lib/localization";
+import { ConversationTurn, UiLanguage } from "@/lib/types";
 
-export function getPromptSequence(): ConversationTurn[] {
-  return REFLECTION_PROMPTS.map((prompt) => ({
+export function getPromptSequence(language: UiLanguage = "english"): ConversationTurn[] {
+  return getLocalizedReflectionPrompts(language).map((prompt) => ({
     id: prompt.id,
     role: "assistant",
     promptType: "section_prompt",
@@ -19,8 +19,8 @@ export function getPromptIndex(turns: ConversationTurn[]) {
   return turns.filter((turn) => turn.role === "assistant" && turn.promptType === "section_prompt").length;
 }
 
-export function getCurrentPrompt(turns: ConversationTurn[]) {
-  return getPromptSequence()[getPromptIndex(turns)];
+export function getCurrentPrompt(turns: ConversationTurn[], language: UiLanguage = "english") {
+  return getPromptSequence(language)[getPromptIndex(turns)];
 }
 
 export function buildTranscript(turns: ConversationTurn[]): string {

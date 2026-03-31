@@ -9,50 +9,13 @@ import {
   isAudioRecordingSupported,
   startWavRecording
 } from "@/lib/audio";
+import { getLanguageLabel, getReflectionCopy } from "@/lib/localization";
 import { getCurrentPrompt, getPromptIndex, getPromptSequence } from "@/lib/reflection";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { ConversationTurn } from "@/lib/types";
+import { ConversationTurn, UiLanguage } from "@/lib/types";
 
 const MAX_RECORDING_MS = 2 * 60 * 1000;
-const AUDIO_LANGUAGE_OPTIONS = [
-  { value: "english", label: "English" },
-  { value: "spanish", label: "Spanish" },
-  { value: "mandarin", label: "Mandarin" }
-] as const;
-
-type AudioLanguage = (typeof AUDIO_LANGUAGE_OPTIONS)[number]["value"];
-
-function getAudioLanguageLabel(audioLanguage: AudioLanguage) {
-  return AUDIO_LANGUAGE_OPTIONS.find((option) => option.value === audioLanguage)?.label ?? "English";
-}
-
-function getAudioPanelCopy({
-  audioLanguage,
-  recording,
-  transcribing,
-  recordingDurationMs
-}: {
-  audioLanguage: AudioLanguage;
-  recording: boolean;
-  transcribing: boolean;
-  recordingDurationMs: number;
-}) {
-  if (recording) {
-    return `Recording ${formatDuration(recordingDurationMs)} of ${formatDuration(MAX_RECORDING_MS)}.`;
-  }
-
-  if (transcribing) {
-    return audioLanguage === "english"
-      ? "Speech will be added as editable text."
-      : `${getAudioLanguageLabel(audioLanguage)} speech will be translated into editable English text.`;
-  }
-
-  if (audioLanguage === "english") {
-    return "Speech is transcribed before saving.";
-  }
-
-  return `${getAudioLanguageLabel(audioLanguage)} speech is translated into English before saving.`;
-}
+const SPOKEN_LANGUAGE_OPTIONS: UiLanguage[] = ["english", "spanish", "mandarin"];
 
 function formatDuration(durationMs: number) {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
@@ -96,7 +59,8 @@ export function ReflectionChat() {
   const [recording, setRecording] = useState(false);
   const [recordingDurationMs, setRecordingDurationMs] = useState(0);
   const [transcribing, setTranscribing] = useState(false);
-  const [audioLanguage, setAudioLanguage] = useState<AudioLanguage>("english");
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
+  const [audioLanguage, setAudioLanguage] = useState<UiLanguage>("english");
   const recorderRef = useRef<AudioRecorderController | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const recordingTimeoutRef = useRef<number | null>(null);
@@ -109,8 +73,11 @@ export function ReflectionChat() {
       return;
     }
 
+    const preferredLanguage = draft.intakeDetails.preferredLanguage ?? "english";
     setSessionId(draft.sessionId);
     setTurns(draft.turns);
+    setUiLanguage(preferredLanguage);
+    setAudioLanguage(preferredLanguage);
   }, [router]);
 
   useEffect(() => {
@@ -135,9 +102,10 @@ export function ReflectionChat() {
     };
   }, []);
 
-  const prompts = useMemo(() => getPromptSequence(), []);
+  const reflectionCopy = useMemo(() => getReflectionCopy(uiLanguage), [uiLanguage]);
+  const prompts = useMemo(() => getPromptSequence(uiLanguage), [uiLanguage]);
   const promptIndex = useMemo(() => getPromptIndex(turns), [turns]);
-  const currentPrompt = useMemo(() => getCurrentPrompt(turns), [turns]);
+  const currentPrompt = useMemo(() => getCurrentPrompt(turns, uiLanguage), [turns, uiLanguage]);
   const transcript = useMemo(() => {
     const visibleTurns = [...turns];
     if (currentPrompt) {
@@ -145,6 +113,32 @@ export function ReflectionChat() {
     }
     return visibleTurns;
   }, [currentPrompt, turns]);
+
+  function getAudioPanelCopy({
+    recordingState,
+    transcribingState,
+    durationMs
+  }: {
+    recordingState: boolean;
+    transcribingState: boolean;
+    durationMs: number;
+  }) {
+    const audioLanguageLabel = getLanguageLabel(audioLanguage, uiLanguage);
+    const isEnglish = audioLanguage === "english";
+
+    if (recordingState) {
+      return reflectionCopy.recordingStatus(
+        formatDuration(durationMs),
+        formatDuration(MAX_RECORDING_MS)
+      );
+    }
+
+    if (transcribingState) {
+      return reflectionCopy.audioTranscribing(audioLanguageLabel, isEnglish);
+    }
+
+    return reflectionCopy.audioReady(audioLanguageLabel, isEnglish);
+  }
 
   function clearRecordingTimers() {
     if (recordingTimerRef.current) {
@@ -166,9 +160,11 @@ export function ReflectionChat() {
     setTranscribing(true);
     setError("");
     setStatusMessage(
-      audioLanguage === "english"
-        ? "Transcribing audio. If Gemini is temporarily overloaded, we’ll retry automatically."
-        : "Transcribing and translating audio into English. If Gemini is temporarily overloaded, we’ll retry automatically."
+      getAudioPanelCopy({
+        recordingState: false,
+        transcribingState: true,
+        durationMs: recordingDurationMs
+      })
     );
     setStatusTone("info");
 
@@ -194,23 +190,21 @@ export function ReflectionChat() {
         throw new Error(data.error ?? "Audio transcription failed.");
       }
 
-      const transcript = data.transcript?.trim() ?? "";
-      if (!transcript) {
-        setStatusMessage("No speech was detected. You can try again or type your response.");
+      const transcriptText = data.transcript?.trim() ?? "";
+      if (!transcriptText) {
+        setStatusMessage(reflectionCopy.noSpeechDetected);
         setStatusTone("info");
         return;
       }
 
-      setInputValue((current) => (current.trim() ? `${current.trim()}\n${transcript}` : transcript));
-      setStatusMessage(
-        audioLanguage === "english"
-          ? "Transcript added to the response field. You can edit it before saving."
-          : "English translation added to the response field. You can edit it before saving."
+      setInputValue((current) =>
+        current.trim() ? `${current.trim()}\n${transcriptText}` : transcriptText
       );
+      setStatusMessage(reflectionCopy.audioAdded(audioLanguage === "english"));
       setStatusTone("success");
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Unable to transcribe the audio."
+        requestError instanceof Error ? requestError.message : reflectionCopy.unableToTranscribe
       );
     } finally {
       setTranscribing(false);
@@ -223,7 +217,7 @@ export function ReflectionChat() {
     }
 
     setError("");
-    setStatusMessage("Recording...");
+    setStatusMessage(reflectionCopy.recordingStatus("0:00", formatDuration(MAX_RECORDING_MS)));
     setStatusTone("info");
     setRecordingDurationMs(0);
 
@@ -248,7 +242,7 @@ export function ReflectionChat() {
       setError(
         recordingError instanceof Error
           ? recordingError.message
-          : "Unable to start audio recording."
+          : reflectionCopy.unableToStartRecording
       );
     }
   }
@@ -269,25 +263,30 @@ export function ReflectionChat() {
       setRecordingDurationMs(recordedAudio.durationMs);
 
       if (recordedAudio.durationMs < 500) {
-        setStatusMessage("Recording was too short. Try again or type your response.");
+        setStatusMessage(reflectionCopy.recordingTooShort);
         setStatusTone("info");
         return;
       }
 
       setStatusMessage(
         autoStopped
-          ? audioLanguage === "english"
-            ? "Recording limit reached. Transcribing now and retrying automatically if Gemini is busy..."
-            : "Recording limit reached. Translating into English now and retrying automatically if Gemini is busy..."
-          : audioLanguage === "english"
-            ? "Transcribing audio. If Gemini is temporarily overloaded, we’ll retry automatically."
-            : "Transcribing and translating audio into English. If Gemini is temporarily overloaded, we’ll retry automatically."
+          ? reflectionCopy.audioLimitReached(
+              getLanguageLabel(audioLanguage, uiLanguage),
+              audioLanguage === "english"
+            )
+          : getAudioPanelCopy({
+              recordingState: false,
+              transcribingState: true,
+              durationMs: recordedAudio.durationMs
+            })
       );
       setStatusTone("info");
       await transcribeAudio(recordedAudio.blob);
     } catch (recordingError) {
       setError(
-        recordingError instanceof Error ? recordingError.message : "Unable to finish recording."
+        recordingError instanceof Error
+          ? recordingError.message
+          : reflectionCopy.unableToFinishRecording
       );
     }
   }
@@ -299,7 +298,7 @@ export function ReflectionChat() {
       saveDraft(draft);
     }
 
-    const nextPrompt = getCurrentPrompt(nextTurns);
+    const nextPrompt = getCurrentPrompt(nextTurns, uiLanguage);
     if (nextPrompt) {
       return;
     }
@@ -333,7 +332,7 @@ export function ReflectionChat() {
       router.push("/review");
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Unable to generate the summary."
+        requestError instanceof Error ? requestError.message : reflectionCopy.unableToGenerateSummary
       );
     } finally {
       setSubmitting(false);
@@ -382,13 +381,10 @@ export function ReflectionChat() {
   }
 
   return (
-    <AppShell
-      title="Guided reflection"
-      subtitle="Start by capturing what helps the day go well. Each prompt covers one subsection, and you can skip anything that does not matter."
-    >
+    <AppShell title={reflectionCopy.title} subtitle={reflectionCopy.subtitle}>
       <div className="flex h-full min-h-[70vh] flex-col">
         <div className="mb-4 rounded-2xl border border-border bg-canvas px-4 py-3 text-sm text-slate-700">
-          Prompt {Math.min(promptIndex + 1, prompts.length)} of {prompts.length}
+          {reflectionCopy.promptCounter(Math.min(promptIndex + 1, prompts.length), prompts.length)}
         </div>
         <div className="space-y-4 overflow-y-auto pb-4">
           {transcript.map((turn, index) => {
@@ -418,7 +414,7 @@ export function ReflectionChat() {
                       {turn.promptLabel}
                     </div>
                   ) : null}
-                  <div>{turn.skipped ? "Skipped" : turn.content}</div>
+                  <div>{turn.skipped ? reflectionCopy.skippedLabel : turn.content}</div>
                   {turn.role === "assistant" && turn.promptExamples?.length ? (
                     <ul className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
                       {turn.promptExamples.map((example) => (
@@ -448,9 +444,7 @@ export function ReflectionChat() {
             className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent disabled:bg-slate-50"
             disabled={!currentPrompt || submitting || transcribing}
             placeholder={
-              currentPrompt
-                ? "Write the most important details another caregiver should know..."
-                : "All questions answered."
+              currentPrompt ? reflectionCopy.textareaPlaceholder : reflectionCopy.allQuestionsAnswered
             }
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
@@ -459,28 +453,31 @@ export function ReflectionChat() {
             <div className="rounded-2xl border border-border bg-canvas px-4 py-3">
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <div className="text-sm font-semibold text-slate-700">Record a response</div>
+                  <div className="text-sm font-semibold text-slate-700">
+                    {reflectionCopy.recordResponseTitle}
+                  </div>
                   <div className="text-sm leading-6 text-slate-600">
                     {getAudioPanelCopy({
-                      audioLanguage,
-                      recording,
-                      transcribing,
-                      recordingDurationMs
+                      recordingState: recording,
+                      transcribingState: transcribing,
+                      durationMs: recordingDurationMs
                     })}
                   </div>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                   <label className="flex-1 text-sm text-slate-600">
-                    <span className="mb-2 block font-medium text-slate-700">Spoken language</span>
+                    <span className="mb-2 block font-medium text-slate-700">
+                      {reflectionCopy.spokenLanguageLabel}
+                    </span>
                     <select
                       className="w-full rounded-full border border-border bg-white px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-accent disabled:bg-slate-50"
                       disabled={recording || transcribing || submitting}
                       value={audioLanguage}
-                      onChange={(event) => setAudioLanguage(event.target.value as AudioLanguage)}
+                      onChange={(event) => setAudioLanguage(event.target.value as UiLanguage)}
                     >
-                      {AUDIO_LANGUAGE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
+                      {SPOKEN_LANGUAGE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {getLanguageLabel(option, uiLanguage)}
                         </option>
                       ))}
                     </select>
@@ -496,10 +493,10 @@ export function ReflectionChat() {
                       type="button"
                       onClick={recording ? () => void stopRecording() : () => void startRecording()}
                     >
-                      {recording ? "Stop recording" : "Record response"}
+                      {recording ? reflectionCopy.stopRecordingButton : reflectionCopy.recordButton}
                     </button>
                   ) : (
-                    <div className="text-xs text-slate-500">Audio recording is not supported here.</div>
+                    <div className="text-xs text-slate-500">{reflectionCopy.audioNotSupported}</div>
                   )}
                 </div>
               </div>
@@ -512,7 +509,7 @@ export function ReflectionChat() {
               type="button"
               onClick={handleSkip}
             >
-              Skip
+              {reflectionCopy.skipButton}
             </button>
             <button
               className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -520,7 +517,11 @@ export function ReflectionChat() {
               type="button"
               onClick={handleSubmit}
             >
-              {submitting ? "Building summary..." : currentPrompt ? "Save response" : "Complete"}
+              {submitting
+                ? reflectionCopy.buildingSummaryLabel
+                : currentPrompt
+                  ? reflectionCopy.saveResponseButton
+                  : reflectionCopy.completeButton}
             </button>
           </div>
         </div>

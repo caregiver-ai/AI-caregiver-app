@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
+import { getCompletionCopy } from "@/lib/localization";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { StructuredSummary } from "@/lib/types";
+import { StructuredSummary, UiLanguage } from "@/lib/types";
 
 function SummaryBlock({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) {
@@ -31,6 +32,9 @@ export function CompletionView() {
   const [rating, setRating] = useState("");
   const [comments, setComments] = useState("");
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<"success" | "error">("success");
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
+  const copy = useMemo(() => getCompletionCopy(uiLanguage), [uiLanguage]);
 
   useEffect(() => {
     const draft = loadDraft();
@@ -42,6 +46,7 @@ export function CompletionView() {
     setSessionId(draft.sessionId);
     setRating(draft.feedback?.usefulnessRating ?? "");
     setComments(draft.feedback?.comments ?? "");
+    setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
   }, []);
 
   async function handleFeedbackSave() {
@@ -58,7 +63,8 @@ export function CompletionView() {
     });
 
     if (!response.ok) {
-      setStatus("Unable to save feedback right now.");
+      setStatus(copy.feedbackSaveFailed);
+      setStatusTone("error");
       return;
     }
 
@@ -71,33 +77,40 @@ export function CompletionView() {
       saveDraft(draft);
     }
 
-    setStatus("Feedback saved.");
+    setStatus(copy.feedbackSaved);
+    setStatusTone("success");
   }
 
   if (!summary) {
     return (
-      <AppShell title="Completion" subtitle="The saved summary will appear here after confirmation.">
-        <StatusBanner tone="info">No saved summary is available yet.</StatusBanner>
+      <AppShell title={copy.emptyTitle} subtitle={copy.emptySubtitle}>
+        <StatusBanner tone="info">{copy.emptyMessage}</StatusBanner>
       </AppShell>
     );
   }
 
   return (
-    <AppShell
-      title="Summary saved"
-      subtitle="This view shows the final edited summary, allows a browser PDF export, and collects lightweight feedback."
-    >
+    <AppShell title={copy.title} subtitle={copy.subtitle}>
       <div className="space-y-5">
-        <SummaryBlock label="Key barriers" items={summary.key_barriers} />
-        <SummaryBlock label="Emotional concerns" items={summary.emotional_concerns} />
-        <SummaryBlock label="Safety considerations" items={summary.safety_considerations} />
-        <SummaryBlock label="Past negative experiences" items={summary.past_negative_experiences} />
-        <SummaryBlock label="Situations to avoid" items={summary.situations_to_avoid} />
+        <SummaryBlock label={copy.fieldLabels.key_barriers} items={summary.key_barriers} />
+        <SummaryBlock label={copy.fieldLabels.emotional_concerns} items={summary.emotional_concerns} />
         <SummaryBlock
-          label="Conditions for successful respite"
+          label={copy.fieldLabels.safety_considerations}
+          items={summary.safety_considerations}
+        />
+        <SummaryBlock
+          label={copy.fieldLabels.past_negative_experiences}
+          items={summary.past_negative_experiences}
+        />
+        <SummaryBlock label={copy.fieldLabels.situations_to_avoid} items={summary.situations_to_avoid} />
+        <SummaryBlock
+          label={copy.fieldLabels.conditions_for_successful_respite}
           items={summary.conditions_for_successful_respite}
         />
-        <SummaryBlock label="Unresolved questions" items={summary.unresolved_questions} />
+        <SummaryBlock
+          label={copy.fieldLabels.unresolved_questions}
+          items={summary.unresolved_questions}
+        />
 
         <div className="rounded-2xl bg-canvas px-4 py-4 text-sm leading-6 text-slate-700">
           {summary.caregiver_summary_text}
@@ -108,21 +121,21 @@ export function CompletionView() {
           type="button"
           onClick={() => window.print()}
         >
-          Download as PDF
+          {copy.downloadPdfButton}
         </button>
 
         <div className="space-y-3 border-t border-border pt-4">
           <label className="block space-y-2">
-            <span className="text-sm font-medium text-slate-700">How useful was this?</span>
+            <span className="text-sm font-medium text-slate-700">{copy.feedbackLabel}</span>
             <input
               className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-              placeholder="For example: very useful, somewhat useful, not useful"
+              placeholder={copy.feedbackPlaceholder}
               value={rating}
               onChange={(event) => setRating(event.target.value)}
             />
           </label>
           <label className="block space-y-2">
-            <span className="text-sm font-medium text-slate-700">Comments</span>
+            <span className="text-sm font-medium text-slate-700">{copy.commentsLabel}</span>
             <textarea
               className="min-h-24 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
               value={comments}
@@ -134,9 +147,9 @@ export function CompletionView() {
             type="button"
             onClick={handleFeedbackSave}
           >
-            Save feedback
+            {copy.saveFeedbackButton}
           </button>
-          {status ? <StatusBanner tone="success">{status}</StatusBanner> : null}
+          {status ? <StatusBanner tone={statusTone}>{status}</StatusBanner> : null}
         </div>
       </div>
     </AppShell>

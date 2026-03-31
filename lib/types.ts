@@ -1,4 +1,5 @@
 export type ReflectionSectionId = "what_helps_the_day_go_well";
+export type UiLanguage = "english" | "spanish" | "mandarin";
 
 export type TurnRole = "assistant" | "user";
 
@@ -34,6 +35,7 @@ export interface SessionIntakeDetails {
   caregiverPhone: string;
   careRecipientName: string;
   careRecipientAge: string;
+  preferredLanguage: UiLanguage;
 }
 
 export interface SessionDraft {
