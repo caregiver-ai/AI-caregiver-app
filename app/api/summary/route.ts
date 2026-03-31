@@ -17,6 +17,7 @@ const schemaDescription = `Return JSON with exactly these keys:
 }`;
 
 const synthesisRules = `Requirements:
+- Always write the final output in English.
 - Summarize and normalize the caregiver's answers instead of copying their wording.
 - Deduplicate overlap across sections.
 - Keep each bullet concise and specific, usually a short phrase or 1 short sentence.

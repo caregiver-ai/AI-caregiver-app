@@ -14,6 +14,45 @@ import { loadDraft, saveDraft } from "@/lib/storage";
 import { ConversationTurn } from "@/lib/types";
 
 const MAX_RECORDING_MS = 2 * 60 * 1000;
+const AUDIO_LANGUAGE_OPTIONS = [
+  { value: "english", label: "English" },
+  { value: "spanish", label: "Spanish" },
+  { value: "mandarin", label: "Mandarin" }
+] as const;
+
+type AudioLanguage = (typeof AUDIO_LANGUAGE_OPTIONS)[number]["value"];
+
+function getAudioLanguageLabel(audioLanguage: AudioLanguage) {
+  return AUDIO_LANGUAGE_OPTIONS.find((option) => option.value === audioLanguage)?.label ?? "English";
+}
+
+function getAudioPanelCopy({
+  audioLanguage,
+  recording,
+  transcribing,
+  recordingDurationMs
+}: {
+  audioLanguage: AudioLanguage;
+  recording: boolean;
+  transcribing: boolean;
+  recordingDurationMs: number;
+}) {
+  if (recording) {
+    return `Recording ${formatDuration(recordingDurationMs)} of ${formatDuration(MAX_RECORDING_MS)}.`;
+  }
+
+  if (transcribing) {
+    return audioLanguage === "english"
+      ? "Speech will be added as editable text."
+      : `${getAudioLanguageLabel(audioLanguage)} speech will be translated into editable English text.`;
+  }
+
+  if (audioLanguage === "english") {
+    return "Speech is transcribed before saving.";
+  }
+
+  return `${getAudioLanguageLabel(audioLanguage)} speech is translated into English before saving.`;
+}
 
 function formatDuration(durationMs: number) {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
@@ -57,6 +96,7 @@ export function ReflectionChat() {
   const [recording, setRecording] = useState(false);
   const [recordingDurationMs, setRecordingDurationMs] = useState(0);
   const [transcribing, setTranscribing] = useState(false);
+  const [audioLanguage, setAudioLanguage] = useState<AudioLanguage>("english");
   const recorderRef = useRef<AudioRecorderController | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const recordingTimeoutRef = useRef<number | null>(null);
@@ -125,7 +165,11 @@ export function ReflectionChat() {
 
     setTranscribing(true);
     setError("");
-    setStatusMessage("Transcribing audio. If Gemini is temporarily overloaded, we’ll retry automatically.");
+    setStatusMessage(
+      audioLanguage === "english"
+        ? "Transcribing audio. If Gemini is temporarily overloaded, we’ll retry automatically."
+        : "Transcribing and translating audio into English. If Gemini is temporarily overloaded, we’ll retry automatically."
+    );
     setStatusTone("info");
 
     try {
@@ -134,6 +178,7 @@ export function ReflectionChat() {
       formData.append("question", currentPrompt.content);
       formData.append("sectionTitle", currentPrompt.sectionTitle ?? "");
       formData.append("promptLabel", currentPrompt.promptLabel ?? "");
+      formData.append("spokenLanguage", audioLanguage);
 
       const response = await fetch("/api/transcribe", {
         method: "POST",
@@ -157,7 +202,11 @@ export function ReflectionChat() {
       }
 
       setInputValue((current) => (current.trim() ? `${current.trim()}\n${transcript}` : transcript));
-      setStatusMessage("Transcript added to the response field. You can edit it before saving.");
+      setStatusMessage(
+        audioLanguage === "english"
+          ? "Transcript added to the response field. You can edit it before saving."
+          : "English translation added to the response field. You can edit it before saving."
+      );
       setStatusTone("success");
     } catch (requestError) {
       setError(
@@ -227,8 +276,12 @@ export function ReflectionChat() {
 
       setStatusMessage(
         autoStopped
-          ? "Recording limit reached. Transcribing now and retrying automatically if Gemini is busy..."
-          : "Transcribing audio. If Gemini is temporarily overloaded, we’ll retry automatically."
+          ? audioLanguage === "english"
+            ? "Recording limit reached. Transcribing now and retrying automatically if Gemini is busy..."
+            : "Recording limit reached. Translating into English now and retrying automatically if Gemini is busy..."
+          : audioLanguage === "english"
+            ? "Transcribing audio. If Gemini is temporarily overloaded, we’ll retry automatically."
+            : "Transcribing and translating audio into English. If Gemini is temporarily overloaded, we’ll retry automatically."
       );
       setStatusTone("info");
       await transcribeAudio(recordedAudio.blob);
@@ -404,30 +457,51 @@ export function ReflectionChat() {
           />
           {currentPrompt ? (
             <div className="rounded-2xl border border-border bg-canvas px-4 py-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-slate-700">
-                  {recording
-                    ? `Recording ${formatDuration(recordingDurationMs)} of ${formatDuration(MAX_RECORDING_MS)}`
-                    : transcribing
-                      ? "Transcribing audio into editable text. If Gemini is busy, the app will retry automatically."
-                      : "Prefer to speak? Record a response and edit the transcript before saving."}
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold text-slate-700">Record a response</div>
+                  <div className="text-sm leading-6 text-slate-600">
+                    {getAudioPanelCopy({
+                      audioLanguage,
+                      recording,
+                      transcribing,
+                      recordingDurationMs
+                    })}
+                  </div>
                 </div>
-                {recordingSupported ? (
-                  <button
-                    className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
-                      recording
-                        ? "bg-red-600 text-white hover:bg-red-700"
-                        : "border border-border bg-white text-slate-700 hover:bg-slate-50"
-                    } disabled:cursor-not-allowed disabled:opacity-60`}
-                    disabled={submitting || transcribing}
-                    type="button"
-                    onClick={recording ? () => void stopRecording() : () => void startRecording()}
-                  >
-                    {recording ? "Stop recording" : "Record response"}
-                  </button>
-                ) : (
-                  <div className="text-xs text-slate-500">Audio recording is not supported here.</div>
-                )}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <label className="flex-1 text-sm text-slate-600">
+                    <span className="mb-2 block font-medium text-slate-700">Spoken language</span>
+                    <select
+                      className="w-full rounded-full border border-border bg-white px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-accent disabled:bg-slate-50"
+                      disabled={recording || transcribing || submitting}
+                      value={audioLanguage}
+                      onChange={(event) => setAudioLanguage(event.target.value as AudioLanguage)}
+                    >
+                      {AUDIO_LANGUAGE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {recordingSupported ? (
+                    <button
+                      className={`w-full rounded-full px-4 py-2.5 text-sm font-semibold transition sm:w-auto sm:min-w-[12rem] ${
+                        recording
+                          ? "bg-red-600 text-white hover:bg-red-700"
+                          : "border border-border bg-white text-slate-700 hover:bg-slate-50"
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                      disabled={submitting || transcribing}
+                      type="button"
+                      onClick={recording ? () => void stopRecording() : () => void startRecording()}
+                    >
+                      {recording ? "Stop recording" : "Record response"}
+                    </button>
+                  ) : (
+                    <div className="text-xs text-slate-500">Audio recording is not supported here.</div>
+                  )}
+                </div>
               </div>
             </div>
           ) : null}

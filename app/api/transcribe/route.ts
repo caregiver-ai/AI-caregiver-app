@@ -4,6 +4,9 @@ const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const DEFAULT_TRANSCRIPTION_MODEL = "gemini-2.5-flash";
 const MAX_TRANSCRIPTION_ATTEMPTS = 3;
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 503]);
+const SUPPORTED_SPOKEN_LANGUAGES = new Set(["english", "spanish", "mandarin"]);
+
+type SpokenLanguage = "english" | "spanish" | "mandarin";
 
 function sleep(delayMs: number) {
   return new Promise((resolve) => {
@@ -16,13 +19,15 @@ async function requestGeminiTranscription({
   model,
   audioBytes,
   audioMimeType,
-  promptContext
+  promptContext,
+  spokenLanguage
 }: {
   apiKey: string;
   model: string;
   audioBytes: string;
   audioMimeType: string;
   promptContext: string;
+  spokenLanguage: SpokenLanguage;
 }) {
   let lastStatus = 500;
   let lastErrorText = "Unknown Gemini transcription error.";
@@ -44,11 +49,17 @@ async function requestGeminiTranscription({
                 {
                   text: [
                     "Transcribe the spoken audio as faithfully as possible.",
+                    "Always return the final transcript in English.",
+                    spokenLanguage === "english"
+                      ? "The expected spoken language is English."
+                      : spokenLanguage === "spanish"
+                        ? "The expected spoken language is Spanish. Translate it into natural English while preserving meaning and important detail."
+                        : "The expected spoken language is Mandarin Chinese. Translate it into natural English while preserving meaning and important detail.",
                     promptContext
                       ? `The speaker is responding to this caregiver intake prompt: ${promptContext}.`
                       : "",
                     "Return JSON with one key: transcript.",
-                    "Do not answer the prompt, do not summarize, and do not add speaker labels.",
+                    "Do not answer the prompt, do not summarize, do not add speaker labels, and do not keep the output in Spanish or Mandarin.",
                     "If the audio is blank or unintelligible, return an empty transcript."
                   ]
                     .filter(Boolean)
@@ -98,6 +109,15 @@ async function requestGeminiTranscription({
   throw error;
 }
 
+function normalizeSpokenLanguage(value: string): SpokenLanguage {
+  const normalized = value.trim().toLowerCase();
+  if (SUPPORTED_SPOKEN_LANGUAGES.has(normalized)) {
+    return normalized as SpokenLanguage;
+  }
+
+  return "english";
+}
+
 function getPromptContext({
   question,
   sectionTitle,
@@ -124,6 +144,7 @@ export async function POST(request: Request) {
   const question = String(formData.get("question") ?? "");
   const sectionTitle = String(formData.get("sectionTitle") ?? "");
   const promptLabel = String(formData.get("promptLabel") ?? "");
+  const spokenLanguage = normalizeSpokenLanguage(String(formData.get("spokenLanguage") ?? ""));
 
   if (!(audio instanceof File)) {
     return NextResponse.json({ error: "Audio file is required." }, { status: 400 });
@@ -150,7 +171,8 @@ export async function POST(request: Request) {
       model,
       audioBytes,
       audioMimeType: audio.type || "audio/wav",
-      promptContext
+      promptContext,
+      spokenLanguage
     });
 
     const data = (await response.json()) as {
