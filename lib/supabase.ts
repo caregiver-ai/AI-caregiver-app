@@ -13,6 +13,20 @@ export function hasSupabaseEnv() {
   return Boolean(url && anonKey);
 }
 
+export function createSupabaseAuthServerClient() {
+  const { url, anonKey } = getSupabaseConfig();
+  if (!url || !anonKey) {
+    return null;
+  }
+
+  return createClient(url, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  });
+}
+
 export function createSupabaseServerClient() {
   const { url, serviceRoleKey } = getSupabaseConfig();
   if (!url || !serviceRoleKey) {
@@ -25,4 +39,28 @@ export function createSupabaseServerClient() {
       persistSession: false
     }
   });
+}
+
+export async function getSupabaseAuthUserFromRequest(request: Request) {
+  const authorization = request.headers.get("authorization") ?? "";
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+
+  if (!token) {
+    return { user: null, error: "Missing authorization token." };
+  }
+
+  const authClient = createSupabaseAuthServerClient();
+  if (!authClient) {
+    return { user: null, error: "Supabase auth is not configured." };
+  }
+
+  const { data, error } = await authClient.auth.getUser(token);
+  if (error) {
+    return { user: null, error: error.message };
+  }
+
+  return {
+    user: data.user ?? null,
+    error: data.user ? null : "Unauthorized."
+  };
 }

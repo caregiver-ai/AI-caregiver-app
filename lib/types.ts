@@ -1,5 +1,6 @@
 export type ReflectionSectionId = "what_helps_the_day_go_well";
 export type UiLanguage = "english" | "spanish" | "mandarin";
+export type YesNoOption = "" | "yes" | "no";
 
 export type TurnRole = "assistant" | "user";
 
@@ -30,11 +31,14 @@ export interface StructuredSummary {
 }
 
 export interface SessionIntakeDetails {
-  caregiverName: string;
-  caregiverAge: string;
+  caregiverFirstName: string;
+  caregiverLastName: string;
+  caregiver55OrOlder: YesNoOption;
   caregiverPhone: string;
-  careRecipientName: string;
-  careRecipientAge: string;
+  careRecipientFirstName: string;
+  careRecipientLastName: string;
+  careRecipientPreferredName: string;
+  careRecipientDateOfBirth: string;
   preferredLanguage: UiLanguage;
 }
 

@@ -28,32 +28,59 @@ type WelcomeCopy = {
   title: string;
   subtitle: string;
   languageLabel: string;
+  authTitle: string;
+  authSubtitle: string;
+  signInTab: string;
+  createAccountTab: string;
+  passwordLabel: string;
+  confirmPasswordLabel: string;
+  signInButton: string;
+  createAccountButton: string;
+  signingInLabel: string;
+  creatingAccountLabel: string;
+  signedInAs: (email: string) => string;
+  signOutButton: string;
   aboutYou: string;
-  yourName: string;
-  yourAge: string;
+  yourFirstName: string;
+  yourLastName: string;
+  caregiver55OrOlder: string;
   aboutSupportedPerson: string;
-  theirName: string;
-  theirAge: string;
+  theirFirstName: string;
+  theirLastName: string;
+  theirPreferredName: string;
+  theirDateOfBirth: string;
   reachYou: string;
   emailAddress: string;
   phoneNumber: string;
   optional: string;
+  selectPrompt: string;
+  yesOption: string;
+  noOption: string;
   consent: string;
   continueLabel: string;
   startingLabel: string;
   errors: {
-    caregiverName: string;
-    careRecipientName: string;
-    careRecipientAge: string;
+    password: string;
+    confirmPassword: string;
+    passwordMismatch: string;
+    authFailed: string;
+    confirmationRequired: string;
+    caregiverFirstName: string;
+    caregiverLastName: string;
+    caregiver55OrOlder: string;
+    careRecipientFirstName: string;
+    careRecipientLastName: string;
+    careRecipientDateOfBirth: string;
     email: string;
     consent: string;
     startFailed: string;
   };
   placeholders: {
-    caregiverName: string;
-    caregiverAge: string;
-    careRecipientName: string;
-    careRecipientAge: string;
+    caregiverFirstName: string;
+    caregiverLastName: string;
+    careRecipientFirstName: string;
+    careRecipientLastName: string;
+    careRecipientPreferredName: string;
     email: string;
     caregiverPhone: string;
   };
@@ -128,33 +155,63 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     title: "Let's start with a few basics.",
     subtitle: "We'll use these details to personalize this for you.",
     languageLabel: "Website language",
+    authTitle: "Sign in to save your progress",
+    authSubtitle:
+      "Use your email and password so you can come back later and continue where you left off.",
+    signInTab: "Sign in",
+    createAccountTab: "Create account",
+    passwordLabel: "Password",
+    confirmPasswordLabel: "Confirm password",
+    signInButton: "Sign in",
+    createAccountButton: "Create account",
+    signingInLabel: "Signing in...",
+    creatingAccountLabel: "Creating account...",
+    signedInAs: (email) => `Signed in as ${email}`,
+    signOutButton: "Sign out",
     aboutYou: "About you",
-    yourName: "Your name",
-    yourAge: "Your age",
+    yourFirstName: "First name",
+    yourLastName: "Last name",
+    caregiver55OrOlder:
+      "Are you 55 or older? (this helps us understand aging caregiver experiences for the project)",
     aboutSupportedPerson: "About the person you support",
-    theirName: "Their name",
-    theirAge: "Their age",
+    theirFirstName: "First name",
+    theirLastName: "Last name",
+    theirPreferredName: "What name do they like to be called? (preferred name or nickname)",
+    theirDateOfBirth: "Date of birth (optional, helpful for medical or emergency situations)",
     reachYou: "How we can reach you",
     emailAddress: "Email address",
     phoneNumber: "Phone number",
     optional: "optional",
+    selectPrompt: "Select one",
+    yesOption: "Yes",
+    noOption: "No",
     consent:
       "I consent to entering caregiving information for transcript generation, summary creation, and storage.",
     continueLabel: "Continue",
     startingLabel: "Starting...",
     errors: {
-      caregiverName: "Enter your name to start.",
-      careRecipientName: "Enter the name of the person you support.",
-      careRecipientAge: "Enter the age of the person you support.",
+      password: "Enter a password.",
+      confirmPassword: "Confirm your password.",
+      passwordMismatch: "Passwords must match.",
+      authFailed: "Unable to sign in right now.",
+      confirmationRequired:
+        "Your account was created, but automatic sign-in is unavailable right now. Try signing in.",
+      caregiverFirstName: "Enter your first name to start.",
+      caregiverLastName: "Enter your last name to start.",
+      caregiver55OrOlder: "Select whether you are 55 or older.",
+      careRecipientFirstName: "Enter the first name of the person you support.",
+      careRecipientLastName: "Enter the last name of the person you support.",
+      careRecipientDateOfBirth: "Enter a valid date of birth or leave it blank.",
       email: "Enter an email address so we can connect this session to you.",
       consent: "Consent is required before starting.",
       startFailed: "Unable to start the intake."
     },
     placeholders: {
-      caregiverName: "Your name",
-      caregiverAge: "Age",
-      careRecipientName: "Their name",
-      careRecipientAge: "Age",
+      caregiverFirstName: "First name",
+      caregiverLastName: "Last name",
+      careRecipientFirstName: "First name",
+      careRecipientLastName: "Last name",
+      careRecipientPreferredName: "Preferred name or nickname",
       email: "caregiver@example.com",
       caregiverPhone: "(555) 555-5555"
     }
@@ -163,33 +220,65 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     title: "Empecemos con algunos datos básicos.",
     subtitle: "Usaremos estos datos para personalizar la experiencia para usted.",
     languageLabel: "Idioma del sitio",
+    authTitle: "Inicie sesión para guardar su progreso",
+    authSubtitle:
+      "Use su correo electrónico y contraseña para poder volver más tarde y continuar donde se quedó.",
+    signInTab: "Iniciar sesión",
+    createAccountTab: "Crear cuenta",
+    passwordLabel: "Contraseña",
+    confirmPasswordLabel: "Confirmar contraseña",
+    signInButton: "Iniciar sesión",
+    createAccountButton: "Crear cuenta",
+    signingInLabel: "Iniciando sesión...",
+    creatingAccountLabel: "Creando cuenta...",
+    signedInAs: (email) => `Sesión iniciada como ${email}`,
+    signOutButton: "Cerrar sesión",
     aboutYou: "Sobre usted",
-    yourName: "Su nombre",
-    yourAge: "Su edad",
+    yourFirstName: "Nombre",
+    yourLastName: "Apellido",
+    caregiver55OrOlder:
+      "¿Tiene 55 años o más? (esto nos ayuda a entender las experiencias de cuidadores mayores en el proyecto)",
     aboutSupportedPerson: "Sobre la persona a quien cuida",
-    theirName: "Su nombre",
-    theirAge: "Su edad",
+    theirFirstName: "Nombre",
+    theirLastName: "Apellido",
+    theirPreferredName: "¿Cómo le gusta que le llamen? (nombre preferido o apodo)",
+    theirDateOfBirth:
+      "Fecha de nacimiento (opcional, útil para situaciones médicas o de emergencia)",
     reachYou: "Cómo podemos contactarle",
     emailAddress: "Correo electrónico",
     phoneNumber: "Número de teléfono",
     optional: "opcional",
+    selectPrompt: "Seleccione una opción",
+    yesOption: "Sí",
+    noOption: "No",
     consent:
       "Doy mi consentimiento para ingresar información de cuidado para generar transcripciones, crear resúmenes y almacenarlos.",
     continueLabel: "Continuar",
     startingLabel: "Iniciando...",
     errors: {
-      caregiverName: "Ingrese su nombre para comenzar.",
-      careRecipientName: "Ingrese el nombre de la persona a quien cuida.",
-      careRecipientAge: "Ingrese la edad de la persona a quien cuida.",
+      password: "Ingrese una contraseña.",
+      confirmPassword: "Confirme su contraseña.",
+      passwordMismatch: "Las contraseñas deben coincidir.",
+      authFailed: "No fue posible iniciar sesión en este momento.",
+      confirmationRequired:
+        "La cuenta fue creada, pero no fue posible iniciar sesión automáticamente. Intente iniciar sesión.",
+      caregiverFirstName: "Ingrese su nombre para comenzar.",
+      caregiverLastName: "Ingrese su apellido para comenzar.",
+      caregiver55OrOlder: "Indique si tiene 55 años o más.",
+      careRecipientFirstName: "Ingrese el nombre de la persona a quien cuida.",
+      careRecipientLastName: "Ingrese el apellido de la persona a quien cuida.",
+      careRecipientDateOfBirth:
+        "Ingrese una fecha de nacimiento válida o deje este campo en blanco.",
       email: "Ingrese un correo electrónico para vincular esta sesión con usted.",
       consent: "Se requiere su consentimiento antes de comenzar.",
       startFailed: "No fue posible iniciar el formulario."
     },
     placeholders: {
-      caregiverName: "Su nombre",
-      caregiverAge: "Edad",
-      careRecipientName: "Su nombre",
-      careRecipientAge: "Edad",
+      caregiverFirstName: "Nombre",
+      caregiverLastName: "Apellido",
+      careRecipientFirstName: "Nombre",
+      careRecipientLastName: "Apellido",
+      careRecipientPreferredName: "Nombre preferido o apodo",
       email: "cuidador@ejemplo.com",
       caregiverPhone: "(555) 555-5555"
     }
@@ -198,32 +287,59 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     title: "先填写一些基本信息。",
     subtitle: "我们会用这些信息为您提供更贴合的体验。",
     languageLabel: "网站语言",
+    authTitle: "请先登录以保存进度",
+    authSubtitle: "使用电子邮箱和密码登录，这样您之后回来时可以从上次的位置继续。",
+    signInTab: "登录",
+    createAccountTab: "创建账号",
+    passwordLabel: "密码",
+    confirmPasswordLabel: "确认密码",
+    signInButton: "登录",
+    createAccountButton: "创建账号",
+    signingInLabel: "正在登录...",
+    creatingAccountLabel: "正在创建账号...",
+    signedInAs: (email) => `当前登录邮箱：${email}`,
+    signOutButton: "退出登录",
     aboutYou: "关于您",
-    yourName: "您的姓名",
-    yourAge: "您的年龄",
+    yourFirstName: "名字",
+    yourLastName: "姓氏",
+    caregiver55OrOlder: "您是否年满 55 岁？（这有助于我们了解项目中年长照护者的经历）",
     aboutSupportedPerson: "关于您照护的人",
-    theirName: "对方姓名",
-    theirAge: "对方年龄",
+    theirFirstName: "名字",
+    theirLastName: "姓氏",
+    theirPreferredName: "他们喜欢别人怎么称呼？（常用名或昵称）",
+    theirDateOfBirth: "出生日期（可选，在医疗或紧急情况下会有帮助）",
     reachYou: "联系方式",
     emailAddress: "电子邮箱",
     phoneNumber: "电话号码",
     optional: "可选",
+    selectPrompt: "请选择",
+    yesOption: "是",
+    noOption: "否",
     consent: "我同意输入照护相关信息，用于生成转录、创建摘要并进行存储。",
     continueLabel: "继续",
     startingLabel: "正在开始...",
     errors: {
-      caregiverName: "请输入您的姓名后再开始。",
-      careRecipientName: "请输入您所照护者的姓名。",
-      careRecipientAge: "请输入您所照护者的年龄。",
+      password: "请输入密码。",
+      confirmPassword: "请确认密码。",
+      passwordMismatch: "两次输入的密码必须一致。",
+      authFailed: "暂时无法登录。",
+      confirmationRequired: "账号已创建，但暂时无法自动登录。请直接尝试登录。",
+      caregiverFirstName: "请输入您的名字后再开始。",
+      caregiverLastName: "请输入您的姓氏后再开始。",
+      caregiver55OrOlder: "请选择您是否年满 55 岁。",
+      careRecipientFirstName: "请输入您所照护者的名字。",
+      careRecipientLastName: "请输入您所照护者的姓氏。",
+      careRecipientDateOfBirth: "请输入有效的出生日期，或留空。",
       email: "请输入电子邮箱，以便将本次会话与您关联。",
       consent: "开始前需要先同意相关说明。",
       startFailed: "无法开始填写。"
     },
     placeholders: {
-      caregiverName: "您的姓名",
-      caregiverAge: "年龄",
-      careRecipientName: "对方姓名",
-      careRecipientAge: "年龄",
+      caregiverFirstName: "名字",
+      caregiverLastName: "姓氏",
+      careRecipientFirstName: "名字",
+      careRecipientLastName: "姓氏",
+      careRecipientPreferredName: "常用名或昵称",
       email: "caregiver@example.com",
       caregiverPhone: "(555) 555-5555"
     }

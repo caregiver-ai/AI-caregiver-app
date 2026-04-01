@@ -9,10 +9,11 @@ import {
   isAudioRecordingSupported,
   startWavRecording
 } from "@/lib/audio";
+import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
 import { getLanguageLabel, getReflectionCopy } from "@/lib/localization";
 import { getCurrentPrompt, getPromptIndex, getPromptSequence } from "@/lib/reflection";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { ConversationTurn, UiLanguage } from "@/lib/types";
+import { ConversationTurn, SessionDraft, UiLanguage } from "@/lib/types";
 
 const MAX_RECORDING_MS = 2 * 60 * 1000;
 const SPOKEN_LANGUAGE_OPTIONS: UiLanguage[] = ["english", "spanish", "mandarin"];
@@ -67,17 +68,57 @@ export function ReflectionChat() {
   const recordingStartedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const draft = loadDraft();
-    if (!draft?.sessionId) {
-      router.replace("/");
-      return;
+    let active = true;
+
+    async function initialize() {
+      const localDraft = loadDraft();
+      const normalizedLocalEmail = localDraft?.email.trim().toLowerCase();
+
+      if (localDraft?.sessionId) {
+        const preferredLanguage = localDraft.intakeDetails.preferredLanguage ?? "english";
+        setSessionId(localDraft.sessionId);
+        setTurns(localDraft.turns);
+        setUiLanguage(preferredLanguage);
+        setAudioLanguage(preferredLanguage);
+      }
+
+      const user = await getCurrentAuthUser();
+      const normalizedUserEmail = user?.email?.trim().toLowerCase();
+
+      if (!active) {
+        return;
+      }
+
+      if (localDraft?.sessionId && (!normalizedUserEmail || normalizedLocalEmail === normalizedUserEmail)) {
+        return;
+      }
+
+      if (!user?.email) {
+        router.replace("/");
+        return;
+      }
+
+      const draft = await loadRemoteDraft().catch(() => null);
+
+      if (!active || !draft?.sessionId) {
+        router.replace("/");
+        return;
+      }
+
+      saveDraft(draft);
+
+      const preferredLanguage = draft.intakeDetails.preferredLanguage ?? "english";
+      setSessionId(draft.sessionId);
+      setTurns(draft.turns);
+      setUiLanguage(preferredLanguage);
+      setAudioLanguage(preferredLanguage);
     }
 
-    const preferredLanguage = draft.intakeDetails.preferredLanguage ?? "english";
-    setSessionId(draft.sessionId);
-    setTurns(draft.turns);
-    setUiLanguage(preferredLanguage);
-    setAudioLanguage(preferredLanguage);
+    void initialize();
+
+    return () => {
+      active = false;
+    };
   }, [router]);
 
   useEffect(() => {
@@ -149,6 +190,16 @@ export function ReflectionChat() {
     if (recordingTimeoutRef.current) {
       window.clearTimeout(recordingTimeoutRef.current);
       recordingTimeoutRef.current = null;
+    }
+  }
+
+  async function persistDraft(nextDraft: SessionDraft) {
+    saveDraft(nextDraft);
+
+    try {
+      await saveRemoteDraft(nextDraft, "in_progress");
+    } catch {
+      // Keep local progress even if the server save fails temporarily.
     }
   }
 
@@ -295,7 +346,7 @@ export function ReflectionChat() {
     const draft = loadDraft();
     if (draft) {
       draft.turns = nextTurns;
-      saveDraft(draft);
+      await persistDraft(draft);
     }
 
     const nextPrompt = getCurrentPrompt(nextTurns, uiLanguage);
@@ -326,7 +377,7 @@ export function ReflectionChat() {
       if (updatedDraft) {
         updatedDraft.structuredSummary = data.summary;
         updatedDraft.editedSummary = data.summary;
-        saveDraft(updatedDraft);
+        await persistDraft(updatedDraft);
       }
 
       router.push("/review");

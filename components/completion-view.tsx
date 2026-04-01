@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
+import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
 import { getCompletionCopy } from "@/lib/localization";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { StructuredSummary, UiLanguage } from "@/lib/types";
@@ -37,16 +38,52 @@ export function CompletionView() {
   const copy = useMemo(() => getCompletionCopy(uiLanguage), [uiLanguage]);
 
   useEffect(() => {
-    const draft = loadDraft();
-    if (!draft?.editedSummary) {
-      return;
+    let active = true;
+
+    async function initialize() {
+      const localDraft = loadDraft();
+      const normalizedLocalEmail = localDraft?.email.trim().toLowerCase();
+
+      if (localDraft?.editedSummary) {
+        setSummary(localDraft.editedSummary);
+        setSessionId(localDraft.sessionId);
+        setRating(localDraft.feedback?.usefulnessRating ?? "");
+        setComments(localDraft.feedback?.comments ?? "");
+        setUiLanguage(localDraft.intakeDetails.preferredLanguage ?? "english");
+      }
+
+      const user = await getCurrentAuthUser();
+      const normalizedUserEmail = user?.email?.trim().toLowerCase();
+
+      if (!active) {
+        return;
+      }
+
+      if (localDraft?.editedSummary && (!normalizedUserEmail || normalizedLocalEmail === normalizedUserEmail)) {
+        return;
+      }
+
+      if (!user?.email) {
+        return;
+      }
+
+      const draft = await loadRemoteDraft().catch(() => null);
+      if (!draft?.editedSummary) {
+        return;
+      }
+
+      setSummary(draft.editedSummary);
+      setSessionId(draft.sessionId);
+      setRating(draft.feedback?.usefulnessRating ?? "");
+      setComments(draft.feedback?.comments ?? "");
+      setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
     }
 
-    setSummary(draft.editedSummary);
-    setSessionId(draft.sessionId);
-    setRating(draft.feedback?.usefulnessRating ?? "");
-    setComments(draft.feedback?.comments ?? "");
-    setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
+    void initialize();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function handleFeedbackSave() {
@@ -75,6 +112,9 @@ export function CompletionView() {
         comments
       };
       saveDraft(draft);
+      void saveRemoteDraft(draft, "completed").catch(() => {
+        // Preserve local feedback even if remote draft sync fails.
+      });
     }
 
     setStatus(copy.feedbackSaved);

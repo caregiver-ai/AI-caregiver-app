@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
 import { EMPTY_SUMMARY } from "@/lib/constants";
+import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
 import { getReviewCopy } from "@/lib/localization";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { StructuredSummary, UiLanguage } from "@/lib/types";
@@ -30,16 +31,84 @@ export function ReviewEditor() {
   const copy = useMemo(() => getReviewCopy(uiLanguage), [uiLanguage]);
 
   useEffect(() => {
-    const draft = loadDraft();
-    if (!draft?.structuredSummary || !draft.sessionId) {
-      router.replace("/");
+    let active = true;
+
+    async function initialize() {
+      const localDraft = loadDraft();
+      const normalizedLocalEmail = localDraft?.email.trim().toLowerCase();
+
+      if (localDraft?.structuredSummary && localDraft.sessionId) {
+        setSummary(localDraft.editedSummary ?? localDraft.structuredSummary);
+        setSessionId(localDraft.sessionId);
+        setUiLanguage(localDraft.intakeDetails.preferredLanguage ?? "english");
+      }
+
+      const user = await getCurrentAuthUser();
+      const normalizedUserEmail = user?.email?.trim().toLowerCase();
+
+      if (!active) {
+        return;
+      }
+
+      if (
+        localDraft?.structuredSummary &&
+        localDraft.sessionId &&
+        (!normalizedUserEmail || normalizedLocalEmail === normalizedUserEmail)
+      ) {
+        return;
+      }
+
+      if (!user?.email) {
+        router.replace("/");
+        return;
+      }
+
+      const draft = await loadRemoteDraft().catch(() => null);
+
+      if (!active || !draft?.structuredSummary || !draft.sessionId) {
+        router.replace("/");
+        return;
+      }
+
+      saveDraft(draft);
+      setSummary(draft.editedSummary ?? draft.structuredSummary);
+      setSessionId(draft.sessionId);
+      setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
+    }
+
+    void initialize();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (!sessionId) {
       return;
     }
 
-    setSummary(draft.editedSummary ?? draft.structuredSummary);
-    setSessionId(draft.sessionId);
-    setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
-  }, [router]);
+    const timeoutId = window.setTimeout(() => {
+      const draft = loadDraft();
+      if (!draft) {
+        return;
+      }
+
+      const nextDraft = {
+        ...draft,
+        editedSummary: summary
+      };
+
+      saveDraft(nextDraft);
+      void saveRemoteDraft(nextDraft, "in_progress").catch(() => {
+        // Keep local edits if remote persistence is briefly unavailable.
+      });
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [sessionId, summary]);
 
   function updateArrayField(field: Exclude<keyof StructuredSummary, "caregiver_summary_text">, value: string) {
     setSummary((current) => ({

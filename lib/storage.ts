@@ -26,6 +26,14 @@ export function saveDraft(draft: SessionDraft) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
 }
 
+export function clearDraft() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(STORAGE_KEY);
+}
+
 export function updateStoredSummary(summary: StructuredSummary) {
   const draft = loadDraft();
   if (!draft) {

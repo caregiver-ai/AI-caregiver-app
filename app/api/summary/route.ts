@@ -186,6 +186,16 @@ export async function POST(request: Request) {
     const summary = await generateSummaryWithGemini(body.turns);
 
     if (supabase) {
+      const { data: sessionRow, error: sessionLookupError } = await supabase
+        .from("sessions")
+        .select("draft_json")
+        .eq("id", body.sessionId)
+        .maybeSingle();
+
+      if (sessionLookupError) {
+        return NextResponse.json({ error: sessionLookupError.message }, { status: 500 });
+      }
+
       const { error: summaryError } = await supabase.from("summaries").upsert(
         {
           session_id: body.sessionId,
@@ -199,6 +209,25 @@ export async function POST(request: Request) {
 
       if (summaryError) {
         return NextResponse.json({ error: summaryError.message }, { status: 500 });
+      }
+
+      if (sessionRow?.draft_json) {
+        const { error: sessionUpdateError } = await supabase
+          .from("sessions")
+          .update({
+            draft_json: {
+              ...sessionRow.draft_json,
+              turns: body.turns,
+              structuredSummary: summary,
+              editedSummary: summary
+            },
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", body.sessionId);
+
+        if (sessionUpdateError) {
+          return NextResponse.json({ error: sessionUpdateError.message }, { status: 500 });
+        }
       }
     }
 

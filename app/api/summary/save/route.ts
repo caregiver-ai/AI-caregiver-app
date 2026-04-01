@@ -15,6 +15,16 @@ export async function POST(request: Request) {
   const supabase = createSupabaseServerClient();
 
   if (supabase) {
+    const { data: sessionRow, error: sessionLookupError } = await supabase
+      .from("sessions")
+      .select("draft_json")
+      .eq("id", body.sessionId)
+      .maybeSingle();
+
+    if (sessionLookupError) {
+      return NextResponse.json({ error: sessionLookupError.message }, { status: 500 });
+    }
+
     const { error: summaryError } = await supabase.from("summaries").upsert(
       {
         session_id: body.sessionId,
@@ -32,12 +42,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: summaryError.message }, { status: 500 });
     }
 
+    const sessionUpdate = {
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...(sessionRow?.draft_json
+        ? {
+            draft_json: {
+              ...sessionRow.draft_json,
+              editedSummary: body.editedSummary,
+              structuredSummary: body.editedSummary
+            }
+          }
+        : {})
+    };
+
     const { error: sessionError } = await supabase
       .from("sessions")
-      .update({
-        status: "completed",
-        completed_at: new Date().toISOString()
-      })
+      .update(sessionUpdate)
       .eq("id", body.sessionId);
 
     if (sessionError) {
