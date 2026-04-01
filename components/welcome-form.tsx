@@ -730,7 +730,7 @@ export function WelcomeForm() {
                 </FieldLabel>
                 <input
                   aria-invalid={validationField === "careRecipientDateOfBirth"}
-                  className={`w-full rounded-2xl border px-4 py-3 outline-none transition disabled:bg-slate-50 ${
+                  className={`block w-full max-w-full min-w-0 appearance-none rounded-2xl border px-4 py-3 outline-none transition disabled:bg-slate-50 ${
                     validationField === "careRecipientDateOfBirth"
                       ? "border-red-400 focus:border-red-500"
                       : "border-border focus:border-accent"
