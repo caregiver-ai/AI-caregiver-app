@@ -177,6 +177,13 @@ export function ReflectionChat() {
     () => prompts.findIndex((prompt) => prompt.id === currentPrompt?.id),
     [currentPrompt?.id, prompts]
   );
+  const visiblePrompts = useMemo(() => {
+    if (!currentPrompt || promptIndex < 0) {
+      return [];
+    }
+
+    return prompts.slice(0, promptIndex + 1);
+  }, [currentPrompt, promptIndex, prompts]);
   const hasPendingChanges = useMemo(() => {
     if (!currentPrompt) {
       return false;
@@ -411,7 +418,9 @@ export function ReflectionChat() {
       return;
     }
 
-    setActivePromptId(promptId);
+    const currentIndex = prompts.findIndex((prompt) => prompt.id === promptId);
+    const nextPrompt = currentIndex >= 0 ? prompts[currentIndex + 1] : null;
+    setActivePromptId(nextPrompt?.id ?? promptId);
   }
 
   async function finalizeFlow() {
@@ -516,11 +525,11 @@ export function ReflectionChat() {
           {reflectionCopy.promptCounter(Math.min(Math.max(promptIndex, 0) + 1, prompts.length), prompts.length)}
         </div>
         <div className="space-y-4 overflow-y-auto pb-4">
-          {prompts.map((prompt, index) => {
+          {visiblePrompts.map((prompt, index) => {
             const savedResponse = responses[prompt.id];
             const showSectionHeader =
               prompt.sectionTitle &&
-              (index === 0 || prompts[index - 1]?.sectionTitle !== prompt.sectionTitle);
+              (index === 0 || visiblePrompts[index - 1]?.sectionTitle !== prompt.sectionTitle);
             const isActive = currentPrompt?.id === prompt.id;
 
             return (
@@ -530,30 +539,23 @@ export function ReflectionChat() {
                     {prompt.sectionTitle}
                   </div>
                 ) : null}
-                <button
-                  className={`block w-full max-w-[88%] rounded-3xl px-4 py-3 text-left text-sm leading-6 transition ${
-                    isActive
-                      ? "mr-auto ring-2 ring-accent/30 bg-canvas text-slate-700"
-                      : "mr-auto bg-canvas text-slate-700 hover:bg-[#efe7d6]"
-                  }`}
-                  type="button"
-                  onClick={() => setActivePromptId(prompt.id)}
-                >
-                  {prompt.promptLabel ? (
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      {prompt.promptLabel}
-                    </div>
-                  ) : null}
-                  <div>{prompt.content}</div>
-                  {prompt.promptExamples?.length ? (
-                    <ul className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
-                      {prompt.promptExamples.map((example) => (
-                        <li key={example}>- {example}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </button>
-                {savedResponse ? (
+                {isActive ? (
+                  <div className="mr-auto w-full max-w-[88%] rounded-3xl bg-canvas px-4 py-3 text-left text-sm leading-6 text-slate-700 ring-2 ring-accent/30">
+                    {prompt.promptLabel ? (
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        {prompt.promptLabel}
+                      </div>
+                    ) : null}
+                    <div>{prompt.content}</div>
+                    {prompt.promptExamples?.length ? (
+                      <ul className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
+                        {prompt.promptExamples.map((example) => (
+                          <li key={example}>- {example}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : savedResponse ? (
                   <button
                     className={`ml-auto block w-full max-w-[88%] rounded-3xl px-4 py-3 text-left text-sm leading-6 transition ${
                       savedResponse.skipped
@@ -563,6 +565,15 @@ export function ReflectionChat() {
                     type="button"
                     onClick={() => setActivePromptId(prompt.id)}
                   >
+                    {prompt.promptLabel ? (
+                      <div
+                        className={`mb-2 text-xs font-semibold uppercase tracking-[0.16em] ${
+                          savedResponse.skipped ? "text-slate-400" : "text-white/80"
+                        }`}
+                      >
+                        {prompt.promptLabel}
+                      </div>
+                    ) : null}
                     <div>{savedResponse.skipped ? reflectionCopy.skippedLabel : savedResponse.content}</div>
                   </button>
                 ) : null}
