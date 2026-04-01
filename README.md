@@ -1,24 +1,37 @@
 # Caregiver Handoff
 
-Guided caregiver intake that turns spoken or typed responses into a structured handoff summary for the next caregiver.
+Caregiver Handoff is a guided intake app that helps caregivers capture what matters most, save progress, and turn responses into a clear English handoff summary for the next caregiver.
 
-## Stack
+## Tech stack
 
 - Next.js 14 App Router
-- TypeScript
+- React + TypeScript
 - Tailwind CSS
-- Supabase for persistence
-- Gemini API for structured summary generation
-- Vercel deployment via GitHub Actions
+- Supabase Auth + Postgres
+- Gemini API for transcription, translation, and summary generation
+- Vercel hosting with native Git deployments
 
-## What the app does
+## Current workflow
 
-1. Clean intake page for caregiver and care recipient basics.
-2. Guided reflection with section-based prompts.
-3. Optional audio recording with Gemini transcription into editable text.
-4. Server-side summary generation that returns structured JSON for review.
-5. Editable review screen before final confirmation.
-6. Completion screen with saved summary and feedback capture.
+1. Caregiver signs in with email and password.
+2. The intake page collects caregiver and care recipient basics, plus preferred site language.
+3. Progress is saved as a draft in Supabase so the user can come back later.
+4. The reflection flow asks guided questions in English, Spanish, or Mandarin.
+5. Responses can be typed or recorded with audio.
+6. Audio can be transcribed and, for Spanish or Mandarin, translated into English before saving.
+7. Users can go back to earlier prompts, edit saved answers, or fill in skipped prompts later.
+8. The app generates an English summary for review and editing.
+9. The final summary and feedback are saved in Supabase.
+
+## Features
+
+- Auth-backed resume flow
+- Autosaved intake and reflection drafts
+- Multilingual UI: English, Spanish, Mandarin
+- Audio recording with Gemini transcription
+- English-normalized transcript input for summary generation
+- Editable review step before final save
+- Supabase-backed persistence for sessions, turns, summaries, and feedback
 
 ## Local setup
 
@@ -28,15 +41,15 @@ Guided caregiver intake that turns spoken or typed responses into a structured h
 npm install
 ```
 
-2. Copy environment variables:
+2. Copy the env template:
 
 ```bash
 cp .env.example .env.local
 ```
 
-3. Add values for Supabase and Gemini.
+3. Add your environment variables.
 
-4. Run the dev server:
+4. Start the app:
 
 ```bash
 npm run dev
@@ -44,66 +57,91 @@ npm run dev
 
 5. Open [http://localhost:3000](http://localhost:3000).
 
-## Supabase setup
+## Required environment variables
+
+```bash
+GEMINI_API_KEY=
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SECRET_KEY=
+```
+
+Also supported:
+
+```bash
+SUPABASE_SERVICE_ROLE_KEY=
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_TRANSCRIPTION_MODEL=gemini-2.5-flash
+```
+
+`SUPABASE_SECRET_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are interchangeable in the current server code. Only one is required.
+
+## Supabase
+
+Supabase handles:
+
+- email/password authentication
+- resumable draft storage
+- sessions
+- conversation turns
+- generated and edited summaries
+- feedback
+
+For a new project:
 
 1. Create a Supabase project.
-2. Apply `supabase/schema.sql` for one-time bootstrap, or run the baseline migration in `supabase/migrations/`.
-3. Add the project URL, anon key, and service role key to `.env.local`.
+2. Apply the bootstrap schema in `supabase/schema.sql`, or run the migrations in `supabase/migrations/`.
+3. Add the Supabase env vars to `.env.local`.
 
-The app will still run without Supabase credentials by keeping draft data in browser local storage, but server persistence is only active when Supabase is configured.
+If Supabase is not configured, the app can still keep a local browser draft, but auth-backed persistence and shared resume behavior require Supabase.
 
-## Gemini setup
+## Gemini
 
-Add `GEMINI_API_KEY` to `.env.local`.
+Gemini handles:
 
-If no Gemini key is present, the `/api/summary` route falls back to a lightweight heuristic summary so the end-to-end prototype still works.
+- audio transcription
+- Spanish and Mandarin speech translation into English
+- structured summary generation
 
-## GitHub automation
+If `GEMINI_API_KEY` is missing, the summary route falls back to a lightweight heuristic summary so the app can still run locally.
 
-This repo now includes two GitHub Actions workflows:
+## Deployments
 
-- `.github/workflows/vercel-deploy.yml`: deploys preview builds for pull requests and production builds for pushes to `main`
-- `.github/workflows/supabase-migrations.yml`: applies SQL files in `supabase/migrations/` to Supabase on pushes to `main`
+Vercel deploys this app through its native Git integration:
 
-Required GitHub repository secrets:
+- pushes to `main` create production deploys
+- pull requests can create preview deploys
 
-- `VERCEL_TOKEN`
-- `VERCEL_ORG_ID`
-- `VERCEL_PROJECT_ID`
+GitHub Actions is only used for Supabase migrations:
+
+- `.github/workflows/supabase-migrations.yml`
+
+Required GitHub repo secret for migrations:
+
 - `SUPABASE_DB_URL`
 
-The `SUPABASE_DB_URL` secret should be a direct Postgres connection string for your Supabase project. The migration workflow records applied files in `internal.schema_migrations`.
-
-## Deploy to Vercel
-
-1. Create or link a Vercel project for this repository.
-2. Add the environment variables from `.env.example` in Vercel.
-3. Add `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` as GitHub repository secrets.
-4. Push to `main` to trigger a production deployment.
-
-## Architecture note
-
-The app uses a thin client/server split:
-
-- Client pages manage the reflection flow, route transitions, editable form state, and local draft persistence for MVP speed.
-- Server routes handle session creation, Gemini summary generation, confirmation saves, and feedback writes.
-- Supabase stores `users`, `sessions`, `conversation_turns`, `summaries`, and `feedback`.
-- The reflection flow is deterministic by design: the client drives the initial prompts and selects follow-ups from a controlled bank with simple category coverage heuristics.
-
-## File highlights
-
-- `app/page.tsx`: welcome page
-- `app/reflection/page.tsx`: guided reflection
-- `app/review/page.tsx`: review and edit
-- `app/complete/page.tsx`: completion and feedback
-- `app/api/summary/route.ts`: Gemini summary route
-- `supabase/schema.sql`: bootstrap schema snapshot
-- `supabase/migrations/`: ordered database migrations for GitHub Actions
+Use the Supabase session-pooler Postgres connection string for `SUPABASE_DB_URL`.
 
 ## Database change workflow
 
-For future schema updates:
+For schema changes:
 
 1. Add a new timestamped SQL file under `supabase/migrations/`.
 2. Keep `supabase/schema.sql` in sync with the latest schema snapshot.
-3. Push to `main` to apply the migration through GitHub Actions.
+3. Push to `main`.
+4. GitHub Actions applies the new migration to Supabase.
+
+Changing only `supabase/schema.sql` is not enough for production.
+
+## Key files
+
+- `app/page.tsx`: entry page
+- `app/reflection/page.tsx`: guided reflection
+- `app/review/page.tsx`: review and edit
+- `app/complete/page.tsx`: completion and feedback
+- `app/api/draft/route.ts`: auth-backed draft load/save
+- `app/api/transcribe/route.ts`: Gemini audio transcription
+- `app/api/summary/route.ts`: summary generation
+- `components/welcome-form.tsx`: intake and sign-in flow
+- `components/reflection-chat.tsx`: editable guided reflection flow
+- `supabase/migrations/`: database migrations

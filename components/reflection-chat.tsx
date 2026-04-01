@@ -11,7 +11,14 @@ import {
 } from "@/lib/audio";
 import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
 import { getLanguageLabel, getReflectionCopy } from "@/lib/localization";
-import { getCurrentPrompt, getPromptIndex, getPromptSequence } from "@/lib/reflection";
+import {
+  ReflectionResponse,
+  areAllPromptsCompleted,
+  buildTurnsFromResponses,
+  getFirstIncompletePromptIndex,
+  getPromptSequence,
+  getResponsesFromTurns
+} from "@/lib/reflection";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { ConversationTurn, SessionDraft, UiLanguage } from "@/lib/types";
 
@@ -49,8 +56,9 @@ function createTurn(
 
 export function ReflectionChat() {
   const router = useRouter();
-  const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [sessionId, setSessionId] = useState("");
+  const [responses, setResponses] = useState<Record<string, ReflectionResponse>>({});
+  const [activePromptId, setActivePromptId] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -76,10 +84,16 @@ export function ReflectionChat() {
 
       if (localDraft?.sessionId) {
         const preferredLanguage = localDraft.intakeDetails.preferredLanguage ?? "english";
+        const localResponses = getResponsesFromTurns(localDraft.turns, preferredLanguage);
+        const firstIncompleteIndex = getFirstIncompletePromptIndex(localResponses, preferredLanguage);
+        const promptSequence = getPromptSequence(preferredLanguage);
         setSessionId(localDraft.sessionId);
-        setTurns(localDraft.turns);
+        setResponses(localResponses);
         setUiLanguage(preferredLanguage);
         setAudioLanguage(preferredLanguage);
+        setActivePromptId(
+          promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : promptSequence.length - 1]?.id ?? ""
+        );
       }
 
       const user = await getCurrentAuthUser();
@@ -108,10 +122,16 @@ export function ReflectionChat() {
       saveDraft(draft);
 
       const preferredLanguage = draft.intakeDetails.preferredLanguage ?? "english";
+      const remoteResponses = getResponsesFromTurns(draft.turns, preferredLanguage);
+      const firstIncompleteIndex = getFirstIncompletePromptIndex(remoteResponses, preferredLanguage);
+      const promptSequence = getPromptSequence(preferredLanguage);
       setSessionId(draft.sessionId);
-      setTurns(draft.turns);
+      setResponses(remoteResponses);
       setUiLanguage(preferredLanguage);
       setAudioLanguage(preferredLanguage);
+      setActivePromptId(
+        promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : promptSequence.length - 1]?.id ?? ""
+      );
     }
 
     void initialize();
@@ -145,15 +165,49 @@ export function ReflectionChat() {
 
   const reflectionCopy = useMemo(() => getReflectionCopy(uiLanguage), [uiLanguage]);
   const prompts = useMemo(() => getPromptSequence(uiLanguage), [uiLanguage]);
-  const promptIndex = useMemo(() => getPromptIndex(turns), [turns]);
-  const currentPrompt = useMemo(() => getCurrentPrompt(turns, uiLanguage), [turns, uiLanguage]);
-  const transcript = useMemo(() => {
-    const visibleTurns = [...turns];
-    if (currentPrompt) {
-      visibleTurns.push(currentPrompt);
+  const allPromptsCompleted = useMemo(
+    () => areAllPromptsCompleted(responses, uiLanguage),
+    [responses, uiLanguage]
+  );
+  const currentPrompt = useMemo(
+    () => prompts.find((prompt) => prompt.id === activePromptId) ?? prompts[0] ?? null,
+    [activePromptId, prompts]
+  );
+  const promptIndex = useMemo(
+    () => prompts.findIndex((prompt) => prompt.id === currentPrompt?.id),
+    [currentPrompt?.id, prompts]
+  );
+  const hasPendingChanges = useMemo(() => {
+    if (!currentPrompt) {
+      return false;
     }
-    return visibleTurns;
-  }, [currentPrompt, turns]);
+
+    const savedResponse = responses[currentPrompt.id];
+    if (!savedResponse) {
+      return inputValue.trim().length > 0;
+    }
+
+    if (savedResponse.skipped) {
+      return inputValue.trim().length > 0;
+    }
+
+    return savedResponse.content !== inputValue.trim();
+  }, [currentPrompt, inputValue, responses]);
+
+  useEffect(() => {
+    if (!currentPrompt) {
+      setInputValue("");
+      return;
+    }
+
+    const savedResponse = responses[currentPrompt.id];
+    if (!savedResponse || savedResponse.skipped) {
+      setInputValue("");
+      return;
+    }
+
+    setInputValue(savedResponse.content);
+  }, [currentPrompt, responses]);
 
   function getAudioPanelCopy({
     recordingState,
@@ -342,21 +396,33 @@ export function ReflectionChat() {
     }
   }
 
-  async function finalizeFlow(nextTurns: ConversationTurn[]) {
+  async function persistResponses(nextResponses: Record<string, ReflectionResponse>) {
     const draft = loadDraft();
     if (draft) {
-      draft.turns = nextTurns;
+      draft.turns = buildTurnsFromResponses(nextResponses, uiLanguage);
       await persistDraft(draft);
     }
+  }
 
-    const nextPrompt = getCurrentPrompt(nextTurns, uiLanguage);
-    if (nextPrompt) {
+  function selectNextPrompt(nextResponses: Record<string, ReflectionResponse>, promptId: string) {
+    const nextIncompleteIndex = getFirstIncompletePromptIndex(nextResponses, uiLanguage);
+    if (nextIncompleteIndex >= 0) {
+      setActivePromptId(prompts[nextIncompleteIndex]?.id ?? promptId);
+      return;
+    }
+
+    setActivePromptId(promptId);
+  }
+
+  async function finalizeFlow() {
+    if (!allPromptsCompleted) {
       return;
     }
 
     setSubmitting(true);
 
     try {
+      const finalTurns = buildTurnsFromResponses(responses, uiLanguage);
       const response = await fetch("/api/summary", {
         method: "POST",
         headers: {
@@ -364,7 +430,7 @@ export function ReflectionChat() {
         },
         body: JSON.stringify({
           sessionId,
-          turns: nextTurns
+          turns: finalTurns
         })
       });
 
@@ -395,19 +461,21 @@ export function ReflectionChat() {
       return;
     }
 
-    const nextTurn = createTurn("user", inputValue.trim(), currentPrompt.promptType, {
-      sectionId: currentPrompt.sectionId,
-      sectionTitle: currentPrompt.sectionTitle,
-      promptLabel: currentPrompt.promptLabel
-    });
-    const nextTurns = [...turns, currentPrompt, nextTurn];
+    const nextResponses = {
+      ...responses,
+      [currentPrompt.id]: {
+        promptId: currentPrompt.id,
+        content: inputValue.trim(),
+        skipped: false,
+        createdAt: new Date().toISOString()
+      }
+    };
 
-    setTurns(nextTurns);
-    setInputValue("");
+    setResponses(nextResponses);
     setError("");
     setStatusMessage("");
-
-    await finalizeFlow(nextTurns);
+    await persistResponses(nextResponses);
+    selectNextPrompt(nextResponses, currentPrompt.id);
   }
 
   async function handleSkip() {
@@ -415,65 +483,89 @@ export function ReflectionChat() {
       return;
     }
 
-    const skippedTurn = createTurn("user", "", currentPrompt.promptType, {
-      sectionId: currentPrompt.sectionId,
-      sectionTitle: currentPrompt.sectionTitle,
-      promptLabel: currentPrompt.promptLabel,
-      skipped: true
-    });
-    const nextTurns = [...turns, currentPrompt, skippedTurn];
+    const nextResponses = {
+      ...responses,
+      [currentPrompt.id]: {
+        promptId: currentPrompt.id,
+        content: "",
+        skipped: true,
+        createdAt: new Date().toISOString()
+      }
+    };
 
-    setTurns(nextTurns);
+    setResponses(nextResponses);
     setInputValue("");
     setError("");
     setStatusMessage("");
+    await persistResponses(nextResponses);
+    selectNextPrompt(nextResponses, currentPrompt.id);
+  }
 
-    await finalizeFlow(nextTurns);
+  async function handleComplete() {
+    if (!allPromptsCompleted || hasPendingChanges || submitting || recording || transcribing) {
+      return;
+    }
+
+    await finalizeFlow();
   }
 
   return (
     <AppShell title={reflectionCopy.title} subtitle={reflectionCopy.subtitle}>
       <div className="flex h-full min-h-[70vh] flex-col">
         <div className="mb-4 rounded-2xl border border-border bg-canvas px-4 py-3 text-sm text-slate-700">
-          {reflectionCopy.promptCounter(Math.min(promptIndex + 1, prompts.length), prompts.length)}
+          {reflectionCopy.promptCounter(Math.min(Math.max(promptIndex, 0) + 1, prompts.length), prompts.length)}
         </div>
         <div className="space-y-4 overflow-y-auto pb-4">
-          {transcript.map((turn, index) => {
+          {prompts.map((prompt, index) => {
+            const savedResponse = responses[prompt.id];
             const showSectionHeader =
-              turn.role === "assistant" &&
-              turn.sectionTitle &&
-              (index === 0 || transcript[index - 1]?.sectionTitle !== turn.sectionTitle);
+              prompt.sectionTitle &&
+              (index === 0 || prompts[index - 1]?.sectionTitle !== prompt.sectionTitle);
+            const isActive = currentPrompt?.id === prompt.id;
 
             return (
-              <div key={turn.id} className="space-y-2">
+              <div key={prompt.id} className="space-y-2">
                 {showSectionHeader ? (
                   <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    {turn.sectionTitle}
+                    {prompt.sectionTitle}
                   </div>
                 ) : null}
-                <div
-                  className={`max-w-[88%] rounded-3xl px-4 py-3 text-sm leading-6 ${
-                    turn.role === "assistant"
-                      ? "mr-auto bg-canvas text-slate-700"
-                      : turn.skipped
-                        ? "ml-auto border border-dashed border-border bg-white text-slate-500"
-                        : "ml-auto bg-accent text-white"
+                <button
+                  className={`block w-full max-w-[88%] rounded-3xl px-4 py-3 text-left text-sm leading-6 transition ${
+                    isActive
+                      ? "mr-auto ring-2 ring-accent/30 bg-canvas text-slate-700"
+                      : "mr-auto bg-canvas text-slate-700 hover:bg-[#efe7d6]"
                   }`}
+                  type="button"
+                  onClick={() => setActivePromptId(prompt.id)}
                 >
-                  {turn.promptLabel && turn.role === "assistant" ? (
+                  {prompt.promptLabel ? (
                     <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      {turn.promptLabel}
+                      {prompt.promptLabel}
                     </div>
                   ) : null}
-                  <div>{turn.skipped ? reflectionCopy.skippedLabel : turn.content}</div>
-                  {turn.role === "assistant" && turn.promptExamples?.length ? (
+                  <div>{prompt.content}</div>
+                  {prompt.promptExamples?.length ? (
                     <ul className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
-                      {turn.promptExamples.map((example) => (
+                      {prompt.promptExamples.map((example) => (
                         <li key={example}>- {example}</li>
                       ))}
                     </ul>
                   ) : null}
-                </div>
+                </button>
+                {savedResponse ? (
+                  <button
+                    className={`ml-auto block w-full max-w-[88%] rounded-3xl px-4 py-3 text-left text-sm leading-6 transition ${
+                      savedResponse.skipped
+                        ? "border border-dashed border-border bg-white text-slate-500 hover:bg-slate-50"
+                        : "bg-accent text-white hover:bg-teal-700"
+                    }`}
+                    type="button"
+                    onClick={() => setActivePromptId(prompt.id)}
+                  >
+                    <div>{savedResponse.skipped ? reflectionCopy.skippedLabel : savedResponse.content}</div>
+                  </button>
+                ) : null}
               </div>
             );
           })}
@@ -568,13 +660,17 @@ export function ReflectionChat() {
               type="button"
               onClick={handleSubmit}
             >
-              {submitting
-                ? reflectionCopy.buildingSummaryLabel
-                : currentPrompt
-                  ? reflectionCopy.saveResponseButton
-                  : reflectionCopy.completeButton}
+              {reflectionCopy.saveResponseButton}
             </button>
           </div>
+          <button
+            className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!allPromptsCompleted || hasPendingChanges || submitting || recording || transcribing}
+            type="button"
+            onClick={handleComplete}
+          >
+            {submitting ? reflectionCopy.buildingSummaryLabel : reflectionCopy.completeButton}
+          </button>
         </div>
       </div>
     </AppShell>

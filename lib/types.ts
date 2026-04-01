@@ -12,6 +12,7 @@ export interface ConversationTurn {
   promptType: PromptType;
   content: string;
   createdAt: string;
+  promptId?: string;
   sectionId?: ReflectionSectionId;
   sectionTitle?: string;
   promptLabel?: string;

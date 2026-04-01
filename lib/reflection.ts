@@ -1,6 +1,13 @@
 import { getLocalizedReflectionPrompts } from "@/lib/localization";
 import { ConversationTurn, UiLanguage } from "@/lib/types";
 
+export type ReflectionResponse = {
+  promptId: string;
+  content: string;
+  skipped: boolean;
+  createdAt: string;
+};
+
 export function getPromptSequence(language: UiLanguage = "english"): ConversationTurn[] {
   return getLocalizedReflectionPrompts(language).map((prompt) => ({
     id: prompt.id,
@@ -13,6 +20,79 @@ export function getPromptSequence(language: UiLanguage = "english"): Conversatio
     content: prompt.question,
     createdAt: new Date().toISOString()
   }));
+}
+
+export function getResponsesFromTurns(
+  turns: ConversationTurn[],
+  language: UiLanguage = "english"
+): Record<string, ReflectionResponse> {
+  const prompts = getPromptSequence(language);
+  const promptIds = new Set(prompts.map((prompt) => prompt.id));
+  const responses: Record<string, ReflectionResponse> = {};
+  let activePromptId: string | null = null;
+
+  for (const turn of turns) {
+    if (turn.role === "assistant" && promptIds.has(turn.id)) {
+      activePromptId = turn.id;
+      continue;
+    }
+
+    if (turn.role !== "user" || !activePromptId) {
+      continue;
+    }
+
+    responses[activePromptId] = {
+      promptId: activePromptId,
+      content: turn.content,
+      skipped: Boolean(turn.skipped),
+      createdAt: turn.createdAt
+    };
+    activePromptId = null;
+  }
+
+  return responses;
+}
+
+export function buildTurnsFromResponses(
+  responses: Record<string, ReflectionResponse>,
+  language: UiLanguage = "english"
+): ConversationTurn[] {
+  return getPromptSequence(language).flatMap((prompt) => {
+    const response = responses[prompt.id];
+    if (!response) {
+      return [];
+    }
+
+    return [
+      prompt,
+      {
+        id: `${prompt.id}-response`,
+        role: "user",
+        promptType: prompt.promptType,
+        promptId: prompt.id,
+        sectionId: prompt.sectionId,
+        sectionTitle: prompt.sectionTitle,
+        promptLabel: prompt.promptLabel,
+        content: response.content,
+        skipped: response.skipped,
+        createdAt: response.createdAt
+      }
+    ];
+  });
+}
+
+export function getFirstIncompletePromptIndex(
+  responses: Record<string, ReflectionResponse>,
+  language: UiLanguage = "english"
+) {
+  return getPromptSequence(language).findIndex((prompt) => !responses[prompt.id]);
+}
+
+export function areAllPromptsCompleted(
+  responses: Record<string, ReflectionResponse>,
+  language: UiLanguage = "english"
+) {
+  return getPromptSequence(language).every((prompt) => Boolean(responses[prompt.id]));
 }
 
 export function getPromptIndex(turns: ConversationTurn[]) {
