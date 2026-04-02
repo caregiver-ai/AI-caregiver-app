@@ -108,6 +108,7 @@ type ReflectionCopy = {
   audioNotSupported: string;
   noSpeechDetected: string;
   recordingTooShort: string;
+  recordingTooLarge: string;
   unableToTranscribe: string;
   unableToStartRecording: string;
   unableToFinishRecording: string;
@@ -385,6 +386,7 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     audioNotSupported: "Audio recording is not supported here.",
     noSpeechDetected: "No speech was detected. You can try again or type your response.",
     recordingTooShort: "Recording was too short. Try again or type your response.",
+    recordingTooLarge: "That recording is too long to upload. Try a shorter recording or type the rest.",
     unableToTranscribe: "Unable to transcribe the audio.",
     unableToStartRecording: "Unable to start audio recording.",
     unableToFinishRecording: "Unable to finish recording.",
@@ -426,6 +428,8 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     audioNotSupported: "La grabación de audio no está disponible aquí.",
     noSpeechDetected: "No se detectó voz. Puede intentarlo de nuevo o escribir su respuesta.",
     recordingTooShort: "La grabación fue demasiado corta. Inténtelo de nuevo o escriba su respuesta.",
+    recordingTooLarge:
+      "La grabación es demasiado larga para subirse. Inténtelo con una grabación más corta o escriba el resto.",
     unableToTranscribe: "No fue posible transcribir el audio.",
     unableToStartRecording: "No fue posible iniciar la grabación de audio.",
     unableToFinishRecording: "No fue posible completar la grabación.",
@@ -466,6 +470,7 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     audioNotSupported: "此处不支持录音。",
     noSpeechDetected: "未检测到语音。您可以再试一次，或直接输入回答。",
     recordingTooShort: "录音时间太短。请重试，或直接输入回答。",
+    recordingTooLarge: "这段录音太长，无法上传。请缩短录音，或把剩余内容直接输入。",
     unableToTranscribe: "无法转录音频。",
     unableToStartRecording: "无法开始录音。",
     unableToFinishRecording: "无法完成录音。",

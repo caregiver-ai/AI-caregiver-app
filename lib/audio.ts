@@ -10,6 +10,8 @@ export interface AudioRecorderController {
   cancel: () => Promise<void>;
 }
 
+const TARGET_SAMPLE_RATE = 16000;
+
 type BrowserWindow = Window &
   typeof globalThis & {
     webkitAudioContext?: typeof AudioContext;
@@ -31,6 +33,35 @@ function mergeChunks(chunks: Float32Array[]) {
   }
 
   return merged;
+}
+
+function downsample(samples: Float32Array, inputSampleRate: number, outputSampleRate: number) {
+  if (outputSampleRate >= inputSampleRate) {
+    return samples;
+  }
+
+  const sampleRateRatio = inputSampleRate / outputSampleRate;
+  const outputLength = Math.round(samples.length / sampleRateRatio);
+  const downsampled = new Float32Array(outputLength);
+  let outputIndex = 0;
+  let inputIndex = 0;
+
+  while (outputIndex < outputLength) {
+    const nextInputIndex = Math.round((outputIndex + 1) * sampleRateRatio);
+    let total = 0;
+    let count = 0;
+
+    for (let sampleIndex = inputIndex; sampleIndex < nextInputIndex && sampleIndex < samples.length; sampleIndex += 1) {
+      total += samples[sampleIndex];
+      count += 1;
+    }
+
+    downsampled[outputIndex] = count > 0 ? total / count : 0;
+    outputIndex += 1;
+    inputIndex = nextInputIndex;
+  }
+
+  return downsampled;
 }
 
 function encodeWav(samples: Float32Array, sampleRate: number) {
@@ -123,7 +154,8 @@ export async function startWavRecording(): Promise<AudioRecorderController> {
     async stop() {
       const merged = mergeChunks(chunks);
       const durationMs = Math.round((merged.length / audioContext.sampleRate) * 1000);
-      const blob = encodeWav(merged, audioContext.sampleRate);
+      const normalizedSamples = downsample(merged, audioContext.sampleRate, TARGET_SAMPLE_RATE);
+      const blob = encodeWav(normalizedSamples, TARGET_SAMPLE_RATE);
       await cleanup();
 
       return {

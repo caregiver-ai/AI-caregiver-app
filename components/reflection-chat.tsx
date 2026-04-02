@@ -23,6 +23,7 @@ import { loadDraft, saveDraft } from "@/lib/storage";
 import { ConversationTurn, SessionDraft, UiLanguage } from "@/lib/types";
 
 const MAX_RECORDING_MS = 2 * 60 * 1000;
+const MAX_TRANSCRIPTION_UPLOAD_BYTES = 4 * 1024 * 1024;
 const SPOKEN_LANGUAGE_OPTIONS: UiLanguage[] = ["english", "spanish", "mandarin"];
 
 function formatDuration(durationMs: number) {
@@ -269,6 +270,13 @@ export function ReflectionChat() {
       return;
     }
 
+    if (audioBlob.size > MAX_TRANSCRIPTION_UPLOAD_BYTES) {
+      setError(reflectionCopy.recordingTooLarge);
+      setStatusMessage("");
+      setStatusTone("info");
+      return;
+    }
+
     setTranscribing(true);
     setError("");
     setStatusMessage(
@@ -293,10 +301,32 @@ export function ReflectionChat() {
         body: formData
       });
 
-      const data = (await response.json()) as {
+      const rawResponse = await response.text();
+      let data: {
         error?: string;
         transcript?: string;
-      };
+      } = {};
+
+      try {
+        data = rawResponse ? (JSON.parse(rawResponse) as typeof data) : {};
+      } catch {
+        if (!response.ok) {
+          const normalizedError = rawResponse.trim().toLowerCase();
+          if (
+            response.status === 413 ||
+            normalizedError.includes("request entity too large") ||
+            normalizedError.includes("body exceeded")
+          ) {
+            throw new Error(reflectionCopy.recordingTooLarge);
+          }
+
+          throw new Error(reflectionCopy.unableToTranscribe);
+        }
+
+        data = {
+          transcript: rawResponse
+        };
+      }
 
       if (!response.ok) {
         throw new Error(data.error ?? "Audio transcription failed.");
@@ -540,7 +570,7 @@ export function ReflectionChat() {
                   </div>
                 ) : null}
                 {isActive ? (
-                  <div className="mr-auto w-full max-w-[88%] rounded-3xl bg-canvas px-4 py-3 text-left text-sm leading-6 text-slate-700 ring-2 ring-accent/30">
+                  <div className="mr-auto w-full rounded-3xl bg-canvas px-4 py-3 text-left text-sm leading-6 text-slate-700 ring-2 ring-accent/30 sm:max-w-[88%]">
                     {prompt.promptLabel ? (
                       <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                         {prompt.promptLabel}
