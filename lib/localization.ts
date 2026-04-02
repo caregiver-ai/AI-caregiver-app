@@ -27,6 +27,7 @@ const languageLabels: Record<UiLanguage, Record<UiLanguage, string>> = {
 type WelcomeCopy = {
   title: string;
   subtitle: string;
+  subtitleSecondary: string;
   languageLabel: string;
   authTitle: string;
   authSubtitle: string;
@@ -41,10 +42,12 @@ type WelcomeCopy = {
   signedInAs: (email: string) => string;
   signOutButton: string;
   aboutYou: string;
+  aboutYouSubtitle: string;
   yourFirstName: string;
   yourLastName: string;
   caregiver55OrOlder: string;
   aboutSupportedPerson: string;
+  aboutSupportedPersonSubtitle: string;
   theirFirstName: string;
   theirLastName: string;
   theirPreferredName: string;
@@ -57,7 +60,9 @@ type WelcomeCopy = {
   yesOption: string;
   noOption: string;
   consent: string;
+  privacyNote: string;
   continueLabel: string;
+  continueHint: string;
   startingLabel: string;
   errors: {
     password: string;
@@ -152,12 +157,13 @@ type PromptTranslation = {
 
 const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
   english: {
-    title: "Let's start with a few basics.",
-    subtitle: "We'll use these details to personalize this for you.",
+    title: "This will take about 5 minutes.",
+    subtitle: "You can skip anything.",
+    subtitleSecondary: "We'll turn this into something you can share with other caregivers.",
     languageLabel: "Website language",
-    authTitle: "Sign in to save your progress",
+    authTitle: "Save your progress",
     authSubtitle:
-      "Use your email and password so you can come back later and continue where you left off.",
+      "Create an account so you can come back anytime and pick up where you left off.",
     signInTab: "Sign in",
     createAccountTab: "Create account",
     passwordLabel: "Password",
@@ -169,15 +175,17 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     signedInAs: (email) => `Signed in as ${email}`,
     signOutButton: "Sign out",
     aboutYou: "About you",
+    aboutYouSubtitle: "(so we can personalize this)",
     yourFirstName: "First name",
     yourLastName: "Last name",
     caregiver55OrOlder:
       "Are you 55 or older? (this helps us understand aging caregiver experiences for the project)",
     aboutSupportedPerson: "About the person you support",
+    aboutSupportedPersonSubtitle: "(so others understand who they are supporting)",
     theirFirstName: "First name",
     theirLastName: "Last name",
-    theirPreferredName: "What name do they like to be called? (preferred name or nickname)",
-    theirDateOfBirth: "Date of birth (optional, helpful for medical or emergency situations)",
+    theirPreferredName: "What name do they like to be called? (optional)",
+    theirDateOfBirth: "Date of birth (optional)",
     reachYou: "How we can reach you",
     emailAddress: "Email address",
     phoneNumber: "Phone number",
@@ -186,8 +194,10 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     yesOption: "Yes",
     noOption: "No",
     consent:
-      "I consent to entering caregiving information for transcript generation, summary creation, and storage.",
+      "I agree to use this information to create a summary that I can share with other caregivers.",
+    privacyNote: "Your personal information stays private and will not be shared.",
     continueLabel: "Continue",
+    continueHint: "Next: You'll start with a simple question about what helps their day go well.",
     startingLabel: "Starting...",
     errors: {
       password: "Enter a password.",
@@ -217,12 +227,13 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     }
   },
   spanish: {
-    title: "Empecemos con algunos datos básicos.",
-    subtitle: "Usaremos estos datos para personalizar la experiencia para usted.",
+    title: "Esto tomará unos 5 minutos.",
+    subtitle: "Puede omitir cualquier cosa.",
+    subtitleSecondary: "Convertiremos esto en algo que pueda compartir con otros cuidadores.",
     languageLabel: "Idioma del sitio",
-    authTitle: "Inicie sesión para guardar su progreso",
+    authTitle: "Guarde su progreso",
     authSubtitle:
-      "Use su correo electrónico y contraseña para poder volver más tarde y continuar donde se quedó.",
+      "Cree una cuenta para poder volver en cualquier momento y continuar donde lo dejó.",
     signInTab: "Iniciar sesión",
     createAccountTab: "Crear cuenta",
     passwordLabel: "Contraseña",
@@ -234,16 +245,17 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     signedInAs: (email) => `Sesión iniciada como ${email}`,
     signOutButton: "Cerrar sesión",
     aboutYou: "Sobre usted",
+    aboutYouSubtitle: "(para que podamos personalizar esto)",
     yourFirstName: "Nombre",
     yourLastName: "Apellido",
     caregiver55OrOlder:
       "¿Tiene 55 años o más? (esto nos ayuda a entender las experiencias de cuidadores mayores en el proyecto)",
     aboutSupportedPerson: "Sobre la persona a quien cuida",
+    aboutSupportedPersonSubtitle: "(para que otras personas entiendan a quién van a apoyar)",
     theirFirstName: "Nombre",
     theirLastName: "Apellido",
-    theirPreferredName: "¿Cómo le gusta que le llamen? (nombre preferido o apodo)",
-    theirDateOfBirth:
-      "Fecha de nacimiento (opcional, útil para situaciones médicas o de emergencia)",
+    theirPreferredName: "¿Cómo le gusta que le llamen? (opcional)",
+    theirDateOfBirth: "Fecha de nacimiento (opcional)",
     reachYou: "Cómo podemos contactarle",
     emailAddress: "Correo electrónico",
     phoneNumber: "Número de teléfono",
@@ -252,8 +264,11 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     yesOption: "Sí",
     noOption: "No",
     consent:
-      "Doy mi consentimiento para ingresar información de cuidado para generar transcripciones, crear resúmenes y almacenarlos.",
+      "Acepto usar esta información para crear un resumen que pueda compartir con otros cuidadores.",
+    privacyNote: "Su información personal se mantiene privada y no será compartida.",
     continueLabel: "Continuar",
+    continueHint:
+      "Siguiente: comenzará con una pregunta simple sobre qué ayuda a que su día vaya bien.",
     startingLabel: "Iniciando...",
     errors: {
       password: "Ingrese una contraseña.",
@@ -284,11 +299,12 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     }
   },
   mandarin: {
-    title: "先填写一些基本信息。",
-    subtitle: "我们会用这些信息为您提供更贴合的体验。",
+    title: "大约需要 5 分钟完成。",
+    subtitle: "任何问题都可以跳过。",
+    subtitleSecondary: "我们会把这些内容整理成可与其他照护者分享的摘要。",
     languageLabel: "网站语言",
-    authTitle: "请先登录以保存进度",
-    authSubtitle: "使用电子邮箱和密码登录，这样您之后回来时可以从上次的位置继续。",
+    authTitle: "保存您的进度",
+    authSubtitle: "创建账号后，您随时都可以回来，从上次停下的地方继续。",
     signInTab: "登录",
     createAccountTab: "创建账号",
     passwordLabel: "密码",
@@ -300,14 +316,16 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     signedInAs: (email) => `当前登录邮箱：${email}`,
     signOutButton: "退出登录",
     aboutYou: "关于您",
+    aboutYouSubtitle: "（方便我们为您个性化调整）",
     yourFirstName: "名字",
     yourLastName: "姓氏",
     caregiver55OrOlder: "您是否年满 55 岁？（这有助于我们了解项目中年长照护者的经历）",
     aboutSupportedPerson: "关于您照护的人",
+    aboutSupportedPersonSubtitle: "（让其他人知道他们正在支持谁）",
     theirFirstName: "名字",
     theirLastName: "姓氏",
-    theirPreferredName: "他们喜欢别人怎么称呼？（常用名或昵称）",
-    theirDateOfBirth: "出生日期（可选，在医疗或紧急情况下会有帮助）",
+    theirPreferredName: "他们喜欢别人怎么称呼？（可选）",
+    theirDateOfBirth: "出生日期（可选）",
     reachYou: "联系方式",
     emailAddress: "电子邮箱",
     phoneNumber: "电话号码",
@@ -315,8 +333,10 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     selectPrompt: "请选择",
     yesOption: "是",
     noOption: "否",
-    consent: "我同意输入照护相关信息，用于生成转录、创建摘要并进行存储。",
+    consent: "我同意使用这些信息来创建可与其他照护者分享的摘要。",
+    privacyNote: "您的个人信息会被保密，不会被分享。",
     continueLabel: "继续",
+    continueHint: "下一步：您将先回答一个简单问题，说明什么能帮助他们一天过得更顺利。",
     startingLabel: "正在开始...",
     errors: {
       password: "请输入密码。",

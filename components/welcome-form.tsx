@@ -466,6 +466,9 @@ export function WelcomeForm() {
               <p className="max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
                 {copy.subtitle}
               </p>
+              <p className="max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+                {copy.subtitleSecondary}
+              </p>
             </div>
             <label className="block sm:w-56">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -592,6 +595,7 @@ export function WelcomeForm() {
               <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
                 {copy.aboutYou}
               </h2>
+              <p className="text-sm italic leading-6 text-slate-600">{copy.aboutYouSubtitle}</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block space-y-2">
                   <FieldLabel optionalLabel={copy.optional}>{copy.yourFirstName}</FieldLabel>
@@ -669,6 +673,9 @@ export function WelcomeForm() {
               <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
                 {copy.aboutSupportedPerson}
               </h2>
+              <p className="text-sm italic leading-6 text-slate-600">
+                {copy.aboutSupportedPersonSubtitle}
+              </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block space-y-2">
                   <FieldLabel optionalLabel={copy.optional}>{copy.theirFirstName}</FieldLabel>
@@ -797,6 +804,7 @@ export function WelcomeForm() {
               />
               <span className="text-sm leading-6 text-slate-700">{copy.consent}</span>
             </label>
+            <p className="text-sm leading-6 text-slate-600">{copy.privacyNote}</p>
             {validationField === "consent" ? (
               <p className="text-sm text-red-600">{copy.errors.consent}</p>
             ) : null}
@@ -812,6 +820,7 @@ export function WelcomeForm() {
           >
             {loading ? copy.startingLabel : copy.continueLabel}
           </button>
+          <p className="text-sm leading-6 text-slate-700">{copy.continueHint}</p>
         </div>
       </section>
     </main>
