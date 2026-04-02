@@ -5,17 +5,24 @@ import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
 import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
 import { getCompletionCopy } from "@/lib/localization";
+import { normalizeStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { StructuredSummary, UiLanguage } from "@/lib/types";
 
-function SummaryBlock({ label, items }: { label: string; items: string[] }) {
+function SummarySectionBlock({
+  title,
+  items
+}: {
+  title: string;
+  items: string[];
+}) {
   if (items.length === 0) {
     return null;
   }
 
   return (
     <div className="space-y-2">
-      <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</h2>
+      <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">{title}</h2>
       <ul className="space-y-2 text-sm leading-6 text-slate-700">
         {items.map((item) => (
           <li key={item} className="rounded-2xl bg-canvas px-4 py-3">
@@ -45,7 +52,7 @@ export function CompletionView() {
       const normalizedLocalEmail = localDraft?.email.trim().toLowerCase();
 
       if (localDraft?.editedSummary) {
-        setSummary(localDraft.editedSummary);
+        setSummary(normalizeStructuredSummary(localDraft.editedSummary));
         setSessionId(localDraft.sessionId);
         setRating(localDraft.feedback?.usefulnessRating ?? "");
         setComments(localDraft.feedback?.comments ?? "");
@@ -72,7 +79,7 @@ export function CompletionView() {
         return;
       }
 
-      setSummary(draft.editedSummary);
+      setSummary(normalizeStructuredSummary(draft.editedSummary));
       setSessionId(draft.sessionId);
       setRating(draft.feedback?.usefulnessRating ?? "");
       setComments(draft.feedback?.comments ?? "");
@@ -132,29 +139,21 @@ export function CompletionView() {
   return (
     <AppShell title={copy.title} subtitle={copy.subtitle}>
       <div className="space-y-5">
-        <SummaryBlock label={copy.fieldLabels.key_barriers} items={summary.key_barriers} />
-        <SummaryBlock label={copy.fieldLabels.emotional_concerns} items={summary.emotional_concerns} />
-        <SummaryBlock
-          label={copy.fieldLabels.safety_considerations}
-          items={summary.safety_considerations}
-        />
-        <SummaryBlock
-          label={copy.fieldLabels.past_negative_experiences}
-          items={summary.past_negative_experiences}
-        />
-        <SummaryBlock label={copy.fieldLabels.situations_to_avoid} items={summary.situations_to_avoid} />
-        <SummaryBlock
-          label={copy.fieldLabels.conditions_for_successful_respite}
-          items={summary.conditions_for_successful_respite}
-        />
-        <SummaryBlock
-          label={copy.fieldLabels.unresolved_questions}
-          items={summary.unresolved_questions}
-        />
-
-        <div className="rounded-2xl bg-canvas px-4 py-4 text-sm leading-6 text-slate-700">
-          {summary.caregiver_summary_text}
+        <div className="space-y-3 rounded-3xl border border-border bg-canvas px-5 py-5">
+          <h2 className="text-2xl font-semibold text-ink">{summary.title}</h2>
+          {summary.overview ? (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                {copy.overviewLabel}
+              </div>
+              <p className="text-sm leading-6 text-slate-700">{summary.overview}</p>
+            </div>
+          ) : null}
         </div>
+
+        {summary.sections.map((section) => (
+          <SummarySectionBlock key={section.id} title={section.title} items={section.items} />
+        ))}
 
         <button
           className="print-hidden w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white"

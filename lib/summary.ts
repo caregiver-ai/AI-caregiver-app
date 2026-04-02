@@ -1,5 +1,16 @@
 import { EMPTY_SUMMARY } from "@/lib/constants";
-import { ConversationTurn, StructuredSummary } from "@/lib/types";
+import { ConversationTurn, StructuredSummary, SummarySection } from "@/lib/types";
+
+type LegacyStructuredSummary = {
+  key_barriers?: unknown;
+  emotional_concerns?: unknown;
+  safety_considerations?: unknown;
+  past_negative_experiences?: unknown;
+  situations_to_avoid?: unknown;
+  conditions_for_successful_respite?: unknown;
+  unresolved_questions?: unknown;
+  caregiver_summary_text?: unknown;
+};
 
 function userResponses(turns: ConversationTurn[]) {
   return turns
@@ -12,16 +23,7 @@ function splitSentences(text: string) {
   return text
     .split(/[.;\n]/)
     .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 12);
-}
-
-function toSentenceCase(value: string) {
-  if (!value) {
-    return value;
-  }
-
-  return value.charAt(0).toUpperCase() + value.slice(1);
+    .filter(Boolean);
 }
 
 function dedupe(items: string[]) {
@@ -38,215 +40,236 @@ function dedupe(items: string[]) {
   });
 }
 
-function limitItems(items: string[], limit = 2) {
-  return dedupe(items).slice(0, limit);
+function limitItems(items: string[], limit = 5) {
+  return dedupe(
+    items
+      .map((item) => item.trim())
+      .filter(Boolean)
+  ).slice(0, limit);
 }
 
-function shortenSummaryText(text: string) {
+function shortenOverview(text: string) {
   const sentences = text
     .split(/(?<=[.!?])\s+/)
     .map((item) => item.trim())
     .filter(Boolean)
-    .slice(0, 3);
+    .slice(0, 2);
 
-  const limitedBySentence: string[] = [];
-  for (const sentence of sentences) {
-    const candidate = [...limitedBySentence, sentence].join(" ");
-    const wordCount = candidate.split(/\s+/).filter(Boolean).length;
-
-    if (candidate.length > 320 || wordCount > 75) {
-      break;
-    }
-
-    limitedBySentence.push(sentence);
+  const combined = sentences.join(" ");
+  if (!combined) {
+    return "";
   }
 
-  if (limitedBySentence.length > 0) {
-    return limitedBySentence.join(" ");
+  const words = combined.split(/\s+/).filter(Boolean);
+  if (words.length <= 70) {
+    return combined;
   }
 
-  const words = (sentences[0] ?? text)
-    .split(/\s+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  const limitedWords: string[] = [];
-  for (const word of words) {
-    const candidate = [...limitedWords, word].join(" ");
-    if (candidate.length > 280 || limitedWords.length >= 45) {
-      break;
-    }
-
-    limitedWords.push(word);
-  }
-
-  const fallback = limitedWords.join(" ").replace(/[,\s;:]+$/, "");
-  return fallback ? `${fallback}.` : "";
+  return `${words.slice(0, 70).join(" ").replace(/[,\s;:]+$/, "")}.`;
 }
 
-function pickMatches(sentences: string[], pattern: RegExp, limit = 3) {
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
+function defaultSummaryTitle(nameHint?: string) {
+  return nameHint ? `Caring for ${nameHint}` : "Caregiver Handoff Summary";
+}
+
+function normalizeSection(input: unknown, index: number): SummarySection | null {
+  const candidate = input as Partial<SummarySection> | undefined;
+  const title = typeof candidate?.title === "string" ? candidate.title.trim() : "";
+  const items = Array.isArray(candidate?.items) ? limitItems(candidate.items.map(String)) : [];
+
+  if (!title || items.length === 0) {
+    return null;
+  }
+
+  const normalizedId =
+    typeof candidate?.id === "string" && candidate.id.trim()
+      ? candidate.id.trim()
+      : `${slugify(title) || "section"}-${index + 1}`;
+
+  return {
+    id: normalizedId,
+    title,
+    items
+  };
+}
+
+function coerceStringArray(value: unknown) {
+  return Array.isArray(value) ? limitItems(value.map(String)) : [];
+}
+
+function normalizeLegacySummary(input: LegacyStructuredSummary, nameHint?: string): StructuredSummary {
+  const rawLegacySections = [
+    { title: "Key barriers", items: coerceStringArray(input.key_barriers) },
+    { title: "Emotional concerns", items: coerceStringArray(input.emotional_concerns) },
+    { title: "Safety considerations", items: coerceStringArray(input.safety_considerations) },
+    { title: "Past negative experiences", items: coerceStringArray(input.past_negative_experiences) },
+    { title: "Situations to avoid", items: coerceStringArray(input.situations_to_avoid) },
+    {
+      title: "Conditions for successful respite",
+      items: coerceStringArray(input.conditions_for_successful_respite)
+    },
+    { title: "Unresolved questions", items: coerceStringArray(input.unresolved_questions) }
+  ];
+
+  const legacySections: SummarySection[] = rawLegacySections
+    .filter((section) => section.items.length > 0)
+    .map((section, index) => ({
+      id: `${slugify(section.title) || "section"}-${index + 1}`,
+      title: section.title,
+      items: section.items
+    }));
+
+  return {
+    title: defaultSummaryTitle(nameHint),
+    overview:
+      typeof input.caregiver_summary_text === "string"
+        ? shortenOverview(input.caregiver_summary_text)
+        : "",
+    sections: legacySections
+  };
+}
+
+function matchesSentences(sentences: string[], pattern: RegExp, limit = 4) {
   return limitItems(
     sentences
-      .filter((item) => pattern.test(item))
-      .map((item) => toSentenceCase(item.replace(/\bi want to avoid\b/gi, "").trim()))
-  , limit);
+      .filter((sentence) => pattern.test(sentence))
+      .map((sentence) => sentence.replace(/\s+/g, " ").trim()),
+    limit
+  );
 }
 
-function summarizeBarriers(sentences: string[]) {
-  const results: string[] = [];
-  const combined = sentences.join(" ").toLowerCase();
+function buildOverview(sections: SummarySection[]) {
+  const firstSection = sections[0];
+  const secondSection = sections[1];
 
-  if (/(cost|expensive|money|afford)/.test(combined)) {
-    results.push("Cost makes respite support feel difficult to access.");
+  if (!firstSection) {
+    return "This summary highlights the most important caregiver handoff details that were shared.";
   }
 
-  if (/(schedule|timing|appointment|work|transport|transportation|coordinate)/.test(combined)) {
-    results.push("Scheduling and coordination make it hard to arrange a break.");
-  }
-
-  if (/(find|coverage|staff|help|someone|caregiver)/.test(combined)) {
-    results.push("Finding reliable caregiver coverage is a major barrier.");
-  }
-
-  return limitItems(results, 2);
-}
-
-function summarizeConditions(sentences: string[]) {
-  const results: string[] = [];
-  const combined = sentences.join(" ").toLowerCase();
-
-  if (/(trained|experience|understands|dementia|medical|routine)/.test(combined)) {
-    results.push("Respite would feel more workable with a trained caregiver who understands the care routine.");
-  }
-
-  if (/(consistent|same person|familiar)/.test(combined)) {
-    results.push("Consistency and familiarity with the backup caregiver would increase trust.");
-  }
-
-  if (/(text|update|communication|check in|check-in)/.test(combined)) {
-    results.push("Clear communication and updates during respite would help the caregiver feel comfortable.");
-  }
-
-  return limitItems(results, 2);
-}
-
-function buildSummaryText(summary: Omit<StructuredSummary, "caregiver_summary_text">) {
-  const firstBarrier = summary.key_barriers[0];
-  const firstEmotion = summary.emotional_concerns[0];
-  const firstSafety = summary.safety_considerations[0];
-  const firstCondition = summary.conditions_for_successful_respite[0];
-  const firstPastIssue = summary.past_negative_experiences[0];
-
-  const sentences = [
-    firstBarrier
-      ? `The caregiver wants respite but faces barriers including ${firstBarrier.charAt(0).toLowerCase()}${firstBarrier.slice(1)}`
-      : "The caregiver wants respite but still faces several barriers to stepping away.",
-    firstEmotion
-      ? `Emotionally, ${firstEmotion.charAt(0).toLowerCase()}${firstEmotion.slice(1)}`
-      : "",
-    firstSafety
-      ? `Safety remains a concern, especially around ${firstSafety.charAt(0).toLowerCase()}${firstSafety.slice(1)}`
-      : "",
-    firstCondition
-      ? `Respite appears more realistic if ${firstCondition.charAt(0).toLowerCase()}${firstCondition.slice(1)}`
-      : "A more reliable and reassuring support setup would likely make respite feel more achievable."
+  const fragments = [
+    firstSection.items[0] ? `${firstSection.title}: ${firstSection.items[0]}` : "",
+    secondSection?.items[0] ? `${secondSection.title}: ${secondSection.items[0]}` : ""
   ].filter(Boolean);
 
-  if (firstPastIssue && sentences.length < 3) {
-    sentences.splice(
-      2,
-      0,
-      `Past experiences still affect trust in outside help, including ${firstPastIssue.charAt(0).toLowerCase()}${firstPastIssue.slice(1)}`
-    );
+  if (fragments.length === 0) {
+    return "This summary highlights the most important caregiver handoff details that were shared.";
   }
 
-  return shortenSummaryText(sentences.map((sentence) => sentence.replace(/[.]*$/, ".")).join(" "));
+  return shortenOverview(fragments.join(". "));
 }
 
-export function buildFallbackSummary(turns: ConversationTurn[]): StructuredSummary {
+export function buildFallbackSummary(
+  turns: ConversationTurn[],
+  nameHint?: string
+): StructuredSummary {
   const responses = userResponses(turns);
-  const joined = responses.join(". ");
-  const sentences = splitSentences(joined);
+  const sentences = splitSentences(responses.join(". "));
 
-  const key_barriers = summarizeBarriers(sentences);
-  const emotional_concerns = pickMatches(
-    sentences,
-    /(guilt|worry|fear|stress|overwhelm|anxious|judged|trust|alone)/i
-  );
-  const safety_considerations = pickMatches(
-    sentences,
-    /(safe|safety|medication|medical|fall|emergency|wandering|supervision|mobility)/i
-  );
-  const past_negative_experiences = pickMatches(
-    sentences,
-    /(before|last time|previous|went wrong|bad experience|late|upset|hesitant since)/i
-  );
-  const situations_to_avoid = pickMatches(
-    sentences,
-    /(avoid|don't want|do not want|uncomfortable|wouldn't want|stranger|unfamiliar|rushed)/i
-  );
-  const conditions_for_successful_respite = [
-    ...summarizeConditions(sentences),
-    ...pickMatches(sentences, /(need|want|prefer|comfortable|would feel better|acceptable)/i, 2)
-  ].slice(0, 2);
+  const sectionDefinitions: Array<{ title: string; pattern: RegExp }> = [
+    {
+      title: "Communication",
+      pattern:
+        /(non[- ]speaking|communicat|aac|device|ipad|touch ?chat|gesture|sound|word|lead you|attention)/i
+    },
+    {
+      title: "Daily needs and routines",
+      pattern:
+        /(bathroom|toilet|pull ?up|speaker|hour|routine|meal|snack|food|hungry|fridge|cheese|prompt|remind)/i
+    },
+    {
+      title: "What helps",
+      pattern: /(calm|soothe|car ride|walk|preferred|likes to go|helps when|settle)/i
+    },
+    {
+      title: "Signs they need help",
+      pattern: /(upset|angry|yell|scream|elope|run away|bite|dysreg|grunt|hide|hiding)/i
+    },
+    {
+      title: "Safety notes",
+      pattern: /(safety|two people|at least two|supervision|elop|unsafe|bite you)/i
+    }
+  ];
 
-  const summaryBase = {
-    ...EMPTY_SUMMARY,
-    key_barriers,
-    emotional_concerns,
-    safety_considerations,
-    past_negative_experiences,
-    situations_to_avoid,
-    conditions_for_successful_respite,
-    unresolved_questions: limitItems(
-      [
-        conditions_for_successful_respite.length === 0
-          ? "What type of backup support would feel trustworthy enough to try first?"
-          : "",
-        safety_considerations.length === 0
-          ? "What safety tasks would another caregiver need to handle confidently?"
-          : "",
-        "What is the smallest next step that could test respite without adding more stress?"
-      ].filter(Boolean)
-    )
-  };
+  const sections = sectionDefinitions
+    .map((definition, index) => {
+      const items = matchesSentences(sentences, definition.pattern);
+      if (items.length === 0) {
+        return null;
+      }
+
+      return {
+        id: `${slugify(definition.title) || "section"}-${index + 1}`,
+        title: definition.title,
+        items
+      };
+    })
+    .filter((section): section is SummarySection => Boolean(section));
+
+  if (sections.length === 0 && responses.length > 0) {
+    sections.push({
+      id: "caregiver-notes-1",
+      title: "Caregiver notes",
+      items: limitItems(sentences, 5)
+    });
+  }
 
   return {
-    ...summaryBase,
-    caregiver_summary_text:
-      buildSummaryText(summaryBase) ||
-      "The caregiver wants respite but still needs a safer, more trusted support plan before taking a break."
+    ...EMPTY_SUMMARY,
+    title: defaultSummaryTitle(nameHint),
+    overview: buildOverview(sections),
+    sections
   };
 }
 
-export function normalizeStructuredSummary(input: unknown): StructuredSummary {
-  const candidate = input as Partial<StructuredSummary> | undefined;
+export function summaryToPlainText(summary: StructuredSummary) {
+  const overview = summary.overview.trim();
+  if (overview) {
+    return overview;
+  }
 
-  return {
-    key_barriers: Array.isArray(candidate?.key_barriers)
-      ? limitItems(candidate.key_barriers.map(String))
-      : [],
-    emotional_concerns: Array.isArray(candidate?.emotional_concerns)
-      ? limitItems(candidate.emotional_concerns.map(String))
-      : [],
-    safety_considerations: Array.isArray(candidate?.safety_considerations)
-      ? limitItems(candidate.safety_considerations.map(String))
-      : [],
-    past_negative_experiences: Array.isArray(candidate?.past_negative_experiences)
-      ? limitItems(candidate.past_negative_experiences.map(String))
-      : [],
-    situations_to_avoid: Array.isArray(candidate?.situations_to_avoid)
-      ? limitItems(candidate.situations_to_avoid.map(String))
-      : [],
-    conditions_for_successful_respite: Array.isArray(candidate?.conditions_for_successful_respite)
-      ? limitItems(candidate.conditions_for_successful_respite.map(String))
-      : [],
-    unresolved_questions: Array.isArray(candidate?.unresolved_questions)
-      ? limitItems(candidate.unresolved_questions.map(String))
-      : [],
-    caregiver_summary_text:
-      typeof candidate?.caregiver_summary_text === "string"
-        ? shortenSummaryText(candidate.caregiver_summary_text)
-        : ""
-  };
+  const flattenedItems = summary.sections.flatMap((section) => section.items);
+  if (flattenedItems.length > 0) {
+    return shortenOverview(flattenedItems.slice(0, 2).join(". "));
+  }
+
+  return summary.title.trim() || defaultSummaryTitle();
+}
+
+export function normalizeStructuredSummary(input: unknown, nameHint?: string): StructuredSummary {
+  const candidate = input as Partial<StructuredSummary & LegacyStructuredSummary> | undefined;
+
+  if (!candidate) {
+    return {
+      ...EMPTY_SUMMARY,
+      title: defaultSummaryTitle(nameHint)
+    };
+  }
+
+  if (Array.isArray(candidate.sections) || typeof candidate.title === "string" || typeof candidate.overview === "string") {
+    const sections = Array.isArray(candidate.sections)
+      ? candidate.sections
+          .map((section, index) => normalizeSection(section, index))
+          .filter((section): section is SummarySection => Boolean(section))
+      : [];
+
+    return {
+      title:
+        typeof candidate.title === "string" && candidate.title.trim()
+          ? candidate.title.trim()
+          : defaultSummaryTitle(nameHint),
+      overview:
+        typeof candidate.overview === "string" ? shortenOverview(candidate.overview) : buildOverview(sections),
+      sections
+    };
+  }
+
+  return normalizeLegacySummary(candidate, nameHint);
 }

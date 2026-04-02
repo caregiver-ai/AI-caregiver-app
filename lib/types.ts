@@ -20,15 +20,16 @@ export interface ConversationTurn {
   skipped?: boolean;
 }
 
+export interface SummarySection {
+  id: string;
+  title: string;
+  items: string[];
+}
+
 export interface StructuredSummary {
-  key_barriers: string[];
-  emotional_concerns: string[];
-  safety_considerations: string[];
-  past_negative_experiences: string[];
-  situations_to_avoid: string[];
-  conditions_for_successful_respite: string[];
-  unresolved_questions: string[];
-  caregiver_summary_text: string;
+  title: string;
+  overview: string;
+  sections: SummarySection[];
 }
 
 export interface SessionIntakeDetails {

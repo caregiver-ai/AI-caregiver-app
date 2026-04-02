@@ -1,4 +1,4 @@
-import { ReflectionPrompt, StructuredSummary, UiLanguage } from "@/lib/types";
+import { ReflectionPrompt, UiLanguage } from "@/lib/types";
 
 export const UI_LANGUAGE_OPTIONS: Array<{ value: UiLanguage; label: string }> = [
   { value: "english", label: "English" },
@@ -122,16 +122,22 @@ type ReflectionCopy = {
   recordingStatus: (current: string, max: string) => string;
 };
 
-type SummaryFieldLabels = Record<keyof StructuredSummary, string>;
-
 type ReviewCopy = {
   title: string;
   subtitle: string;
+  summaryTitleLabel: string;
+  overviewLabel: string;
+  sectionsLabel: string;
+  sectionTitleLabel: string;
+  sectionItemsLabel: string;
+  sectionTitlePlaceholder: string;
+  sectionItemsPlaceholder: string;
+  addSectionButton: string;
+  removeSectionButton: string;
   saveButton: string;
   savingButton: string;
   saveFailed: string;
   confirmFailed: string;
-  fieldLabels: SummaryFieldLabels;
 };
 
 type CompletionCopy = {
@@ -140,6 +146,7 @@ type CompletionCopy = {
   emptyMessage: string;
   title: string;
   subtitle: string;
+  overviewLabel: string;
   downloadPdfButton: string;
   feedbackLabel: string;
   feedbackPlaceholder: string;
@@ -147,7 +154,6 @@ type CompletionCopy = {
   saveFeedbackButton: string;
   feedbackSaved: string;
   feedbackSaveFailed: string;
-  fieldLabels: SummaryFieldLabels;
 };
 
 type PromptTranslation = {
@@ -501,68 +507,57 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
   }
 };
 
-const summaryFieldLabels: Record<UiLanguage, SummaryFieldLabels> = {
-  english: {
-    key_barriers: "Key barriers",
-    emotional_concerns: "Emotional concerns",
-    safety_considerations: "Safety considerations",
-    past_negative_experiences: "Past negative experiences",
-    situations_to_avoid: "Situations to avoid",
-    conditions_for_successful_respite: "Conditions for successful respite",
-    unresolved_questions: "Unresolved questions",
-    caregiver_summary_text: "Synthesized caregiver summary"
-  },
-  spanish: {
-    key_barriers: "Barreras principales",
-    emotional_concerns: "Preocupaciones emocionales",
-    safety_considerations: "Consideraciones de seguridad",
-    past_negative_experiences: "Experiencias negativas previas",
-    situations_to_avoid: "Situaciones que conviene evitar",
-    conditions_for_successful_respite: "Condiciones para un relevo exitoso",
-    unresolved_questions: "Preguntas pendientes",
-    caregiver_summary_text: "Resumen sintetizado para la persona cuidadora"
-  },
-  mandarin: {
-    key_barriers: "主要障碍",
-    emotional_concerns: "情绪方面的担忧",
-    safety_considerations: "安全注意事项",
-    past_negative_experiences: "过去的不良经历",
-    situations_to_avoid: "需要避免的情况",
-    conditions_for_successful_respite: "顺利交接所需条件",
-    unresolved_questions: "尚未解决的问题",
-    caregiver_summary_text: "综合照护摘要"
-  }
-};
-
 const reviewCopy: Record<UiLanguage, ReviewCopy> = {
   english: {
     title: "Review and edit",
-    subtitle:
-      "Review the AI-structured summary below. You can edit any section before saving the final version.",
+    subtitle: "Review the AI-organized handoff below. You can edit the title, overview, and sections before saving.",
+    summaryTitleLabel: "Summary title",
+    overviewLabel: "Overview",
+    sectionsLabel: "Handoff sections",
+    sectionTitleLabel: "Section title",
+    sectionItemsLabel: "Section details",
+    sectionTitlePlaceholder: "For example: Communication",
+    sectionItemsPlaceholder: "One bullet per line",
+    addSectionButton: "Add section",
+    removeSectionButton: "Remove section",
     saveButton: "Confirm and save",
     savingButton: "Saving...",
     saveFailed: "Save failed.",
-    confirmFailed: "Unable to save the confirmed summary.",
-    fieldLabels: summaryFieldLabels.english
+    confirmFailed: "Unable to save the confirmed summary."
   },
   spanish: {
     title: "Revisar y editar",
-    subtitle:
-      "Revise el resumen estructurado por IA a continuación. Puede editar cualquier sección antes de guardar la versión final.",
+    subtitle: "Revise el resumen organizado por IA. Puede editar el título, el resumen general y las secciones antes de guardar.",
+    summaryTitleLabel: "Título del resumen",
+    overviewLabel: "Resumen general",
+    sectionsLabel: "Secciones del relevo",
+    sectionTitleLabel: "Título de la sección",
+    sectionItemsLabel: "Detalles de la sección",
+    sectionTitlePlaceholder: "Por ejemplo: Comunicación",
+    sectionItemsPlaceholder: "Una viñeta por línea",
+    addSectionButton: "Agregar sección",
+    removeSectionButton: "Eliminar sección",
     saveButton: "Confirmar y guardar",
     savingButton: "Guardando...",
     saveFailed: "No fue posible guardar.",
-    confirmFailed: "No fue posible guardar el resumen confirmado.",
-    fieldLabels: summaryFieldLabels.spanish
+    confirmFailed: "No fue posible guardar el resumen confirmado."
   },
   mandarin: {
     title: "审核并编辑",
-    subtitle: "请先查看下方的 AI 结构化摘要。保存最终版本前，您可以编辑任何部分。",
+    subtitle: "请查看下方由 AI 整理的交接摘要。保存最终版本前，您可以编辑标题、概览和各个部分。",
+    summaryTitleLabel: "摘要标题",
+    overviewLabel: "概览",
+    sectionsLabel: "交接部分",
+    sectionTitleLabel: "部分标题",
+    sectionItemsLabel: "部分内容",
+    sectionTitlePlaceholder: "例如：沟通方式",
+    sectionItemsPlaceholder: "每行一条要点",
+    addSectionButton: "新增部分",
+    removeSectionButton: "删除部分",
     saveButton: "确认并保存",
     savingButton: "正在保存...",
     saveFailed: "保存失败。",
-    confirmFailed: "无法保存已确认的摘要。",
-    fieldLabels: summaryFieldLabels.mandarin
+    confirmFailed: "无法保存已确认的摘要。"
   }
 };
 
@@ -574,14 +569,14 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     title: "Summary saved",
     subtitle:
       "This view shows the final edited summary, allows a browser PDF export, and collects lightweight feedback.",
+    overviewLabel: "Overview",
     downloadPdfButton: "Download as PDF",
     feedbackLabel: "How useful was this?",
     feedbackPlaceholder: "For example: very useful, somewhat useful, not useful",
     commentsLabel: "Comments",
     saveFeedbackButton: "Save feedback",
     feedbackSaved: "Feedback saved.",
-    feedbackSaveFailed: "Unable to save feedback right now.",
-    fieldLabels: summaryFieldLabels.english
+    feedbackSaveFailed: "Unable to save feedback right now."
   },
   spanish: {
     emptyTitle: "Finalización",
@@ -590,14 +585,14 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     title: "Resumen guardado",
     subtitle:
       "Aquí verá el resumen final editado, podrá exportarlo como PDF desde el navegador y dejar comentarios breves.",
+    overviewLabel: "Resumen general",
     downloadPdfButton: "Descargar como PDF",
     feedbackLabel: "¿Qué tan útil fue esto?",
     feedbackPlaceholder: "Por ejemplo: muy útil, algo útil, poco útil",
     commentsLabel: "Comentarios",
     saveFeedbackButton: "Guardar comentarios",
     feedbackSaved: "Comentarios guardados.",
-    feedbackSaveFailed: "No fue posible guardar los comentarios en este momento.",
-    fieldLabels: summaryFieldLabels.spanish
+    feedbackSaveFailed: "No fue posible guardar los comentarios en este momento."
   },
   mandarin: {
     emptyTitle: "完成",
@@ -605,14 +600,14 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     emptyMessage: "目前还没有已保存的摘要。",
     title: "摘要已保存",
     subtitle: "这里会显示最终编辑后的摘要，您也可以导出 PDF，并留下简短反馈。",
+    overviewLabel: "概览",
     downloadPdfButton: "下载 PDF",
     feedbackLabel: "这份内容对您有多大帮助？",
     feedbackPlaceholder: "例如：非常有帮助、有些帮助、没有帮助",
     commentsLabel: "意见",
     saveFeedbackButton: "保存反馈",
     feedbackSaved: "反馈已保存。",
-    feedbackSaveFailed: "暂时无法保存反馈。",
-    fieldLabels: summaryFieldLabels.mandarin
+    feedbackSaveFailed: "暂时无法保存反馈。"
   }
 };
 
@@ -791,10 +786,6 @@ export function getReviewCopy(language: UiLanguage) {
 
 export function getCompletionCopy(language: UiLanguage) {
   return completionCopy[language];
-}
-
-export function getSummaryFieldLabels(language: UiLanguage) {
-  return summaryFieldLabels[language];
 }
 
 export function getLocalizedReflectionPrompts(language: UiLanguage): ReflectionPrompt[] {

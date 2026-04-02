@@ -462,6 +462,14 @@ export function ReflectionChat() {
 
     try {
       const finalTurns = buildTurnsFromResponses(responses, uiLanguage);
+      const draft = loadDraft();
+      const nameHint =
+        draft?.intakeDetails.careRecipientPreferredName.trim() ||
+        draft?.intakeDetails.careRecipientFirstName.trim() ||
+        [draft?.intakeDetails.careRecipientFirstName, draft?.intakeDetails.careRecipientLastName]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
       const response = await fetch("/api/summary", {
         method: "POST",
         headers: {
@@ -469,7 +477,8 @@ export function ReflectionChat() {
         },
         body: JSON.stringify({
           sessionId,
-          turns: finalTurns
+          turns: finalTurns,
+          nameHint
         })
       });
 

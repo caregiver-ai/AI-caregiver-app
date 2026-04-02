@@ -7,18 +7,27 @@ import { StatusBanner } from "@/components/status-banner";
 import { EMPTY_SUMMARY } from "@/lib/constants";
 import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
 import { getReviewCopy } from "@/lib/localization";
+import { normalizeStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { StructuredSummary, UiLanguage } from "@/lib/types";
+import { StructuredSummary, SummarySection, UiLanguage } from "@/lib/types";
 
-function arrayToTextarea(items: string[]) {
+function itemsToTextarea(items: string[]) {
   return items.join("\n");
 }
 
-function textareaToArray(value: string) {
+function textareaToItems(value: string) {
   return value
     .split("\n")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function createEmptySection(): SummarySection {
+  return {
+    id: crypto.randomUUID(),
+    title: "",
+    items: []
+  };
 }
 
 export function ReviewEditor() {
@@ -38,7 +47,7 @@ export function ReviewEditor() {
       const normalizedLocalEmail = localDraft?.email.trim().toLowerCase();
 
       if (localDraft?.structuredSummary && localDraft.sessionId) {
-        setSummary(localDraft.editedSummary ?? localDraft.structuredSummary);
+        setSummary(normalizeStructuredSummary(localDraft.editedSummary ?? localDraft.structuredSummary));
         setSessionId(localDraft.sessionId);
         setUiLanguage(localDraft.intakeDetails.preferredLanguage ?? "english");
       }
@@ -71,7 +80,7 @@ export function ReviewEditor() {
       }
 
       saveDraft(draft);
-      setSummary(draft.editedSummary ?? draft.structuredSummary);
+      setSummary(normalizeStructuredSummary(draft.editedSummary ?? draft.structuredSummary));
       setSessionId(draft.sessionId);
       setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
     }
@@ -110,22 +119,28 @@ export function ReviewEditor() {
     };
   }, [sessionId, summary]);
 
-  function updateArrayField(field: Exclude<keyof StructuredSummary, "caregiver_summary_text">, value: string) {
+  function updateSection(sectionId: string, changes: Partial<SummarySection>) {
     setSummary((current) => ({
       ...current,
-      [field]: textareaToArray(value)
+      sections: current.sections.map((section) =>
+        section.id === sectionId ? { ...section, ...changes } : section
+      )
     }));
   }
 
-  const arrayFields: Exclude<keyof StructuredSummary, "caregiver_summary_text">[] = [
-    "key_barriers",
-    "emotional_concerns",
-    "safety_considerations",
-    "past_negative_experiences",
-    "situations_to_avoid",
-    "conditions_for_successful_respite",
-    "unresolved_questions"
-  ];
+  function addSection() {
+    setSummary((current) => ({
+      ...current,
+      sections: [...current.sections, createEmptySection()]
+    }));
+  }
+
+  function removeSection(sectionId: string) {
+    setSummary((current) => ({
+      ...current,
+      sections: current.sections.filter((section) => section.id !== sectionId)
+    }));
+  }
 
   async function handleConfirm() {
     setSaving(true);
@@ -164,31 +179,79 @@ export function ReviewEditor() {
 
   return (
     <AppShell title={copy.title} subtitle={copy.subtitle}>
-      <div className="space-y-4">
-        {arrayFields.map((field) => (
-          <label key={field} className="block space-y-2">
-            <span className="text-sm font-medium text-slate-700">{copy.fieldLabels[field]}</span>
-            <textarea
-              className="min-h-24 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-              value={arrayToTextarea(summary[field])}
-              onChange={(event) => updateArrayField(field, event.target.value)}
-            />
-          </label>
-        ))}
-
+      <div className="space-y-5">
         <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-700">{copy.fieldLabels.caregiver_summary_text}</span>
-          <textarea
-            className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-            value={summary.caregiver_summary_text}
+          <span className="text-sm font-medium text-slate-700">{copy.summaryTitleLabel}</span>
+          <input
+            className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
+            value={summary.title}
             onChange={(event) =>
               setSummary((current) => ({
                 ...current,
-                caregiver_summary_text: event.target.value
+                title: event.target.value
               }))
             }
           />
         </label>
+
+        <label className="block space-y-2">
+          <span className="text-sm font-medium text-slate-700">{copy.overviewLabel}</span>
+          <textarea
+            className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
+            value={summary.overview}
+            onChange={(event) =>
+              setSummary((current) => ({
+                ...current,
+                overview: event.target.value
+              }))
+            }
+          />
+        </label>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium text-slate-700">{copy.sectionsLabel}</h2>
+            <button
+              className="rounded-2xl border border-border px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-canvas"
+              type="button"
+              onClick={addSection}
+            >
+              {copy.addSectionButton}
+            </button>
+          </div>
+
+          {summary.sections.map((section) => (
+            <div key={section.id} className="space-y-3 rounded-3xl border border-border bg-canvas px-4 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-slate-700">{copy.sectionTitleLabel}</span>
+                <button
+                  className="text-sm font-semibold text-slate-500 transition hover:text-red-600"
+                  type="button"
+                  onClick={() => removeSection(section.id)}
+                >
+                  {copy.removeSectionButton}
+                </button>
+              </div>
+              <input
+                className="w-full rounded-2xl border border-border bg-white px-4 py-3 outline-none transition focus:border-accent"
+                placeholder={copy.sectionTitlePlaceholder}
+                value={section.title}
+                onChange={(event) => updateSection(section.id, { title: event.target.value })}
+              />
+              <label className="block space-y-2">
+                <span className="text-sm font-medium text-slate-700">{copy.sectionItemsLabel}</span>
+                <textarea
+                  className="min-h-28 w-full rounded-2xl border border-border bg-white px-4 py-3 outline-none transition focus:border-accent"
+                  placeholder={copy.sectionItemsPlaceholder}
+                  value={itemsToTextarea(section.items)}
+                  onChange={(event) =>
+                    updateSection(section.id, { items: textareaToItems(event.target.value) })
+                  }
+                />
+              </label>
+            </div>
+          ))}
+        </div>
 
         {error ? <StatusBanner tone="error">{error}</StatusBanner> : null}
 

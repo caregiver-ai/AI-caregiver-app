@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
+import { normalizeStructuredSummary, summaryToPlainText } from "@/lib/summary";
 import { createSupabaseServerClient } from "@/lib/supabase";
-import { StructuredSummary } from "@/lib/types";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
     sessionId?: string;
-    editedSummary?: StructuredSummary;
+    editedSummary?: unknown;
   };
 
   if (!body.sessionId || !body.editedSummary) {
     return NextResponse.json({ error: "sessionId and editedSummary are required." }, { status: 400 });
   }
+
+  const editedSummary = normalizeStructuredSummary(body.editedSummary);
 
   const supabase = createSupabaseServerClient();
 
@@ -28,9 +30,9 @@ export async function POST(request: Request) {
     const { error: summaryError } = await supabase.from("summaries").upsert(
       {
         session_id: body.sessionId,
-        summary_json: body.editedSummary,
-        edited_json: body.editedSummary,
-        summary_text: body.editedSummary.caregiver_summary_text,
+        summary_json: editedSummary,
+        edited_json: editedSummary,
+        summary_text: summaryToPlainText(editedSummary),
         confirmed_at: new Date().toISOString()
       },
       {
@@ -50,8 +52,8 @@ export async function POST(request: Request) {
         ? {
             draft_json: {
               ...sessionRow.draft_json,
-              editedSummary: body.editedSummary,
-              structuredSummary: body.editedSummary
+              editedSummary,
+              structuredSummary: editedSummary
             }
           }
         : {})
