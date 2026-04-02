@@ -493,6 +493,12 @@ export function WelcomeForm() {
           </div>
         </div>
 
+        {error ? (
+          <div className="mt-6">
+            <StatusBanner tone="error">{error}</StatusBanner>
+          </div>
+        ) : null}
+
         <div className="mt-8 space-y-8">
           <section className="space-y-4 rounded-3xl border border-border bg-canvas px-5 py-5">
             <div className="space-y-2">
@@ -811,8 +817,6 @@ export function WelcomeForm() {
               <p className="text-sm text-red-600">{copy.errors.consent}</p>
             ) : null}
           </section>
-
-          {error ? <StatusBanner tone="error">{error}</StatusBanner> : null}
 
           <button
             className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"

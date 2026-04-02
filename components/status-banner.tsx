@@ -13,5 +13,13 @@ export function StatusBanner({
     success: "border-emerald-200 bg-emerald-50 text-emerald-700"
   }[tone];
 
-  return <div className={`rounded-2xl border px-4 py-3 text-sm ${toneClass}`}>{children}</div>;
+  return (
+    <div
+      aria-live={tone === "error" ? "assertive" : "polite"}
+      role={tone === "error" ? "alert" : "status"}
+      className={`rounded-2xl border px-4 py-3 text-sm ${toneClass}`}
+    >
+      {children}
+    </div>
+  );
 }
