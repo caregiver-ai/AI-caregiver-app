@@ -462,7 +462,9 @@ export function WelcomeForm() {
           <p className="text-xs font-semibold uppercase tracking-[0.26em] text-accent">{APP_NAME}</p>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-3">
-              <h1 className="text-3xl font-semibold text-ink sm:text-4xl">{copy.title}</h1>
+              <h1 className="text-3xl font-semibold text-ink sm:whitespace-nowrap sm:text-4xl">
+                {copy.title}
+              </h1>
               <p className="max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
                 {copy.subtitle}
               </p>
@@ -471,7 +473,7 @@ export function WelcomeForm() {
               </p>
             </div>
             <label className="block sm:w-56">
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:whitespace-nowrap">
                 {copy.languageLabel}
               </span>
               <select
