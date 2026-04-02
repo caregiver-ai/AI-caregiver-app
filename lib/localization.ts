@@ -105,6 +105,7 @@ type ReflectionCopy = {
   spokenLanguageLabel: string;
   recordButton: string;
   stopRecordingButton: string;
+  audioLimitNotice: string;
   audioNotSupported: string;
   noSpeechDetected: string;
   recordingTooShort: string;
@@ -383,10 +384,12 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     spokenLanguageLabel: "Spoken language",
     recordButton: "Record response",
     stopRecordingButton: "Stop recording",
+    audioLimitNotice: "Keep each recording under 45 seconds.",
     audioNotSupported: "Audio recording is not supported here.",
     noSpeechDetected: "No speech was detected. You can try again or type your response.",
     recordingTooShort: "Recording was too short. Try again or type your response.",
-    recordingTooLarge: "That recording is too long to upload. Try a shorter recording or type the rest.",
+    recordingTooLarge:
+      "That recording is too long. Keep recordings under 45 seconds, or type the rest.",
     unableToTranscribe: "Unable to transcribe the audio.",
     unableToStartRecording: "Unable to start audio recording.",
     unableToFinishRecording: "Unable to finish recording.",
@@ -406,8 +409,8 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
         : "English translation added to the response field. You can edit it before saving.",
     audioLimitReached: (languageLabel, isEnglish) =>
       isEnglish
-        ? "Recording limit reached. Transcribing now and retrying automatically if Gemini is busy..."
-        : `Recording limit reached. Translating ${languageLabel} speech into English now and retrying automatically if Gemini is busy...`,
+        ? "45-second limit reached. Transcribing now and retrying automatically if Gemini is busy..."
+        : `45-second limit reached. Translating ${languageLabel} speech into English now and retrying automatically if Gemini is busy...`,
     recordingStatus: (current, max) => `Recording ${current} of ${max}.`
   },
   spanish: {
@@ -425,11 +428,12 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     spokenLanguageLabel: "Idioma hablado",
     recordButton: "Grabar respuesta",
     stopRecordingButton: "Detener grabación",
+    audioLimitNotice: "Mantenga cada grabación por debajo de 45 segundos.",
     audioNotSupported: "La grabación de audio no está disponible aquí.",
     noSpeechDetected: "No se detectó voz. Puede intentarlo de nuevo o escribir su respuesta.",
     recordingTooShort: "La grabación fue demasiado corta. Inténtelo de nuevo o escriba su respuesta.",
     recordingTooLarge:
-      "La grabación es demasiado larga para subirse. Inténtelo con una grabación más corta o escriba el resto.",
+      "La grabación es demasiado larga. Mantenga cada grabación por debajo de 45 segundos o escriba el resto.",
     unableToTranscribe: "No fue posible transcribir el audio.",
     unableToStartRecording: "No fue posible iniciar la grabación de audio.",
     unableToFinishRecording: "No fue posible completar la grabación.",
@@ -449,8 +453,8 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
         : "La traducción al inglés se agregó al campo de respuesta. Puede editarla antes de guardarla.",
     audioLimitReached: (languageLabel, isEnglish) =>
       isEnglish
-        ? "Se alcanzó el límite de grabación. Se transcribirá ahora y se volverá a intentar automáticamente si Gemini está ocupado..."
-        : `Se alcanzó el límite de grabación. La voz en ${languageLabel} se traducirá al inglés ahora y se volverá a intentar automáticamente si Gemini está ocupado...`,
+        ? "Se alcanzó el límite de 45 segundos. Se transcribirá ahora y se volverá a intentar automáticamente si Gemini está ocupado..."
+        : `Se alcanzó el límite de 45 segundos. La voz en ${languageLabel} se traducirá al inglés ahora y se volverá a intentar automáticamente si Gemini está ocupado...`,
     recordingStatus: (current, max) => `Grabando ${current} de ${max}.`
   },
   mandarin: {
@@ -467,10 +471,11 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     spokenLanguageLabel: "口语语言",
     recordButton: "录制回答",
     stopRecordingButton: "停止录音",
+    audioLimitNotice: "每段录音请控制在 45 秒以内。",
     audioNotSupported: "此处不支持录音。",
     noSpeechDetected: "未检测到语音。您可以再试一次，或直接输入回答。",
     recordingTooShort: "录音时间太短。请重试，或直接输入回答。",
-    recordingTooLarge: "这段录音太长，无法上传。请缩短录音，或把剩余内容直接输入。",
+    recordingTooLarge: "这段录音太长。请将每段录音控制在 45 秒以内，或把剩余内容直接输入。",
     unableToTranscribe: "无法转录音频。",
     unableToStartRecording: "无法开始录音。",
     unableToFinishRecording: "无法完成录音。",
@@ -490,8 +495,8 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
         : "英文译文已加入回答框，保存前可以编辑。",
     audioLimitReached: (languageLabel, isEnglish) =>
       isEnglish
-        ? "已达到录音上限。现在开始转录；如果 Gemini 正忙，系统会自动重试。"
-        : `已达到录音上限。现在开始把${languageLabel}语音翻译成英文；如果 Gemini 正忙，系统会自动重试。`,
+        ? "已达到 45 秒上限。现在开始转录；如果 Gemini 正忙，系统会自动重试。"
+        : `已达到 45 秒上限。现在开始把${languageLabel}语音翻译成英文；如果 Gemini 正忙，系统会自动重试。`,
     recordingStatus: (current, max) => `正在录音 ${current} / ${max}。`
   }
 };

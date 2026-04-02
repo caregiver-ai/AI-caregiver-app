@@ -22,7 +22,7 @@ import {
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { ConversationTurn, SessionDraft, UiLanguage } from "@/lib/types";
 
-const MAX_RECORDING_MS = 2 * 60 * 1000;
+const MAX_RECORDING_MS = 45 * 1000;
 const MAX_TRANSCRIPTION_UPLOAD_BYTES = 4 * 1024 * 1024;
 const SPOKEN_LANGUAGE_OPTIONS: UiLanguage[] = ["english", "spanish", "mandarin"];
 
@@ -647,6 +647,9 @@ export function ReflectionChat() {
                       durationMs: recordingDurationMs
                     })}
                   </div>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                  {reflectionCopy.audioLimitNotice}
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                   <label className="flex-1 text-sm text-slate-600">
