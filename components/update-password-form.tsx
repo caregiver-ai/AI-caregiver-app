@@ -16,6 +16,39 @@ function normalizeLanguage(value: string | null): UiLanguage {
   return "english";
 }
 
+function getHashParams(hash: string) {
+  return new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+}
+
+function clearRecoveryParamsFromUrl() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  const hashParams = getHashParams(url.hash);
+  const hasHashAuthParams =
+    hashParams.has("access_token") ||
+    hashParams.has("refresh_token") ||
+    hashParams.has("expires_in") ||
+    hashParams.has("expires_at") ||
+    hashParams.has("token_type") ||
+    hashParams.has("type");
+
+  url.searchParams.delete("code");
+  url.searchParams.delete("token_hash");
+  url.searchParams.delete("type");
+  url.searchParams.delete("error");
+  url.searchParams.delete("error_code");
+  url.searchParams.delete("error_description");
+
+  if (hasHashAuthParams) {
+    url.hash = "";
+  }
+
+  window.history.replaceState(window.history.state, "", url.toString());
+}
+
 export function UpdatePasswordForm() {
   const router = useRouter();
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
@@ -42,17 +75,90 @@ export function UpdatePasswordForm() {
     let active = true;
 
     async function initialize() {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
+      try {
+        const url = new URL(window.location.href);
+        const searchParams = url.searchParams;
+        const hashParams = getHashParams(url.hash);
+        const errorDescription =
+          searchParams.get("error_description") ?? hashParams.get("error_description");
+        const authCode = searchParams.get("code");
+        const tokenHash = searchParams.get("token_hash");
+        const recoveryType = searchParams.get("type") ?? hashParams.get("type");
+        const accessToken = hashParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token");
 
-      if (!active) {
-        return;
+        const {
+          data: { session: initialSession }
+        } = await supabase.auth.getSession();
+
+        if (!active) {
+          return;
+        }
+
+        if (initialSession) {
+          clearRecoveryParamsFromUrl();
+          setRecoveryReady(true);
+          setError("");
+          return;
+        }
+
+        if (errorDescription) {
+          setError(errorDescription);
+          setRecoveryReady(false);
+          return;
+        }
+
+        if (authCode) {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(authCode);
+          if (exchangeError) {
+            throw exchangeError;
+          }
+        } else if (tokenHash && recoveryType === "recovery") {
+          const { error: verifyError } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: "recovery"
+          });
+          if (verifyError) {
+            throw verifyError;
+          }
+        } else if (accessToken && refreshToken) {
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+          if (sessionError) {
+            throw sessionError;
+          }
+        }
+
+        const {
+          data: { session: finalSession }
+        } = await supabase.auth.getSession();
+
+        if (!active) {
+          return;
+        }
+
+        if (finalSession) {
+          clearRecoveryParamsFromUrl();
+          setRecoveryReady(true);
+          setError("");
+          return;
+        }
+
+        setRecoveryReady(false);
+      } catch (linkError) {
+        if (!active) {
+          return;
+        }
+
+        setRecoveryReady(false);
+        setError(linkError instanceof Error ? linkError.message : "");
+      } finally {
+        if (active) {
+          setCheckingLink(false);
+        }
       }
-
-      setRecoveryReady(Boolean(session));
-      setCheckingLink(false);
     }
 
     void initialize();
@@ -65,6 +171,7 @@ export function UpdatePasswordForm() {
       }
 
       if (event === "PASSWORD_RECOVERY" || session) {
+        clearRecoveryParamsFromUrl();
         setRecoveryReady(true);
         setCheckingLink(false);
         setError("");
@@ -128,6 +235,7 @@ export function UpdatePasswordForm() {
         {!checkingLink && !recoveryReady ? (
           <>
             <StatusBanner tone="error">{copy.invalidLinkMessage}</StatusBanner>
+            {error ? <StatusBanner tone="info">{error}</StatusBanner> : null}
             <button
               className="w-full rounded-2xl border border-border px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-canvas"
               type="button"

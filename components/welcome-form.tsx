@@ -414,11 +414,8 @@ export function WelcomeForm() {
 
     try {
       const supabase = getSupabaseBrowserClient();
-      const redirectTo = new URL("/update-password", window.location.origin);
-      redirectTo.searchParams.set("lang", uiLanguage);
-
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: redirectTo.toString()
+        redirectTo: new URL("/update-password", window.location.origin).toString()
       });
 
       if (resetError) {
