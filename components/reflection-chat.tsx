@@ -201,6 +201,15 @@ export function ReflectionChat() {
 
     return savedResponse.content !== inputValue.trim();
   }, [currentPrompt, inputValue, responses]);
+  const currentResponse = currentPrompt ? responses[currentPrompt.id] : undefined;
+  const isFinalPrompt = Boolean(currentPrompt) && promptIndex === prompts.length - 1;
+  const canCompleteFromCurrentPrompt = Boolean(
+    currentPrompt &&
+      !submitting &&
+      !recording &&
+      !transcribing &&
+      (inputValue.trim().length > 0 || (currentResponse && !hasPendingChanges))
+  );
 
   useEffect(() => {
     if (!currentPrompt) {
@@ -453,15 +462,15 @@ export function ReflectionChat() {
     setActivePromptId(nextPrompt?.id ?? promptId);
   }
 
-  async function finalizeFlow() {
-    if (!allPromptsCompleted) {
+  async function finalizeFlow(finalResponses: Record<string, ReflectionResponse> = responses) {
+    if (!areAllPromptsCompleted(finalResponses, uiLanguage)) {
       return;
     }
 
     setSubmitting(true);
 
     try {
-      const finalTurns = buildTurnsFromResponses(responses, uiLanguage);
+      const finalTurns = buildTurnsFromResponses(finalResponses, uiLanguage);
       const draft = loadDraft();
       const nameHint =
         draft?.intakeDetails.careRecipientPreferredName.trim() ||
@@ -555,6 +564,38 @@ export function ReflectionChat() {
     }
 
     await finalizeFlow();
+  }
+
+  async function handleCompleteFromCurrentPrompt() {
+    if (!currentPrompt || !canCompleteFromCurrentPrompt) {
+      return;
+    }
+
+    const trimmedInput = inputValue.trim();
+    if (trimmedInput) {
+      const nextResponses = {
+        ...responses,
+        [currentPrompt.id]: {
+          promptId: currentPrompt.id,
+          content: trimmedInput,
+          skipped: false,
+          createdAt: new Date().toISOString()
+        }
+      };
+
+      setResponses(nextResponses);
+      setError("");
+      setStatusMessage("");
+      await persistResponses(nextResponses);
+      await finalizeFlow(nextResponses);
+      return;
+    }
+
+    if (!hasPendingChanges && currentResponse) {
+      setError("");
+      setStatusMessage("");
+      await finalizeFlow(responses);
+    }
   }
 
   return (
@@ -709,21 +750,31 @@ export function ReflectionChat() {
             </button>
             <button
               className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!currentPrompt || !inputValue.trim() || submitting || recording || transcribing}
+              disabled={
+                isFinalPrompt
+                  ? !canCompleteFromCurrentPrompt
+                  : !currentPrompt || !inputValue.trim() || submitting || recording || transcribing
+              }
               type="button"
-              onClick={handleSubmit}
+              onClick={isFinalPrompt ? handleCompleteFromCurrentPrompt : handleSubmit}
             >
-              {reflectionCopy.saveResponseButton}
+              {isFinalPrompt
+                ? submitting
+                  ? reflectionCopy.buildingSummaryLabel
+                  : reflectionCopy.completeButton
+                : reflectionCopy.saveResponseButton}
             </button>
           </div>
-          <button
-            className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={!allPromptsCompleted || hasPendingChanges || submitting || recording || transcribing}
-            type="button"
-            onClick={handleComplete}
-          >
-            {submitting ? reflectionCopy.buildingSummaryLabel : reflectionCopy.completeButton}
-          </button>
+          {!isFinalPrompt ? (
+            <button
+              className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!allPromptsCompleted || hasPendingChanges || submitting || recording || transcribing}
+              type="button"
+              onClick={handleComplete}
+            >
+              {submitting ? reflectionCopy.buildingSummaryLabel : reflectionCopy.completeButton}
+            </button>
+          ) : null}
         </div>
       </div>
     </AppShell>
