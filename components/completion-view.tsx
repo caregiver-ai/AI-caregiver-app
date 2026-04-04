@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
-import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
+import { authenticatedFetch, getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
 import { getCompletionCopy } from "@/lib/localization";
 import { normalizeStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
@@ -41,6 +41,10 @@ export function CompletionView() {
   const [comments, setComments] = useState("");
   const [status, setStatus] = useState("");
   const [statusTone, setStatusTone] = useState<"success" | "error">("success");
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailStatus, setEmailStatus] = useState("");
+  const [emailStatusTone, setEmailStatusTone] = useState<"success" | "error">("success");
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
   const copy = useMemo(() => getCompletionCopy(uiLanguage), [uiLanguage]);
 
@@ -56,6 +60,7 @@ export function CompletionView() {
         setSessionId(localDraft.sessionId);
         setRating(localDraft.feedback?.usefulnessRating ?? "");
         setComments(localDraft.feedback?.comments ?? "");
+        setRecipientEmail(localDraft.email ?? "");
         setUiLanguage(localDraft.intakeDetails.preferredLanguage ?? "english");
       }
 
@@ -67,6 +72,9 @@ export function CompletionView() {
       }
 
       if (localDraft?.editedSummary && (!normalizedUserEmail || normalizedLocalEmail === normalizedUserEmail)) {
+        if (normalizedUserEmail) {
+          setRecipientEmail((current) => current || normalizedUserEmail);
+        }
         return;
       }
 
@@ -83,6 +91,7 @@ export function CompletionView() {
       setSessionId(draft.sessionId);
       setRating(draft.feedback?.usefulnessRating ?? "");
       setComments(draft.feedback?.comments ?? "");
+      setRecipientEmail(draft.email ?? user.email ?? "");
       setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
     }
 
@@ -128,6 +137,43 @@ export function CompletionView() {
     setStatusTone("success");
   }
 
+  async function handleEmailSend() {
+    if (!sessionId || !recipientEmail.trim()) {
+      setEmailStatus(copy.emailSendFailed);
+      setEmailStatusTone("error");
+      return;
+    }
+
+    setEmailSending(true);
+    setEmailStatus("");
+
+    try {
+      const response = await authenticatedFetch("/api/summary/email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          sessionId,
+          recipientEmail: recipientEmail.trim()
+        })
+      });
+
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? copy.emailSendFailed);
+      }
+
+      setEmailStatus(copy.emailSent(recipientEmail.trim()));
+      setEmailStatusTone("success");
+    } catch (sendError) {
+      setEmailStatus(sendError instanceof Error ? sendError.message : copy.emailSendFailed);
+      setEmailStatusTone("error");
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
   if (!summary) {
     return (
       <AppShell title={copy.emptyTitle} subtitle={copy.emptySubtitle}>
@@ -162,6 +208,38 @@ export function CompletionView() {
         >
           {copy.downloadPdfButton}
         </button>
+
+        <div className="space-y-3 rounded-3xl border border-border bg-canvas px-5 py-5">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
+              {copy.emailPdfTitle}
+            </h2>
+            <p className="text-sm leading-6 text-slate-700">{copy.emailPdfSubtitle}</p>
+          </div>
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-slate-700">{copy.recipientEmailLabel}</span>
+            <input
+              autoComplete="email"
+              className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
+              placeholder={copy.recipientEmailPlaceholder}
+              type="email"
+              value={recipientEmail}
+              onChange={(event) => {
+                setRecipientEmail(event.target.value);
+                setEmailStatus("");
+              }}
+            />
+          </label>
+          <button
+            className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!sessionId || !recipientEmail.trim() || emailSending}
+            type="button"
+            onClick={handleEmailSend}
+          >
+            {emailSending ? copy.sendingPdfButton : copy.sendPdfButton}
+          </button>
+          {emailStatus ? <StatusBanner tone={emailStatusTone}>{emailStatus}</StatusBanner> : null}
+        </div>
 
         <div className="space-y-3 border-t border-border pt-4">
           <label className="block space-y-2">

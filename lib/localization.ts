@@ -168,6 +168,14 @@ type CompletionCopy = {
   subtitle: string;
   overviewLabel: string;
   downloadPdfButton: string;
+  emailPdfTitle: string;
+  emailPdfSubtitle: string;
+  recipientEmailLabel: string;
+  recipientEmailPlaceholder: string;
+  sendPdfButton: string;
+  sendingPdfButton: string;
+  emailSent: (email: string) => string;
+  emailSendFailed: string;
   feedbackLabel: string;
   feedbackPlaceholder: string;
   commentsLabel: string;
@@ -654,6 +662,14 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
       "This view shows the final edited summary, allows a browser PDF export, and collects lightweight feedback.",
     overviewLabel: "Overview",
     downloadPdfButton: "Download as PDF",
+    emailPdfTitle: "Send PDF by email",
+    emailPdfSubtitle: "We’ll attach this summary as a PDF. You can keep your email here or type another one.",
+    recipientEmailLabel: "Recipient email",
+    recipientEmailPlaceholder: "caregiver@example.com",
+    sendPdfButton: "Send PDF",
+    sendingPdfButton: "Sending PDF...",
+    emailSent: (email) => `Summary PDF sent to ${email}.`,
+    emailSendFailed: "Unable to send the PDF right now.",
     feedbackLabel: "How useful was this?",
     feedbackPlaceholder: "For example: very useful, somewhat useful, not useful",
     commentsLabel: "Comments",
@@ -670,6 +686,15 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
       "Aquí verá el resumen final editado, podrá exportarlo como PDF desde el navegador y dejar comentarios breves.",
     overviewLabel: "Resumen general",
     downloadPdfButton: "Descargar como PDF",
+    emailPdfTitle: "Enviar PDF por correo",
+    emailPdfSubtitle:
+      "Adjuntaremos este resumen como PDF. Puede dejar su correo o escribir otro.",
+    recipientEmailLabel: "Correo del destinatario",
+    recipientEmailPlaceholder: "cuidador@ejemplo.com",
+    sendPdfButton: "Enviar PDF",
+    sendingPdfButton: "Enviando PDF...",
+    emailSent: (email) => `El PDF del resumen se envió a ${email}.`,
+    emailSendFailed: "No fue posible enviar el PDF en este momento.",
     feedbackLabel: "¿Qué tan útil fue esto?",
     feedbackPlaceholder: "Por ejemplo: muy útil, algo útil, poco útil",
     commentsLabel: "Comentarios",
@@ -685,6 +710,14 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     subtitle: "这里会显示最终编辑后的摘要，您也可以导出 PDF，并留下简短反馈。",
     overviewLabel: "概览",
     downloadPdfButton: "下载 PDF",
+    emailPdfTitle: "通过邮件发送 PDF",
+    emailPdfSubtitle: "我们会把这份摘要作为 PDF 附件发送。您可以保留当前邮箱，或改填其他邮箱。",
+    recipientEmailLabel: "收件邮箱",
+    recipientEmailPlaceholder: "caregiver@example.com",
+    sendPdfButton: "发送 PDF",
+    sendingPdfButton: "正在发送 PDF...",
+    emailSent: (email) => `摘要 PDF 已发送到 ${email}。`,
+    emailSendFailed: "暂时无法发送 PDF。",
     feedbackLabel: "这份内容对您有多大帮助？",
     feedbackPlaceholder: "例如：非常有帮助、有些帮助、没有帮助",
     commentsLabel: "意见",

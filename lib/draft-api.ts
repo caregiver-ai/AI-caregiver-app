@@ -39,7 +39,7 @@ async function getAccessToken() {
   return session?.access_token ?? null;
 }
 
-async function authenticatedFetch(input: RequestInfo | URL, init?: RequestInit) {
+export async function authenticatedFetch(input: RequestInfo | URL, init?: RequestInit) {
   const accessToken = await getAccessToken();
   if (!accessToken) {
     throw new Error("You need to sign in to continue.");
