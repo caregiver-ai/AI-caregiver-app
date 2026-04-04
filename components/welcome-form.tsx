@@ -75,14 +75,6 @@ function hasDraftContent(intakeDetails: SessionIntakeDetails, consented: boolean
   );
 }
 
-function shouldStayOnIntakePage() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  return new URLSearchParams(window.location.search).get("view") === "intake";
-}
-
 function isIntakeReadyForReflection(draft: Pick<SessionDraft, "intakeDetails" | "consented">) {
   const { intakeDetails, consented } = draft;
 
@@ -133,7 +125,7 @@ export function WelcomeForm() {
   const [consented, setConsented] = useState(false);
   const [intakeDetails, setIntakeDetails] = useState<SessionIntakeDetails>(EMPTY_INTAKE_DETAILS);
   const fieldRefs = useRef<Partial<Record<ValidationField, HTMLElement | null>>>({});
-  const suppressAutoResumeRef = useRef(shouldStayOnIntakePage());
+  const resumeAfterAuthRef = useRef(false);
   const uiLanguage = intakeDetails.preferredLanguage;
   const copy = useMemo(() => getWelcomeCopy(uiLanguage), [uiLanguage]);
 
@@ -219,9 +211,13 @@ export function WelcomeForm() {
       saveDraft(draft);
 
       const resumePath = getResumePath(draft);
-      if (resumePath && !suppressAutoResumeRef.current) {
+      if (resumePath && resumeAfterAuthRef.current) {
+        resumeAfterAuthRef.current = false;
         router.replace(resumePath);
+        return;
       }
+
+      resumeAfterAuthRef.current = false;
     } catch (loadError) {
       const localDraft = loadDraft();
       if (localDraft?.email === userEmail) {
@@ -234,10 +230,15 @@ export function WelcomeForm() {
         saveDraft(localDraft);
 
         const resumePath = getResumePath(localDraft);
-        if (resumePath && !suppressAutoResumeRef.current) {
+        if (resumePath && resumeAfterAuthRef.current) {
+          resumeAfterAuthRef.current = false;
           router.replace(resumePath);
+          return;
         }
+
+        resumeAfterAuthRef.current = false;
       } else {
+        resumeAfterAuthRef.current = false;
         setError(loadError instanceof Error ? loadError.message : copy.errors.authFailed);
       }
     } finally {
@@ -371,7 +372,7 @@ export function WelcomeForm() {
     setAuthAction(authMode);
     setError("");
     setAuthNotice("");
-    suppressAutoResumeRef.current = false;
+    resumeAfterAuthRef.current = true;
 
     try {
       const supabase = getSupabaseBrowserClient();
@@ -440,6 +441,7 @@ export function WelcomeForm() {
       setPassword("");
       setConfirmPassword("");
     } catch (authError) {
+      resumeAfterAuthRef.current = false;
       setError(authError instanceof Error ? authError.message : copy.errors.authFailed);
     } finally {
       setAuthLoading(false);
@@ -541,8 +543,8 @@ export function WelcomeForm() {
     setValidationField("");
 
     try {
-      await persistDraft("in_progress");
-      router.push("/reflection");
+      const savedDraft = await persistDraft("in_progress");
+      router.push(getResumePath(savedDraft) ?? "/reflection");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : copy.errors.startFailed);
     } finally {

@@ -16,7 +16,7 @@ export function AppShell({
       <div className="mb-6">
         <Link
           className="text-sm font-medium uppercase tracking-[0.25em] text-accent transition hover:text-teal-700"
-          href="/?view=intake"
+          href="/"
         >
           {APP_NAME}
         </Link>
