@@ -86,6 +86,9 @@ export function WelcomeForm() {
   const [authenticated, setAuthenticated] = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
+  const [authAction, setAuthAction] = useState<"signin" | "signup" | "reset" | "">("");
+  const [authNotice, setAuthNotice] = useState("");
+  const [authNoticeTone, setAuthNoticeTone] = useState<"info" | "success">("info");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [validationField, setValidationField] = useState<ValidationField | "">("");
@@ -108,6 +111,7 @@ export function WelcomeForm() {
   function showValidationError(field: ValidationField, message: string) {
     setValidationField(field);
     setError(message);
+    setAuthNotice("");
 
     window.requestAnimationFrame(() => {
       const element = fieldRefs.current[field];
@@ -125,6 +129,7 @@ export function WelcomeForm() {
     value: SessionIntakeDetails[Field]
   ) {
     setError("");
+    setAuthNotice("");
     if (field === validationField) {
       setValidationField("");
     }
@@ -143,6 +148,7 @@ export function WelcomeForm() {
     setConsented(false);
     setValidationField("");
     setError("");
+    setAuthNotice("");
 
     const localDraft = loadDraft();
     if (localDraft?.email.trim().toLowerCase() !== userEmail.trim().toLowerCase()) {
@@ -293,26 +299,32 @@ export function WelcomeForm() {
   async function handleAuthSubmit() {
     if (!email.trim()) {
       setError(copy.errors.email);
+      setAuthNotice("");
       return;
     }
 
     if (!password.trim()) {
       setError(copy.errors.password);
+      setAuthNotice("");
       return;
     }
 
     if (authMode === "signup" && !confirmPassword.trim()) {
       setError(copy.errors.confirmPassword);
+      setAuthNotice("");
       return;
     }
 
     if (authMode === "signup" && password !== confirmPassword) {
       setError(copy.errors.passwordMismatch);
+      setAuthNotice("");
       return;
     }
 
     setAuthLoading(true);
+    setAuthAction(authMode);
     setError("");
+    setAuthNotice("");
 
     try {
       const supabase = getSupabaseBrowserClient();
@@ -384,11 +396,48 @@ export function WelcomeForm() {
       setError(authError instanceof Error ? authError.message : copy.errors.authFailed);
     } finally {
       setAuthLoading(false);
+      setAuthAction("");
+    }
+  }
+
+  async function handleForgotPassword() {
+    if (!email.trim()) {
+      setError(copy.errors.email);
+      setAuthNotice("");
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthAction("reset");
+    setError("");
+    setAuthNotice("");
+
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const redirectTo = new URL("/update-password", window.location.origin);
+      redirectTo.searchParams.set("lang", uiLanguage);
+
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: redirectTo.toString()
+      });
+
+      if (resetError) {
+        throw resetError;
+      }
+
+      setAuthNotice(copy.resetPasswordSuccess);
+      setAuthNoticeTone("success");
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : copy.errors.authFailed);
+    } finally {
+      setAuthLoading(false);
+      setAuthAction("");
     }
   }
 
   async function handleSignOut() {
     setError("");
+    setAuthNotice("");
     setValidationField("");
     clearDraft();
     setSessionId("");
@@ -403,6 +452,7 @@ export function WelcomeForm() {
   async function handleStart() {
     if (!authenticated) {
       setError(copy.errors.authFailed);
+      setAuthNotice("");
       return;
     }
 
@@ -443,6 +493,7 @@ export function WelcomeForm() {
 
     setLoading(true);
     setError("");
+    setAuthNotice("");
     setValidationField("");
 
     try {
@@ -498,6 +549,11 @@ export function WelcomeForm() {
             <StatusBanner tone="error">{error}</StatusBanner>
           </div>
         ) : null}
+        {!error && authNotice ? (
+          <div className="mt-6">
+            <StatusBanner tone={authNoticeTone}>{authNotice}</StatusBanner>
+          </div>
+        ) : null}
 
         <div className="mt-8 space-y-8">
           <section className="space-y-4 rounded-3xl border border-border bg-canvas px-5 py-5">
@@ -540,7 +596,11 @@ export function WelcomeForm() {
                       placeholder={copy.placeholders.email}
                       type="email"
                       value={email}
-                      onChange={(event) => setEmail(event.target.value)}
+                      onChange={(event) => {
+                        setError("");
+                        setAuthNotice("");
+                        setEmail(event.target.value);
+                      }}
                     />
                   </label>
                   <label className="block space-y-2">
@@ -550,7 +610,11 @@ export function WelcomeForm() {
                       className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
                       type="password"
                       value={password}
-                      onChange={(event) => setPassword(event.target.value)}
+                      onChange={(event) => {
+                        setError("");
+                        setAuthNotice("");
+                        setPassword(event.target.value);
+                      }}
                     />
                   </label>
                   {authMode === "signup" ? (
@@ -563,11 +627,25 @@ export function WelcomeForm() {
                         className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
                         type="password"
                         value={confirmPassword}
-                        onChange={(event) => setConfirmPassword(event.target.value)}
+                        onChange={(event) => {
+                          setError("");
+                          setAuthNotice("");
+                          setConfirmPassword(event.target.value);
+                        }}
                       />
                     </label>
                   ) : null}
                 </div>
+                {authMode === "signin" ? (
+                  <button
+                    className="text-sm font-medium text-accent transition hover:text-teal-700"
+                    disabled={authLoading || !authReady}
+                    type="button"
+                    onClick={() => void handleForgotPassword()}
+                  >
+                    {authLoading ? copy.sendingResetLabel : copy.forgotPasswordButton}
+                  </button>
+                ) : null}
 
                 <button
                   className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -576,7 +654,9 @@ export function WelcomeForm() {
                   onClick={handleAuthSubmit}
                 >
                   {authLoading
-                    ? authMode === "signin"
+                    ? authAction === "reset"
+                      ? copy.sendingResetLabel
+                      : authMode === "signin"
                       ? copy.signingInLabel
                       : copy.creatingAccountLabel
                     : authMode === "signin"

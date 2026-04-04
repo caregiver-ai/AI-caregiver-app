@@ -39,8 +39,11 @@ type WelcomeCopy = {
   createAccountButton: string;
   signingInLabel: string;
   creatingAccountLabel: string;
+  sendingResetLabel: string;
   signedInAs: (email: string) => string;
   signOutButton: string;
+  forgotPasswordButton: string;
+  resetPasswordSuccess: string;
   aboutYou: string;
   aboutYouSubtitle: string;
   yourFirstName: string;
@@ -89,6 +92,23 @@ type WelcomeCopy = {
     email: string;
     caregiverPhone: string;
   };
+};
+
+type ResetPasswordCopy = {
+  title: string;
+  subtitle: string;
+  checkingLink: string;
+  passwordLabel: string;
+  confirmPasswordLabel: string;
+  saveButton: string;
+  savingButton: string;
+  successMessage: string;
+  invalidLinkMessage: string;
+  passwordMismatch: string;
+  passwordRequired: string;
+  confirmPasswordRequired: string;
+  updateFailed: string;
+  backToSignIn: string;
 };
 
 type ReflectionCopy = {
@@ -180,8 +200,12 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     createAccountButton: "Create account",
     signingInLabel: "Signing in...",
     creatingAccountLabel: "Creating account...",
+    sendingResetLabel: "Sending reset email...",
     signedInAs: (email) => `Signed in as ${email}`,
     signOutButton: "Sign out",
+    forgotPasswordButton: "Forgot password?",
+    resetPasswordSuccess:
+      "If that email is in the system, a password reset link has been sent.",
     aboutYou: "About you",
     aboutYouSubtitle: "(so we can personalize this)",
     yourFirstName: "First name",
@@ -250,8 +274,12 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     createAccountButton: "Crear cuenta",
     signingInLabel: "Iniciando sesión...",
     creatingAccountLabel: "Creando cuenta...",
+    sendingResetLabel: "Enviando correo de restablecimiento...",
     signedInAs: (email) => `Sesión iniciada como ${email}`,
     signOutButton: "Cerrar sesión",
+    forgotPasswordButton: "¿Olvidó su contraseña?",
+    resetPasswordSuccess:
+      "Si ese correo existe en el sistema, se ha enviado un enlace para restablecer la contraseña.",
     aboutYou: "Sobre usted",
     aboutYouSubtitle: "(para que podamos personalizar esto)",
     yourFirstName: "Nombre",
@@ -321,8 +349,11 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     createAccountButton: "创建账号",
     signingInLabel: "正在登录...",
     creatingAccountLabel: "正在创建账号...",
+    sendingResetLabel: "正在发送重置邮件...",
     signedInAs: (email) => `当前登录邮箱：${email}`,
     signOutButton: "退出登录",
+    forgotPasswordButton: "忘记密码？",
+    resetPasswordSuccess: "如果该邮箱已注册，系统会发送一封重置密码邮件。",
     aboutYou: "关于您",
     aboutYouSubtitle: "（方便我们为您个性化调整）",
     yourFirstName: "名字",
@@ -504,6 +535,58 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
         ? "已达到 45 秒上限。现在开始转录；如果 Gemini 正忙，系统会自动重试。"
         : `已达到 45 秒上限。现在开始把${languageLabel}语音翻译成英文；如果 Gemini 正忙，系统会自动重试。`,
     recordingStatus: (current, max) => `正在录音 ${current} / ${max}。`
+  }
+};
+
+const resetPasswordCopy: Record<UiLanguage, ResetPasswordCopy> = {
+  english: {
+    title: "Set a new password",
+    subtitle: "Choose a new password for your account.",
+    checkingLink: "Checking reset link...",
+    passwordLabel: "New password",
+    confirmPasswordLabel: "Confirm new password",
+    saveButton: "Save new password",
+    savingButton: "Saving...",
+    successMessage: "Password updated. You can return to the app now.",
+    invalidLinkMessage: "This reset link is invalid or expired. Request a new password reset email.",
+    passwordMismatch: "Passwords must match.",
+    passwordRequired: "Enter a new password.",
+    confirmPasswordRequired: "Confirm your new password.",
+    updateFailed: "Unable to update the password right now.",
+    backToSignIn: "Back to sign in"
+  },
+  spanish: {
+    title: "Crear una nueva contraseña",
+    subtitle: "Elija una nueva contraseña para su cuenta.",
+    checkingLink: "Verificando enlace de restablecimiento...",
+    passwordLabel: "Nueva contraseña",
+    confirmPasswordLabel: "Confirmar nueva contraseña",
+    saveButton: "Guardar nueva contraseña",
+    savingButton: "Guardando...",
+    successMessage: "La contraseña se actualizó. Ya puede volver a la aplicación.",
+    invalidLinkMessage:
+      "Este enlace para restablecer la contraseña no es válido o venció. Solicite uno nuevo.",
+    passwordMismatch: "Las contraseñas deben coincidir.",
+    passwordRequired: "Ingrese una nueva contraseña.",
+    confirmPasswordRequired: "Confirme su nueva contraseña.",
+    updateFailed: "No fue posible actualizar la contraseña en este momento.",
+    backToSignIn: "Volver al inicio de sesión"
+  },
+  mandarin: {
+    title: "设置新密码",
+    subtitle: "请为您的账号设置一个新密码。",
+    checkingLink: "正在检查重置链接...",
+    passwordLabel: "新密码",
+    confirmPasswordLabel: "确认新密码",
+    saveButton: "保存新密码",
+    savingButton: "正在保存...",
+    successMessage: "密码已更新。现在可以返回应用继续使用。",
+    invalidLinkMessage: "此重置链接无效或已过期。请重新申请密码重置邮件。",
+    passwordMismatch: "两次输入的密码必须一致。",
+    passwordRequired: "请输入新密码。",
+    confirmPasswordRequired: "请确认您的新密码。",
+    updateFailed: "暂时无法更新密码。",
+    backToSignIn: "返回登录"
   }
 };
 
@@ -786,6 +869,10 @@ export function getReviewCopy(language: UiLanguage) {
 
 export function getCompletionCopy(language: UiLanguage) {
   return completionCopy[language];
+}
+
+export function getResetPasswordCopy(language: UiLanguage) {
+  return resetPasswordCopy[language];
 }
 
 export function getLocalizedReflectionPrompts(language: UiLanguage): ReflectionPrompt[] {
