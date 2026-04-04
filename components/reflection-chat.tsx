@@ -66,8 +66,10 @@ export function ReflectionChat() {
   const [activePromptId, setActivePromptId] = useState("");
   const [currentStepId, setCurrentStepId] = useState<ReflectionStepId>("communication");
   const [submitting, setSubmitting] = useState(false);
-  const [transitioning, setTransitioning] = useState(false);
-  const [transitionMessage, setTransitionMessage] = useState("");
+  const [pendingStepAdvance, setPendingStepAdvance] = useState<{
+    nextStepId: ReflectionStepId;
+    message: string;
+  } | null>(null);
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [statusTone, setStatusTone] = useState<"info" | "success">("info");
@@ -418,7 +420,7 @@ export function ReflectionChat() {
   }
 
   async function startRecording() {
-    if (!currentPrompt || transitioning || submitting || transcribing || recording) {
+    if (!currentPrompt || pendingStepAdvance || submitting || transcribing || recording) {
       return;
     }
 
@@ -515,7 +517,6 @@ export function ReflectionChat() {
     }
 
     setSubmitting(true);
-    setTransitionMessage(currentStepMeta?.stepCompletionMessage ?? reflectionCopy.completionMessage);
     setError("");
     setStatusMessage("");
 
@@ -583,17 +584,17 @@ export function ReflectionChat() {
       return;
     }
 
-    setTransitioning(true);
-    setTransitionMessage(currentStepMeta?.stepCompletionMessage ?? reflectionCopy.completionMessage);
-    await new Promise((resolve) => window.setTimeout(resolve, 900));
-
-    setCurrentStepId(nextStepId);
-    setActivePromptId(getFirstPromptIdForStep(nextStepId, uiLanguage));
-    setTransitionMessage("");
-    setTransitioning(false);
+    setPendingStepAdvance({
+      nextStepId,
+      message: currentStepMeta?.stepCompletionMessage ?? reflectionCopy.completionMessage
+    });
   }
 
   function handleBack() {
+    if (pendingStepAdvance) {
+      return;
+    }
+
     const previousStepId = stepOrder[currentStepIndex - 1];
     if (!previousStepId) {
       return;
@@ -605,15 +606,25 @@ export function ReflectionChat() {
     setActivePromptId(getFirstPromptIdForStep(previousStepId, uiLanguage));
   }
 
-  if (submitting || transitioning) {
+  function handleAdvanceToNextStep() {
+    if (!pendingStepAdvance) {
+      return;
+    }
+
+    setError("");
+    setStatusMessage("");
+    setCurrentStepId(pendingStepAdvance.nextStepId);
+    setActivePromptId(getFirstPromptIdForStep(pendingStepAdvance.nextStepId, uiLanguage));
+    setPendingStepAdvance(null);
+  }
+
+  if (submitting) {
     return (
       <AppShell
-        title={transitionMessage || currentStepMeta?.stepCompletionMessage || reflectionCopy.completionMessage}
-        subtitle={submitting ? reflectionCopy.buildingSummaryLabel : ""}
+        title={reflectionCopy.buildingSummaryLabel}
+        subtitle=""
       >
-        <StatusBanner tone="success">
-          {transitionMessage || currentStepMeta?.stepCompletionMessage || reflectionCopy.completionMessage}
-        </StatusBanner>
+        <StatusBanner tone="success">{reflectionCopy.buildingSummaryLabel}</StatusBanner>
       </AppShell>
     );
   }
@@ -655,7 +666,7 @@ export function ReflectionChat() {
 
               <textarea
                 className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent disabled:bg-slate-50"
-                disabled={transcribing || recording}
+                disabled={transcribing || recording || Boolean(pendingStepAdvance)}
                 placeholder={reflectionCopy.textareaPlaceholder}
                 value={responses[prompt.id]?.skipped ? "" : responses[prompt.id]?.content ?? ""}
                 onChange={(event) => updateResponse(prompt.id, event.target.value)}
@@ -687,7 +698,7 @@ export function ReflectionChat() {
                         </span>
                         <select
                           className="w-full rounded-full border border-border bg-white px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-accent disabled:bg-slate-50"
-                          disabled={recording || transcribing}
+                          disabled={recording || transcribing || Boolean(pendingStepAdvance)}
                           value={audioLanguage}
                           onChange={(event) => setAudioLanguage(event.target.value as UiLanguage)}
                         >
@@ -705,7 +716,7 @@ export function ReflectionChat() {
                               ? "bg-red-600 text-white hover:bg-red-700"
                               : "border border-border bg-white text-slate-700 hover:bg-slate-50"
                           } disabled:cursor-not-allowed disabled:opacity-60`}
-                          disabled={transcribing}
+                          disabled={transcribing || Boolean(pendingStepAdvance)}
                           type="button"
                           onClick={recording ? () => void stopRecording() : () => void startRecording()}
                         >
@@ -728,7 +739,9 @@ export function ReflectionChat() {
         <div className="flex gap-3">
           <button
             className="w-full rounded-2xl border border-border px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={currentStepIndex === 0 || recording || transcribing}
+            disabled={
+              currentStepIndex === 0 || recording || transcribing || Boolean(pendingStepAdvance)
+            }
             type="button"
             onClick={handleBack}
           >
@@ -736,7 +749,7 @@ export function ReflectionChat() {
           </button>
           <button
             className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={recording || transcribing || !sessionId}
+            disabled={recording || transcribing || !sessionId || Boolean(pendingStepAdvance)}
             type="button"
             onClick={handleContinue}
           >
@@ -746,6 +759,35 @@ export function ReflectionChat() {
           </button>
         </div>
       </div>
+
+      {pendingStepAdvance ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4">
+          <div className="w-full max-w-md rounded-3xl border border-border bg-white p-6 shadow-2xl">
+            <div className="space-y-3">
+              <div className="text-sm font-semibold uppercase tracking-[0.22em] text-accent">
+                {currentStepMeta?.stepTitle ?? reflectionCopy.title}
+              </div>
+              <h2 className="text-2xl font-semibold leading-9 text-ink">
+                {pendingStepAdvance.message}
+              </h2>
+              <p className="text-sm leading-6 text-slate-600">
+                {stepOrder[currentStepIndex + 1]
+                  ? reflectionCopy.sectionCounter(currentStepIndex + 2, stepOrder.length)
+                  : ""}
+              </p>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                className="rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700"
+                type="button"
+                onClick={handleAdvanceToNextStep}
+              >
+                {reflectionCopy.continueButton}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </AppShell>
   );
 }
