@@ -237,6 +237,8 @@ const summaryLocales: Record<UiLanguage, string> = {
   mandarin: "zh-CN"
 };
 
+const SUMMARY_TIME_ZONE = "America/New_York";
+
 export function formatSummaryGeneratedAt(value: string, language: UiLanguage = "english") {
   if (!value) {
     return "";
@@ -248,8 +250,13 @@ export function formatSummaryGeneratedAt(value: string, language: UiLanguage = "
   }
 
   return new Intl.DateTimeFormat(summaryLocales[language], {
-    dateStyle: "long",
-    timeStyle: "short"
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: SUMMARY_TIME_ZONE,
+    timeZoneName: "short"
   }).format(date);
 }
 
