@@ -230,6 +230,23 @@ export function ReflectionChat() {
     };
   }, [responses, sessionId, uiLanguage]);
 
+  useEffect(() => {
+    if (!pendingStepAdvance) {
+      return;
+    }
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [pendingStepAdvance]);
+
   function getAudioPanelCopy({
     recordingState,
     transcribingState,
@@ -630,139 +647,141 @@ export function ReflectionChat() {
   }
 
   return (
-    <AppShell
-      title={currentStepMeta?.sectionTitle ?? reflectionCopy.title}
-      subtitle={
-        currentStepMeta
-          ? `${currentStepMeta.stepTitle}. ${currentStepMeta.stepSubtitle}`
-          : reflectionCopy.subtitle
-      }
-    >
-      <div className="space-y-5">
-        <div className="rounded-2xl border border-border bg-canvas px-4 py-3 text-sm text-slate-700">
-          {reflectionCopy.sectionCounter(currentStepIndex + 1, stepOrder.length)}
-        </div>
+    <>
+      <AppShell
+        title={currentStepMeta?.sectionTitle ?? reflectionCopy.title}
+        subtitle={
+          currentStepMeta
+            ? `${currentStepMeta.stepTitle}. ${currentStepMeta.stepSubtitle}`
+            : reflectionCopy.subtitle
+        }
+      >
+        <div className="space-y-5">
+          <div className="rounded-2xl border border-border bg-canvas px-4 py-3 text-sm text-slate-700">
+            {reflectionCopy.sectionCounter(currentStepIndex + 1, stepOrder.length)}
+          </div>
 
-        {stepPrompts.map((prompt) => {
-          const isActive = currentPrompt?.id === prompt.id;
+          {stepPrompts.map((prompt) => {
+            const isActive = currentPrompt?.id === prompt.id;
 
-          return (
-            <div
-              key={prompt.id}
-              className={`space-y-4 rounded-3xl border px-5 py-5 transition ${
-                isActive ? "border-accent bg-canvas ring-2 ring-accent/20" : "border-border bg-white"
-              }`}
-            >
-              <div className="space-y-2">
-                <h2 className="text-lg font-semibold leading-8 text-ink">{prompt.content}</h2>
-                {prompt.promptExamples?.length ? (
-                  <ul className="space-y-1 text-sm leading-6 text-slate-500">
-                    {prompt.promptExamples.map((example) => (
-                      <li key={example}>({example})</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
+            return (
+              <div
+                key={prompt.id}
+                className={`space-y-4 rounded-3xl border px-5 py-5 transition ${
+                  isActive ? "border-accent bg-canvas ring-2 ring-accent/20" : "border-border bg-white"
+                }`}
+              >
+                <div className="space-y-2">
+                  <h2 className="text-lg font-semibold leading-8 text-ink">{prompt.content}</h2>
+                  {prompt.promptExamples?.length ? (
+                    <ul className="space-y-1 text-sm leading-6 text-slate-500">
+                      {prompt.promptExamples.map((example) => (
+                        <li key={example}>({example})</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
 
-              <textarea
-                className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent disabled:bg-slate-50"
-                disabled={transcribing || recording || Boolean(pendingStepAdvance)}
-                placeholder={reflectionCopy.textareaPlaceholder}
-                value={responses[prompt.id]?.skipped ? "" : responses[prompt.id]?.content ?? ""}
-                onChange={(event) => updateResponse(prompt.id, event.target.value)}
-                onFocus={() => setActivePromptId(prompt.id)}
-              />
+                <textarea
+                  className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent disabled:bg-slate-50"
+                  disabled={transcribing || recording || Boolean(pendingStepAdvance)}
+                  placeholder={reflectionCopy.textareaPlaceholder}
+                  value={responses[prompt.id]?.skipped ? "" : responses[prompt.id]?.content ?? ""}
+                  onChange={(event) => updateResponse(prompt.id, event.target.value)}
+                  onFocus={() => setActivePromptId(prompt.id)}
+                />
 
-              {isActive ? (
-                <div className="rounded-2xl border border-border bg-canvas px-4 py-3">
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <div className="text-sm font-semibold text-slate-700">
-                        {reflectionCopy.recordResponseTitle}
+                {isActive ? (
+                  <div className="rounded-2xl border border-border bg-canvas px-4 py-3">
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-slate-700">
+                          {reflectionCopy.recordResponseTitle}
+                        </div>
+                        <div className="text-sm leading-6 text-slate-600">
+                          {getAudioPanelCopy({
+                            recordingState: recording,
+                            transcribingState: transcribing,
+                            durationMs: recordingDurationMs
+                          })}
+                        </div>
                       </div>
-                      <div className="text-sm leading-6 text-slate-600">
-                        {getAudioPanelCopy({
-                          recordingState: recording,
-                          transcribingState: transcribing,
-                          durationMs: recordingDurationMs
-                        })}
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                        {reflectionCopy.audioLimitNotice}
                       </div>
-                    </div>
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
-                      {reflectionCopy.audioLimitNotice}
-                    </div>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                      <label className="flex-1 text-sm text-slate-600">
-                        <span className="mb-2 block font-medium text-slate-700">
-                          {reflectionCopy.spokenLanguageLabel}
-                        </span>
-                        <select
-                          className="w-full rounded-full border border-border bg-white px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-accent disabled:bg-slate-50"
-                          disabled={recording || transcribing || Boolean(pendingStepAdvance)}
-                          value={audioLanguage}
-                          onChange={(event) => setAudioLanguage(event.target.value as UiLanguage)}
-                        >
-                          {SPOKEN_LANGUAGE_OPTIONS.map((option) => (
-                            <option key={option} value={option}>
-                              {getLanguageLabel(option, uiLanguage)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {recordingSupported ? (
-                        <button
-                          className={`w-full rounded-full px-4 py-2.5 text-sm font-semibold transition sm:w-auto sm:min-w-[12rem] ${
-                            recording
-                              ? "bg-red-600 text-white hover:bg-red-700"
-                              : "border border-border bg-white text-slate-700 hover:bg-slate-50"
-                          } disabled:cursor-not-allowed disabled:opacity-60`}
-                          disabled={transcribing || Boolean(pendingStepAdvance)}
-                          type="button"
-                          onClick={recording ? () => void stopRecording() : () => void startRecording()}
-                        >
-                          {recording ? reflectionCopy.stopRecordingButton : reflectionCopy.recordButton}
-                        </button>
-                      ) : (
-                        <div className="text-xs text-slate-500">{reflectionCopy.audioNotSupported}</div>
-                      )}
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <label className="flex-1 text-sm text-slate-600">
+                          <span className="mb-2 block font-medium text-slate-700">
+                            {reflectionCopy.spokenLanguageLabel}
+                          </span>
+                          <select
+                            className="w-full rounded-full border border-border bg-white px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-accent disabled:bg-slate-50"
+                            disabled={recording || transcribing || Boolean(pendingStepAdvance)}
+                            value={audioLanguage}
+                            onChange={(event) => setAudioLanguage(event.target.value as UiLanguage)}
+                          >
+                            {SPOKEN_LANGUAGE_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {getLanguageLabel(option, uiLanguage)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {recordingSupported ? (
+                          <button
+                            className={`w-full rounded-full px-4 py-2.5 text-sm font-semibold transition sm:w-auto sm:min-w-[12rem] ${
+                              recording
+                                ? "bg-red-600 text-white hover:bg-red-700"
+                                : "border border-border bg-white text-slate-700 hover:bg-slate-50"
+                            } disabled:cursor-not-allowed disabled:opacity-60`}
+                            disabled={transcribing || Boolean(pendingStepAdvance)}
+                            type="button"
+                            onClick={recording ? () => void stopRecording() : () => void startRecording()}
+                          >
+                            {recording ? reflectionCopy.stopRecordingButton : reflectionCopy.recordButton}
+                          </button>
+                        ) : (
+                          <div className="text-xs text-slate-500">{reflectionCopy.audioNotSupported}</div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
+                ) : null}
+              </div>
+            );
+          })}
 
-        {error ? <StatusBanner tone="error">{error}</StatusBanner> : null}
-        {!error && statusMessage ? <StatusBanner tone={statusTone}>{statusMessage}</StatusBanner> : null}
+          {error ? <StatusBanner tone="error">{error}</StatusBanner> : null}
+          {!error && statusMessage ? <StatusBanner tone={statusTone}>{statusMessage}</StatusBanner> : null}
 
-        <div className="flex gap-3">
-          <button
-            className="w-full rounded-2xl border border-border px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={
-              currentStepIndex === 0 || recording || transcribing || Boolean(pendingStepAdvance)
-            }
-            type="button"
-            onClick={handleBack}
-          >
-            {reflectionCopy.backButton}
-          </button>
-          <button
-            className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={recording || transcribing || !sessionId || Boolean(pendingStepAdvance)}
-            type="button"
-            onClick={handleContinue}
-          >
-            {currentStepIndex === stepOrder.length - 1
-              ? reflectionCopy.completeButton
-              : reflectionCopy.continueButton}
-          </button>
+          <div className="flex gap-3">
+            <button
+              className="w-full rounded-2xl border border-border px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={
+                currentStepIndex === 0 || recording || transcribing || Boolean(pendingStepAdvance)
+              }
+              type="button"
+              onClick={handleBack}
+            >
+              {reflectionCopy.backButton}
+            </button>
+            <button
+              className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={recording || transcribing || !sessionId || Boolean(pendingStepAdvance)}
+              type="button"
+              onClick={handleContinue}
+            >
+              {currentStepIndex === stepOrder.length - 1
+                ? reflectionCopy.completeButton
+                : reflectionCopy.continueButton}
+            </button>
+          </div>
         </div>
-      </div>
+      </AppShell>
 
       {pendingStepAdvance ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4">
-          <div className="w-full max-w-md rounded-3xl border border-border bg-white p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/35 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-24 sm:items-center sm:px-6 sm:pb-6 sm:pt-6">
+          <div className="w-full max-w-md overflow-y-auto rounded-3xl border border-border bg-white p-6 shadow-2xl sm:max-h-[calc(100dvh-3rem)]">
             <div className="space-y-3">
               <div className="text-sm font-semibold uppercase tracking-[0.22em] text-accent">
                 {currentStepMeta?.stepTitle ?? reflectionCopy.title}
@@ -788,6 +807,6 @@ export function ReflectionChat() {
           </div>
         </div>
       ) : null}
-    </AppShell>
+    </>
   );
 }
