@@ -1,5 +1,5 @@
 import { EMPTY_SUMMARY } from "@/lib/constants";
-import { ConversationTurn, StructuredSummary, SummarySection } from "@/lib/types";
+import { ConversationTurn, StructuredSummary, SummarySection, UiLanguage } from "@/lib/types";
 
 type LegacyStructuredSummary = {
   key_barriers?: unknown;
@@ -133,7 +133,8 @@ function normalizeLegacySummary(input: LegacyStructuredSummary, nameHint?: strin
       typeof input.caregiver_summary_text === "string"
         ? shortenOverview(input.caregiver_summary_text)
         : "",
-    sections: legacySections
+    sections: legacySections,
+    generatedAt: ""
   };
 }
 
@@ -225,8 +226,31 @@ export function buildFallbackSummary(
     ...EMPTY_SUMMARY,
     title: defaultSummaryTitle(nameHint),
     overview: buildOverview(sections),
-    sections
+    sections,
+    generatedAt: ""
   };
+}
+
+const summaryLocales: Record<UiLanguage, string> = {
+  english: "en-US",
+  spanish: "es-US",
+  mandarin: "zh-CN"
+};
+
+export function formatSummaryGeneratedAt(value: string, language: UiLanguage = "english") {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(summaryLocales[language], {
+    dateStyle: "long",
+    timeStyle: "short"
+  }).format(date);
 }
 
 export function summaryToPlainText(summary: StructuredSummary) {
@@ -267,7 +291,11 @@ export function normalizeStructuredSummary(input: unknown, nameHint?: string): S
           : defaultSummaryTitle(nameHint),
       overview:
         typeof candidate.overview === "string" ? shortenOverview(candidate.overview) : buildOverview(sections),
-      sections
+      sections,
+      generatedAt:
+        typeof candidate.generatedAt === "string" && candidate.generatedAt.trim()
+          ? candidate.generatedAt.trim()
+          : ""
     };
   }
 

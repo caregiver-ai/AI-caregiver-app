@@ -500,6 +500,7 @@ export function ReflectionChat() {
       if (updatedDraft) {
         updatedDraft.structuredSummary = data.summary;
         updatedDraft.editedSummary = data.summary;
+        delete updatedDraft.feedback;
         await persistDraft(updatedDraft);
       }
 

@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
 import { authenticatedFetch, getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
 import { getCompletionCopy } from "@/lib/localization";
-import { normalizeStructuredSummary } from "@/lib/summary";
+import { formatSummaryGeneratedAt, normalizeStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { StructuredSummary, UiLanguage } from "@/lib/types";
 
@@ -35,6 +36,7 @@ function SummarySectionBlock({
 }
 
 export function CompletionView() {
+  const router = useRouter();
   const [summary, setSummary] = useState<StructuredSummary | null>(null);
   const [sessionId, setSessionId] = useState("");
   const [rating, setRating] = useState("");
@@ -45,8 +47,13 @@ export function CompletionView() {
   const [emailSending, setEmailSending] = useState(false);
   const [emailStatus, setEmailStatus] = useState("");
   const [emailStatusTone, setEmailStatusTone] = useState<"success" | "error">("success");
+  const [returningToQuestions, setReturningToQuestions] = useState(false);
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
   const copy = useMemo(() => getCompletionCopy(uiLanguage), [uiLanguage]);
+  const generatedAtText = useMemo(
+    () => formatSummaryGeneratedAt(summary?.generatedAt ?? "", uiLanguage),
+    [summary?.generatedAt, uiLanguage]
+  );
 
   useEffect(() => {
     let active = true;
@@ -174,6 +181,20 @@ export function CompletionView() {
     }
   }
 
+  async function handleBackToQuestions() {
+    setReturningToQuestions(true);
+
+    const draft = loadDraft();
+    if (draft) {
+      saveDraft(draft);
+      await saveRemoteDraft(draft, "in_progress").catch(() => {
+        // Preserve local state and allow editing even if remote sync briefly fails.
+      });
+    }
+
+    router.push("/reflection");
+  }
+
   if (!summary) {
     return (
       <AppShell title={copy.emptyTitle} subtitle={copy.emptySubtitle}>
@@ -187,6 +208,14 @@ export function CompletionView() {
       <div className="space-y-5">
         <div className="space-y-3 rounded-3xl border border-border bg-canvas px-5 py-5">
           <h2 className="text-2xl font-semibold text-ink">{summary.title}</h2>
+          {generatedAtText ? (
+            <div className="space-y-1">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                {copy.generatedAtLabel}
+              </div>
+              <p className="text-sm text-slate-700">{generatedAtText}</p>
+            </div>
+          ) : null}
           {summary.overview ? (
             <div className="space-y-2">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -195,6 +224,17 @@ export function CompletionView() {
               <p className="text-sm leading-6 text-slate-700">{summary.overview}</p>
             </div>
           ) : null}
+          <div className="space-y-3 border-t border-border pt-4">
+            <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
+            <button
+              className="w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={returningToQuestions}
+              type="button"
+              onClick={handleBackToQuestions}
+            >
+              {copy.backToQuestionsButton}
+            </button>
+          </div>
         </div>
 
         {summary.sections.map((section) => (

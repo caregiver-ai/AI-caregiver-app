@@ -7,7 +7,7 @@ import { StatusBanner } from "@/components/status-banner";
 import { EMPTY_SUMMARY } from "@/lib/constants";
 import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
 import { getReviewCopy } from "@/lib/localization";
-import { normalizeStructuredSummary } from "@/lib/summary";
+import { formatSummaryGeneratedAt, normalizeStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { StructuredSummary, SummarySection, UiLanguage } from "@/lib/types";
 
@@ -35,9 +35,14 @@ export function ReviewEditor() {
   const [summary, setSummary] = useState<StructuredSummary>(EMPTY_SUMMARY);
   const [sessionId, setSessionId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [returningToQuestions, setReturningToQuestions] = useState(false);
   const [error, setError] = useState("");
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
   const copy = useMemo(() => getReviewCopy(uiLanguage), [uiLanguage]);
+  const generatedAtText = useMemo(
+    () => formatSummaryGeneratedAt(summary.generatedAt, uiLanguage),
+    [summary.generatedAt, uiLanguage]
+  );
 
   useEffect(() => {
     let active = true;
@@ -177,9 +182,49 @@ export function ReviewEditor() {
     }
   }
 
+  async function handleBackToQuestions() {
+    setReturningToQuestions(true);
+
+    const draft = loadDraft();
+    if (draft) {
+      const nextDraft = {
+        ...draft,
+        editedSummary: summary,
+        structuredSummary: draft.structuredSummary ?? summary
+      };
+
+      saveDraft(nextDraft);
+      await saveRemoteDraft(nextDraft, "in_progress").catch(() => {
+        // Preserve local state and continue editing even if remote sync briefly fails.
+      });
+    }
+
+    router.push("/reflection");
+  }
+
   return (
     <AppShell title={copy.title} subtitle={copy.subtitle}>
       <div className="space-y-5">
+        <div className="space-y-3 rounded-3xl border border-border bg-canvas px-5 py-5">
+          {generatedAtText ? (
+            <div className="space-y-1">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                {copy.generatedAtLabel}
+              </div>
+              <div className="text-sm text-slate-700">{generatedAtText}</div>
+            </div>
+          ) : null}
+          <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
+          <button
+            className="w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={saving || returningToQuestions}
+            type="button"
+            onClick={handleBackToQuestions}
+          >
+            {copy.backToQuestionsButton}
+          </button>
+        </div>
+
         <label className="block space-y-2">
           <span className="text-sm font-medium text-slate-700">{copy.summaryTitleLabel}</span>
           <input
@@ -257,7 +302,7 @@ export function ReviewEditor() {
 
         <button
           className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={saving}
+          disabled={saving || returningToQuestions}
           type="button"
           onClick={handleConfirm}
         >

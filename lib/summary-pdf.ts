@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { formatSummaryGeneratedAt } from "@/lib/summary";
 import { StructuredSummary } from "@/lib/types";
 
 const PAGE_WIDTH = 612;
@@ -202,6 +203,18 @@ export async function createSummaryPdf(summary: StructuredSummary) {
   state = drawParagraph(pdf, state, summary.title, boldFont, TITLE_SIZE, slate);
   state.y -= 8;
 
+  const generatedAtText = formatSummaryGeneratedAt(summary.generatedAt, "english");
+  if (generatedAtText) {
+    state.page.drawText(`Summary created: ${generatedAtText}`, {
+      x: PAGE_MARGIN_X,
+      y: state.y,
+      size: SMALL_SIZE,
+      font: regularFont,
+      color: muted
+    });
+    state.y -= SMALL_SIZE + 12;
+  }
+
   if (summary.overview.trim()) {
     state.page.drawText("Overview", {
       x: PAGE_MARGIN_X,
@@ -241,6 +254,7 @@ export async function createSummaryPdf(summary: StructuredSummary) {
 }
 
 export function buildSummaryEmailHtml(summary: StructuredSummary) {
+  const generatedAtText = formatSummaryGeneratedAt(summary.generatedAt, "english");
   const sections = summary.sections
     .filter((section) => section.items.length > 0)
     .map(
@@ -259,6 +273,11 @@ export function buildSummaryEmailHtml(summary: StructuredSummary) {
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#334155;">
       <p style="margin:0 0 12px;">Attached is the caregiver handoff summary as a PDF.</p>
       <p style="margin:0 0 16px;"><strong>${escapeHtml(summary.title)}</strong></p>
+      ${
+        generatedAtText
+          ? `<p style="margin:0 0 12px;color:#64748b;"><strong>Summary created:</strong> ${escapeHtml(generatedAtText)}</p>`
+          : ""
+      }
       ${
         summary.overview.trim()
           ? `<p style="margin:0 0 16px;">${escapeHtml(summary.overview.trim())}</p>`

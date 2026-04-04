@@ -30,6 +30,7 @@ export interface StructuredSummary {
   title: string;
   overview: string;
   sections: SummarySection[];
+  generatedAt: string;
 }
 
 export interface SessionIntakeDetails {

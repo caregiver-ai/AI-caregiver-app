@@ -198,7 +198,10 @@ export async function POST(request: Request) {
   try {
     const rawNameHint = typeof body.nameHint === "string" ? body.nameHint.trim() : "";
     const nameHint = isUsefulNameHint(rawNameHint) ? rawNameHint : "";
-    const summary = await generateSummaryWithGemini(body.turns, nameHint || undefined);
+    const summary = {
+      ...(await generateSummaryWithGemini(body.turns, nameHint || undefined)),
+      generatedAt: new Date().toISOString()
+    };
 
     if (supabase) {
       const { data: sessionRow, error: sessionLookupError } = await supabase

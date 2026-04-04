@@ -145,6 +145,9 @@ type ReflectionCopy = {
 type ReviewCopy = {
   title: string;
   subtitle: string;
+  generatedAtLabel: string;
+  backToQuestionsButton: string;
+  regenerateHint: string;
   summaryTitleLabel: string;
   overviewLabel: string;
   sectionsLabel: string;
@@ -166,6 +169,9 @@ type CompletionCopy = {
   emptyMessage: string;
   title: string;
   subtitle: string;
+  generatedAtLabel: string;
+  backToQuestionsButton: string;
+  regenerateHint: string;
   overviewLabel: string;
   downloadPdfButton: string;
   emailPdfTitle: string;
@@ -602,6 +608,9 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
   english: {
     title: "Review and edit",
     subtitle: "Review the AI-organized handoff below. You can edit the title, overview, and sections before saving.",
+    generatedAtLabel: "Summary created",
+    backToQuestionsButton: "Back to questions",
+    regenerateHint: "Need to add more context? Go back to the questions, add details, and complete again to regenerate this summary.",
     summaryTitleLabel: "Summary title",
     overviewLabel: "Overview",
     sectionsLabel: "Handoff sections",
@@ -619,6 +628,10 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
   spanish: {
     title: "Revisar y editar",
     subtitle: "Revise el resumen organizado por IA. Puede editar el título, el resumen general y las secciones antes de guardar.",
+    generatedAtLabel: "Resumen creado",
+    backToQuestionsButton: "Volver a las preguntas",
+    regenerateHint:
+      "¿Necesita agregar más contexto? Vuelva a las preguntas, agregue detalles y complete de nuevo para regenerar este resumen.",
     summaryTitleLabel: "Título del resumen",
     overviewLabel: "Resumen general",
     sectionsLabel: "Secciones del relevo",
@@ -636,6 +649,9 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
   mandarin: {
     title: "审核并编辑",
     subtitle: "请查看下方由 AI 整理的交接摘要。保存最终版本前，您可以编辑标题、概览和各个部分。",
+    generatedAtLabel: "摘要创建时间",
+    backToQuestionsButton: "返回问题页",
+    regenerateHint: "如果还想补充更多背景，请返回问题页添加内容，然后再次完成以重新生成摘要。",
     summaryTitleLabel: "摘要标题",
     overviewLabel: "概览",
     sectionsLabel: "交接部分",
@@ -660,6 +676,9 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     title: "Summary saved",
     subtitle:
       "This view shows the final edited summary, allows a browser PDF export, and collects lightweight feedback.",
+    generatedAtLabel: "Summary created",
+    backToQuestionsButton: "Back to questions",
+    regenerateHint: "If you remember more details later, go back to the questions, add them, and complete again to regenerate the summary.",
     overviewLabel: "Overview",
     downloadPdfButton: "Download as PDF",
     emailPdfTitle: "Send PDF by email",
@@ -684,6 +703,10 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     title: "Resumen guardado",
     subtitle:
       "Aquí verá el resumen final editado, podrá exportarlo como PDF desde el navegador y dejar comentarios breves.",
+    generatedAtLabel: "Resumen creado",
+    backToQuestionsButton: "Volver a las preguntas",
+    regenerateHint:
+      "Si luego recuerda más detalles, vuelva a las preguntas, agréguelos y complete de nuevo para regenerar el resumen.",
     overviewLabel: "Resumen general",
     downloadPdfButton: "Descargar como PDF",
     emailPdfTitle: "Enviar PDF por correo",
@@ -708,6 +731,9 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     emptyMessage: "目前还没有已保存的摘要。",
     title: "摘要已保存",
     subtitle: "这里会显示最终编辑后的摘要，您也可以导出 PDF，并留下简短反馈。",
+    generatedAtLabel: "摘要创建时间",
+    backToQuestionsButton: "返回问题页",
+    regenerateHint: "如果之后想起更多细节，可以返回问题页补充内容，然后再次完成以重新生成摘要。",
     overviewLabel: "概览",
     downloadPdfButton: "下载 PDF",
     emailPdfTitle: "通过邮件发送 PDF",
