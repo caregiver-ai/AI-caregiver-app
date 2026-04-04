@@ -133,6 +133,7 @@ export function WelcomeForm() {
   const [consented, setConsented] = useState(false);
   const [intakeDetails, setIntakeDetails] = useState<SessionIntakeDetails>(EMPTY_INTAKE_DETAILS);
   const fieldRefs = useRef<Partial<Record<ValidationField, HTMLElement | null>>>({});
+  const suppressAutoResumeRef = useRef(shouldStayOnIntakePage());
   const uiLanguage = intakeDetails.preferredLanguage;
   const copy = useMemo(() => getWelcomeCopy(uiLanguage), [uiLanguage]);
 
@@ -218,7 +219,7 @@ export function WelcomeForm() {
       saveDraft(draft);
 
       const resumePath = getResumePath(draft);
-      if (resumePath && !shouldStayOnIntakePage()) {
+      if (resumePath && !suppressAutoResumeRef.current) {
         router.replace(resumePath);
       }
     } catch (loadError) {
@@ -233,7 +234,7 @@ export function WelcomeForm() {
         saveDraft(localDraft);
 
         const resumePath = getResumePath(localDraft);
-        if (resumePath && !shouldStayOnIntakePage()) {
+        if (resumePath && !suppressAutoResumeRef.current) {
           router.replace(resumePath);
         }
       } else {
@@ -370,6 +371,7 @@ export function WelcomeForm() {
     setAuthAction(authMode);
     setError("");
     setAuthNotice("");
+    suppressAutoResumeRef.current = false;
 
     try {
       const supabase = getSupabaseBrowserClient();
