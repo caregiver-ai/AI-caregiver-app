@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
 import { getResetPasswordCopy } from "@/lib/localization";
@@ -18,7 +18,6 @@ function normalizeLanguage(value: string | null): UiLanguage {
 
 export function UpdatePasswordForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -30,8 +29,13 @@ export function UpdatePasswordForm() {
   const copy = useMemo(() => getResetPasswordCopy(uiLanguage), [uiLanguage]);
 
   useEffect(() => {
-    setUiLanguage(normalizeLanguage(searchParams.get("lang")));
-  }, [searchParams]);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    setUiLanguage(normalizeLanguage(params.get("lang")));
+  }, []);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
