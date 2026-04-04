@@ -199,7 +199,7 @@ type PromptTranslation = {
 
 const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
   english: {
-    title: "This will take about 5 minutes.",
+    title: "This will take a couple minutes.",
     subtitle: "You can skip anything.",
     subtitleSecondary: "We'll turn this into something you can share with other caregivers.",
     languageLabel: "Website language",
@@ -273,7 +273,7 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     }
   },
   spanish: {
-    title: "Esto tomará unos 5 minutos.",
+    title: "Esto tomará un par de minutos.",
     subtitle: "Puede omitir cualquier cosa.",
     subtitleSecondary: "Convertiremos esto en algo que pueda compartir con otros cuidadores.",
     languageLabel: "Idioma del sitio",
@@ -349,7 +349,7 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
     }
   },
   mandarin: {
-    title: "大约需要 5 分钟完成。",
+    title: "这只需要几分钟。",
     subtitle: "任何问题都可以跳过。",
     subtitleSecondary: "我们会把这些内容整理成可与其他照护者分享的摘要。",
     languageLabel: "网站语言",
