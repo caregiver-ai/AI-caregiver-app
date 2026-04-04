@@ -16,10 +16,11 @@ import {
   buildTurnsFromResponses,
   getFirstIncompletePromptIndex,
   getPromptSequence,
-  getResponsesFromTurns
+  getResponsesFromTurns,
+  getStepOrder
 } from "@/lib/reflection";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { SessionDraft, UiLanguage } from "@/lib/types";
+import { ReflectionStepId, SessionDraft, UiLanguage } from "@/lib/types";
 
 const MAX_RECORDING_MS = 45 * 1000;
 const MAX_TRANSCRIPTION_UPLOAD_BYTES = 4 * 1024 * 1024;
@@ -31,14 +32,6 @@ function formatDuration(durationMs: number) {
   const seconds = totalSeconds % 60;
 
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-function hasContent(response?: ReflectionResponse) {
-  return Boolean(response?.content.trim());
-}
-
-function getFirstPromptId(language: UiLanguage) {
-  return getPromptSequence(language)[0]?.id ?? "";
 }
 
 function sanitizeResponses(responses: Record<string, ReflectionResponse>) {
@@ -62,12 +55,19 @@ function sanitizeResponses(responses: Record<string, ReflectionResponse>) {
   return Object.fromEntries(sanitizedEntries) as Record<string, ReflectionResponse>;
 }
 
+function getFirstPromptIdForStep(stepId: ReflectionStepId, language: UiLanguage) {
+  return getPromptSequence(language).find((prompt) => prompt.stepId === stepId)?.id ?? "";
+}
+
 export function ReflectionChat() {
   const router = useRouter();
   const [sessionId, setSessionId] = useState("");
   const [responses, setResponses] = useState<Record<string, ReflectionResponse>>({});
   const [activePromptId, setActivePromptId] = useState("");
+  const [currentStepId, setCurrentStepId] = useState<ReflectionStepId>("communication");
   const [submitting, setSubmitting] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
+  const [transitionMessage, setTransitionMessage] = useState("");
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [statusTone, setStatusTone] = useState<"info" | "success">("info");
@@ -84,13 +84,23 @@ export function ReflectionChat() {
 
   const reflectionCopy = useMemo(() => getReflectionCopy(uiLanguage), [uiLanguage]);
   const prompts = useMemo(() => getPromptSequence(uiLanguage), [uiLanguage]);
-  const currentPrompt = useMemo(
-    () => prompts.find((prompt) => prompt.id === activePromptId) ?? prompts[0] ?? null,
-    [activePromptId, prompts]
+  const stepOrder = useMemo(() => getStepOrder(uiLanguage), [uiLanguage]);
+  const stepPrompts = useMemo(
+    () => prompts.filter((prompt) => prompt.stepId === currentStepId),
+    [currentStepId, prompts]
   );
+  const currentPrompt = useMemo(
+    () => stepPrompts.find((prompt) => prompt.id === activePromptId) ?? stepPrompts[0] ?? null,
+    [activePromptId, stepPrompts]
+  );
+  const currentStepIndex = useMemo(
+    () => Math.max(0, stepOrder.findIndex((stepId) => stepId === currentStepId)),
+    [currentStepId, stepOrder]
+  );
+  const currentStepMeta = stepPrompts[0] ?? null;
   const hasAnyResponse = useMemo(
-    () => prompts.some((prompt) => hasContent(responses[prompt.id])),
-    [prompts, responses]
+    () => Object.values(sanitizeResponses(responses)).length > 0,
+    [responses]
   );
 
   useEffect(() => {
@@ -105,14 +115,15 @@ export function ReflectionChat() {
         const localResponses = getResponsesFromTurns(localDraft.turns, preferredLanguage);
         const firstIncompleteIndex = getFirstIncompletePromptIndex(localResponses, preferredLanguage);
         const promptSequence = getPromptSequence(preferredLanguage);
+        const resumePrompt =
+          promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : promptSequence.length - 1];
+
         setSessionId(localDraft.sessionId);
         setResponses(localResponses);
         setUiLanguage(preferredLanguage);
         setAudioLanguage(preferredLanguage);
-        setActivePromptId(
-          promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0]?.id ??
-            getFirstPromptId(preferredLanguage)
-        );
+        setCurrentStepId((resumePrompt?.stepId as ReflectionStepId | undefined) ?? "communication");
+        setActivePromptId(resumePrompt?.id ?? getFirstPromptIdForStep("communication", preferredLanguage));
       }
 
       const user = await getCurrentAuthUser();
@@ -144,14 +155,15 @@ export function ReflectionChat() {
       const remoteResponses = getResponsesFromTurns(draft.turns, preferredLanguage);
       const firstIncompleteIndex = getFirstIncompletePromptIndex(remoteResponses, preferredLanguage);
       const promptSequence = getPromptSequence(preferredLanguage);
+      const resumePrompt =
+        promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : promptSequence.length - 1];
+
       setSessionId(draft.sessionId);
       setResponses(remoteResponses);
       setUiLanguage(preferredLanguage);
       setAudioLanguage(preferredLanguage);
-      setActivePromptId(
-        promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0]?.id ??
-          getFirstPromptId(preferredLanguage)
-      );
+      setCurrentStepId((resumePrompt?.stepId as ReflectionStepId | undefined) ?? "communication");
+      setActivePromptId(resumePrompt?.id ?? getFirstPromptIdForStep("communication", preferredLanguage));
     }
 
     void initialize();
@@ -164,6 +176,12 @@ export function ReflectionChat() {
   useEffect(() => {
     setRecordingSupported(isAudioRecordingSupported());
   }, []);
+
+  useEffect(() => {
+    if (!activePromptId && currentStepMeta) {
+      setActivePromptId(currentStepMeta.id);
+    }
+  }, [activePromptId, currentStepMeta]);
 
   useEffect(() => {
     return () => {
@@ -196,7 +214,7 @@ export function ReflectionChat() {
 
       const nextDraft = {
         ...draft,
-        turns: buildTurnsFromResponses(sanitizeResponses(responses), uiLanguage)
+        turns: buildTurnsFromResponses(responses, uiLanguage)
       };
 
       saveDraft(nextDraft);
@@ -274,6 +292,30 @@ export function ReflectionChat() {
         }
       };
     });
+  }
+
+  function completeCurrentStepResponses() {
+    const nextResponses = { ...responses };
+
+    for (const prompt of stepPrompts) {
+      const existing = nextResponses[prompt.id];
+      if (existing) {
+        nextResponses[prompt.id] = {
+          ...existing,
+          content: existing.content.trim()
+        };
+        continue;
+      }
+
+      nextResponses[prompt.id] = {
+        promptId: prompt.id,
+        content: "",
+        skipped: true,
+        createdAt: new Date().toISOString()
+      };
+    }
+
+    return nextResponses;
   }
 
   async function transcribeAudio(audioBlob: Blob) {
@@ -376,7 +418,7 @@ export function ReflectionChat() {
   }
 
   async function startRecording() {
-    if (!currentPrompt || submitting || transcribing || recording) {
+    if (!currentPrompt || transitioning || submitting || transcribing || recording) {
       return;
     }
 
@@ -465,14 +507,15 @@ export function ReflectionChat() {
     }
   }
 
-  async function finalizeFlow() {
-    const finalResponses = sanitizeResponses(responses);
-    if (Object.keys(finalResponses).length === 0) {
+  async function finalizeFlow(finalResponses: Record<string, ReflectionResponse>) {
+    const sanitizedResponses = sanitizeResponses(finalResponses);
+    if (Object.keys(sanitizedResponses).length === 0) {
       setError(reflectionCopy.enterAtLeastOneResponse);
       return;
     }
 
     setSubmitting(true);
+    setTransitionMessage(currentStepMeta?.stepCompletionMessage ?? reflectionCopy.completionMessage);
     setError("");
     setStatusMessage("");
 
@@ -522,18 +565,74 @@ export function ReflectionChat() {
     }
   }
 
-  if (submitting) {
+  async function handleContinue() {
+    const nextResponses = completeCurrentStepResponses();
+    setResponses(nextResponses);
+    setError("");
+    setStatusMessage("");
+
+    const draft = loadDraft();
+    if (draft) {
+      draft.turns = buildTurnsFromResponses(nextResponses, uiLanguage);
+      await persistDraft(draft);
+    }
+
+    const nextStepId = stepOrder[currentStepIndex + 1];
+    if (!nextStepId) {
+      await finalizeFlow(nextResponses);
+      return;
+    }
+
+    setTransitioning(true);
+    setTransitionMessage(currentStepMeta?.stepCompletionMessage ?? reflectionCopy.completionMessage);
+    await new Promise((resolve) => window.setTimeout(resolve, 900));
+
+    setCurrentStepId(nextStepId);
+    setActivePromptId(getFirstPromptIdForStep(nextStepId, uiLanguage));
+    setTransitionMessage("");
+    setTransitioning(false);
+  }
+
+  function handleBack() {
+    const previousStepId = stepOrder[currentStepIndex - 1];
+    if (!previousStepId) {
+      return;
+    }
+
+    setError("");
+    setStatusMessage("");
+    setCurrentStepId(previousStepId);
+    setActivePromptId(getFirstPromptIdForStep(previousStepId, uiLanguage));
+  }
+
+  if (submitting || transitioning) {
     return (
-      <AppShell title={reflectionCopy.completionMessage} subtitle={reflectionCopy.buildingSummaryLabel}>
-        <StatusBanner tone="success">{reflectionCopy.completionMessage}</StatusBanner>
+      <AppShell
+        title={transitionMessage || currentStepMeta?.stepCompletionMessage || reflectionCopy.completionMessage}
+        subtitle={submitting ? reflectionCopy.buildingSummaryLabel : ""}
+      >
+        <StatusBanner tone="success">
+          {transitionMessage || currentStepMeta?.stepCompletionMessage || reflectionCopy.completionMessage}
+        </StatusBanner>
       </AppShell>
     );
   }
 
   return (
-    <AppShell title={reflectionCopy.title} subtitle={reflectionCopy.subtitle}>
+    <AppShell
+      title={currentStepMeta?.sectionTitle ?? reflectionCopy.title}
+      subtitle={
+        currentStepMeta
+          ? `${currentStepMeta.stepTitle}. ${currentStepMeta.stepSubtitle}`
+          : reflectionCopy.subtitle
+      }
+    >
       <div className="space-y-5">
-        {prompts.map((prompt, index) => {
+        <div className="rounded-2xl border border-border bg-canvas px-4 py-3 text-sm text-slate-700">
+          {reflectionCopy.sectionCounter(currentStepIndex + 1, stepOrder.length)}
+        </div>
+
+        {stepPrompts.map((prompt) => {
           const isActive = currentPrompt?.id === prompt.id;
 
           return (
@@ -544,9 +643,6 @@ export function ReflectionChat() {
               }`}
             >
               <div className="space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Question {index + 1}
-                </div>
                 <h2 className="text-lg font-semibold leading-8 text-ink">{prompt.content}</h2>
                 {prompt.promptExamples?.length ? (
                   <ul className="space-y-1 text-sm leading-6 text-slate-500">
@@ -561,7 +657,7 @@ export function ReflectionChat() {
                 className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent disabled:bg-slate-50"
                 disabled={transcribing || recording}
                 placeholder={reflectionCopy.textareaPlaceholder}
-                value={responses[prompt.id]?.content ?? ""}
+                value={responses[prompt.id]?.skipped ? "" : responses[prompt.id]?.content ?? ""}
                 onChange={(event) => updateResponse(prompt.id, event.target.value)}
                 onFocus={() => setActivePromptId(prompt.id)}
               />
@@ -629,14 +725,26 @@ export function ReflectionChat() {
         {error ? <StatusBanner tone="error">{error}</StatusBanner> : null}
         {!error && statusMessage ? <StatusBanner tone={statusTone}>{statusMessage}</StatusBanner> : null}
 
-        <button
-          className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={!hasAnyResponse || recording || transcribing || !sessionId}
-          type="button"
-          onClick={finalizeFlow}
-        >
-          {reflectionCopy.completeButton}
-        </button>
+        <div className="flex gap-3">
+          <button
+            className="w-full rounded-2xl border border-border px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={currentStepIndex === 0 || recording || transcribing}
+            type="button"
+            onClick={handleBack}
+          >
+            {reflectionCopy.backButton}
+          </button>
+          <button
+            className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={recording || transcribing || !sessionId}
+            type="button"
+            onClick={handleContinue}
+          >
+            {currentStepIndex === stepOrder.length - 1
+              ? reflectionCopy.completeButton
+              : reflectionCopy.continueButton}
+          </button>
+        </div>
       </div>
     </AppShell>
   );

@@ -1,5 +1,5 @@
 import { getLocalizedReflectionPrompts } from "@/lib/localization";
-import { ConversationTurn, UiLanguage } from "@/lib/types";
+import { ConversationTurn, ReflectionStepId, UiLanguage } from "@/lib/types";
 
 export type ReflectionResponse = {
   promptId: string;
@@ -15,6 +15,10 @@ export function getPromptSequence(language: UiLanguage = "english"): Conversatio
     promptType: "section_prompt",
     sectionId: prompt.sectionId,
     sectionTitle: prompt.sectionTitle,
+    stepId: prompt.stepId,
+    stepTitle: prompt.stepTitle,
+    stepSubtitle: prompt.stepSubtitle,
+    stepCompletionMessage: prompt.stepCompletionMessage,
     promptLabel: prompt.promptLabel,
     promptExamples: prompt.examples,
     content: prompt.question,
@@ -72,6 +76,10 @@ export function buildTurnsFromResponses(
         promptId: prompt.id,
         sectionId: prompt.sectionId,
         sectionTitle: prompt.sectionTitle,
+        stepId: prompt.stepId,
+        stepTitle: prompt.stepTitle,
+        stepSubtitle: prompt.stepSubtitle,
+        stepCompletionMessage: prompt.stepCompletionMessage,
         promptLabel: prompt.promptLabel,
         content: response.content,
         skipped: response.skipped,
@@ -107,10 +115,16 @@ export function buildTranscript(turns: ConversationTurn[]): string {
   return turns
     .map((turn) => {
       const sectionContext =
-        turn.sectionTitle && turn.promptLabel
-          ? ` [${turn.sectionTitle} > ${turn.promptLabel}]`
+        turn.sectionTitle && turn.stepTitle && turn.promptLabel
+          ? ` [${turn.sectionTitle} > ${turn.stepTitle} > ${turn.promptLabel}]`
+          : turn.sectionTitle && turn.promptLabel
+            ? ` [${turn.sectionTitle} > ${turn.promptLabel}]`
+            : turn.stepTitle && turn.promptLabel
+              ? ` [${turn.stepTitle} > ${turn.promptLabel}]`
           : turn.sectionTitle
             ? ` [${turn.sectionTitle}]`
+            : turn.stepTitle
+              ? ` [${turn.stepTitle}]`
             : "";
 
       if (turn.role === "user" && turn.skipped) {
@@ -120,4 +134,16 @@ export function buildTranscript(turns: ConversationTurn[]): string {
       return `${turn.role.toUpperCase()}${sectionContext}: ${turn.content}`;
     })
     .join("\n");
+}
+
+export function getStepOrder(language: UiLanguage = "english"): ReflectionStepId[] {
+  const ordered: ReflectionStepId[] = [];
+
+  for (const prompt of getLocalizedReflectionPrompts(language)) {
+    if (!ordered.includes(prompt.stepId)) {
+      ordered.push(prompt.stepId);
+    }
+  }
+
+  return ordered;
 }

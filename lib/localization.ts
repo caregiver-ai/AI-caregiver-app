@@ -116,6 +116,9 @@ type ReflectionCopy = {
   subtitle: string;
   completionMessage: string;
   enterAtLeastOneResponse: string;
+  backButton: string;
+  continueButton: string;
+  sectionCounter: (current: number, total: number) => string;
   skippedLabel: string;
   skipButton: string;
   saveResponseButton: string;
@@ -194,6 +197,10 @@ type CompletionCopy = {
 
 type PromptTranslation = {
   sectionTitle: string;
+  stepId: ReflectionPrompt["stepId"];
+  stepTitle: string;
+  stepSubtitle: string;
+  stepCompletionMessage: string;
   promptLabel: string;
   question: string;
   examples: string[];
@@ -427,6 +434,9 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     subtitle: "Communication. Answer what you can — short examples help.",
     completionMessage: "You just created a communication guide for your loved one.",
     enterAtLeastOneResponse: "Add at least one communication detail before continuing.",
+    backButton: "Back",
+    continueButton: "Continue",
+    sectionCounter: (current, total) => `Section ${current} of ${total}`,
     skippedLabel: "Skipped",
     skipButton: "Skip",
     saveResponseButton: "Save response",
@@ -472,6 +482,9 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     subtitle: "Comunicación. Responda lo que pueda; los ejemplos cortos ayudan.",
     completionMessage: "Acaba de crear una guía de comunicación para su ser querido.",
     enterAtLeastOneResponse: "Agregue al menos un detalle sobre comunicación antes de continuar.",
+    backButton: "Atrás",
+    continueButton: "Continuar",
+    sectionCounter: (current, total) => `Sección ${current} de ${total}`,
     skippedLabel: "Omitido",
     skipButton: "Omitir",
     saveResponseButton: "Guardar respuesta",
@@ -517,6 +530,9 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     subtitle: "沟通。能回答多少就回答多少，简短例子会有帮助。",
     completionMessage: "您刚刚为您的亲人创建了一份沟通指南。",
     enterAtLeastOneResponse: "请至少补充一条与沟通有关的信息后再继续。",
+    backButton: "返回",
+    continueButton: "继续",
+    sectionCounter: (current, total) => `第 ${current} 部分，共 ${total} 部分`,
     skippedLabel: "已跳过",
     skipButton: "跳过",
     saveResponseButton: "保存回答",
@@ -770,6 +786,10 @@ const promptDefinitions: Array<{
     translations: {
       english: {
         sectionTitle: "What helps the day go well",
+        stepId: "communication",
+        stepTitle: "Communication",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a communication guide for your loved one.",
         promptLabel: "How do they communicate?",
         question: "How do they communicate?",
         examples: [
@@ -780,6 +800,10 @@ const promptDefinitions: Array<{
       },
       spanish: {
         sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "communication",
+        stepTitle: "Comunicación",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de comunicación para su ser querido.",
         promptLabel: "¿Cómo se comunican?",
         question: "¿Cómo se comunican?",
         examples: [
@@ -790,6 +814,10 @@ const promptDefinitions: Array<{
       },
       mandarin: {
         sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "communication",
+        stepTitle: "沟通",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份沟通指南。",
         promptLabel: "他们如何沟通？",
         question: "他们如何沟通？",
         examples: [
@@ -806,6 +834,10 @@ const promptDefinitions: Array<{
     translations: {
       english: {
         sectionTitle: "What helps the day go well",
+        stepId: "communication",
+        stepTitle: "Communication",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a communication guide for your loved one.",
         promptLabel: "Are there things they say or do that mean something specific? What do they mean?",
         question: "Are there things they say or do that mean something specific? What do they mean?",
         examples: [
@@ -816,6 +848,10 @@ const promptDefinitions: Array<{
       },
       spanish: {
         sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "communication",
+        stepTitle: "Comunicación",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de comunicación para su ser querido.",
         promptLabel: "¿Hay cosas que dicen o hacen que significan algo específico? ¿Qué significan?",
         question:
           "¿Hay cosas que dicen o hacen que significan algo específico? ¿Qué significan?",
@@ -827,6 +863,10 @@ const promptDefinitions: Array<{
       },
       mandarin: {
         sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "communication",
+        stepTitle: "沟通",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份沟通指南。",
         promptLabel: "他们有没有某些话或行为有特定含义？分别是什么意思？",
         question: "他们有没有某些话或行为有特定含义？分别是什么意思？",
         examples: [
@@ -843,6 +883,10 @@ const promptDefinitions: Array<{
     translations: {
       english: {
         sectionTitle: "What helps the day go well",
+        stepId: "communication",
+        stepTitle: "Communication",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a communication guide for your loved one.",
         promptLabel: "What helps you communicate with them?",
         question: "What helps you communicate with them?",
         examples: [
@@ -853,6 +897,10 @@ const promptDefinitions: Array<{
       },
       spanish: {
         sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "communication",
+        stepTitle: "Comunicación",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de comunicación para su ser querido.",
         promptLabel: "¿Qué le ayuda a comunicarse con ellos?",
         question: "¿Qué le ayuda a comunicarse con ellos?",
         examples: [
@@ -863,6 +911,10 @@ const promptDefinitions: Array<{
       },
       mandarin: {
         sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "communication",
+        stepTitle: "沟通",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份沟通指南。",
         promptLabel: "什么方式有助于你与他们沟通？",
         question: "什么方式有助于你与他们沟通？",
         examples: [
@@ -879,6 +931,10 @@ const promptDefinitions: Array<{
     translations: {
       english: {
         sectionTitle: "What helps the day go well",
+        stepId: "communication",
+        stepTitle: "Communication",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a communication guide for your loved one.",
         promptLabel: "How can you tell when they need help, and what should you check first?",
         question: "How can you tell when they need help, and what should you check first?",
         examples: [
@@ -889,6 +945,10 @@ const promptDefinitions: Array<{
       },
       spanish: {
         sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "communication",
+        stepTitle: "Comunicación",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de comunicación para su ser querido.",
         promptLabel: "¿Cómo puede saber que necesitan ayuda y qué debería revisar primero?",
         question:
           "¿Cómo puede saber que necesitan ayuda y qué debería revisar primero?",
@@ -900,12 +960,592 @@ const promptDefinitions: Array<{
       },
       mandarin: {
         sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "communication",
+        stepTitle: "沟通",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份沟通指南。",
         promptLabel: "你如何判断他们需要帮助？首先应该检查什么？",
         question: "你如何判断他们需要帮助？首先应该检查什么？",
         examples: [
           "比平时更安静",
           "没有回应时，先检查设备或环境",
           "他们可能找不到自己需要的东西"
+        ]
+      }
+    }
+  },
+  {
+    id: "health-safety-medical-info",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "health_safety",
+        stepTitle: "Health & safety",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a health and safety guide for your loved one.",
+        promptLabel: "What health or medical information should another caregiver know right away?",
+        question: "What health or medical information should another caregiver know right away?",
+        examples: [
+          "allergies, diagnoses, seizures, asthma, or GI concerns",
+          "anything urgent or easy to miss",
+          "what another caregiver should know before starting the day"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "health_safety",
+        stepTitle: "Salud y seguridad",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de salud y seguridad para su ser querido.",
+        promptLabel: "¿Qué información de salud o médica debería saber otra persona cuidadora de inmediato?",
+        question: "¿Qué información de salud o médica debería saber otra persona cuidadora de inmediato?",
+        examples: [
+          "alergias, diagnósticos, convulsiones, asma o problemas gastrointestinales",
+          "cualquier cosa urgente o fácil de pasar por alto",
+          "lo que otra persona cuidadora debería saber antes de empezar el día"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "health_safety",
+        stepTitle: "健康与安全",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份健康与安全指南。",
+        promptLabel: "其他照护者一开始就应该知道哪些健康或医疗信息？",
+        question: "其他照护者一开始就应该知道哪些健康或医疗信息？",
+        examples: [
+          "过敏、诊断、癫痫、哮喘或胃肠问题",
+          "任何紧急或容易忽略的情况",
+          "其他照护者开始照护前需要知道的内容"
+        ]
+      }
+    }
+  },
+  {
+    id: "health-safety-medications-routines",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "health_safety",
+        stepTitle: "Health & safety",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a health and safety guide for your loved one.",
+        promptLabel: "What medications, treatments, or health routines need to happen correctly?",
+        question: "What medications, treatments, or health routines need to happen correctly?",
+        examples: [
+          "medication timing or how it is taken",
+          "what should happen before or after meals",
+          "what must not be missed"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "health_safety",
+        stepTitle: "Salud y seguridad",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de salud y seguridad para su ser querido.",
+        promptLabel: "¿Qué medicamentos, tratamientos o rutinas de salud deben hacerse correctamente?",
+        question: "¿Qué medicamentos, tratamientos o rutinas de salud deben hacerse correctamente?",
+        examples: [
+          "horarios de medicamentos o cómo se administran",
+          "qué debe suceder antes o después de las comidas",
+          "qué no se debe omitir"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "health_safety",
+        stepTitle: "健康与安全",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份健康与安全指南。",
+        promptLabel: "哪些药物、治疗或健康相关流程必须正确完成？",
+        question: "哪些药物、治疗或健康相关流程必须正确完成？",
+        examples: [
+          "用药时间或服用方式",
+          "饭前或饭后需要做什么",
+          "哪些事情绝不能漏掉"
+        ]
+      }
+    }
+  },
+  {
+    id: "health-safety-equipment-supports",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "health_safety",
+        stepTitle: "Health & safety",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a health and safety guide for your loved one.",
+        promptLabel: "What equipment, devices, or physical supports do they use?",
+        question: "What equipment, devices, or physical supports do they use?",
+        examples: [
+          "glasses, hearing aids, wheelchair, gait belt, or feeding equipment",
+          "what helps them move, eat, hear, or stay safe",
+          "anything a caregiver should check or set up"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "health_safety",
+        stepTitle: "Salud y seguridad",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de salud y seguridad para su ser querido.",
+        promptLabel: "¿Qué equipo, dispositivos o apoyos físicos usan?",
+        question: "¿Qué equipo, dispositivos o apoyos físicos usan?",
+        examples: [
+          "gafas, audífonos, silla de ruedas, cinturón de marcha o equipo de alimentación",
+          "lo que les ayuda a moverse, comer, oír o mantenerse seguros",
+          "cualquier cosa que otra persona cuidadora deba revisar o preparar"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "health_safety",
+        stepTitle: "健康与安全",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份健康与安全指南。",
+        promptLabel: "他们会使用哪些设备、器具或身体支持工具？",
+        question: "他们会使用哪些设备、器具或身体支持工具？",
+        examples: [
+          "眼镜、助听器、轮椅、步行带或喂食设备",
+          "帮助他们移动、进食、听清或保持安全的工具",
+          "照护者需要检查或准备的任何东西"
+        ]
+      }
+    }
+  },
+  {
+    id: "health-safety-safety-concerns",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "health_safety",
+        stepTitle: "Health & safety",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a health and safety guide for your loved one.",
+        promptLabel: "What safety concerns should another caregiver keep in mind?",
+        question: "What safety concerns should another caregiver keep in mind?",
+        examples: [
+          "fall risk, choking, wandering, or needing two adults for outings",
+          "unsafe behaviors to watch for",
+          "what another caregiver should never assume is safe"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "health_safety",
+        stepTitle: "Salud y seguridad",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de salud y seguridad para su ser querido.",
+        promptLabel: "¿Qué preocupaciones de seguridad debería tener presentes otra persona cuidadora?",
+        question: "¿Qué preocupaciones de seguridad debería tener presentes otra persona cuidadora?",
+        examples: [
+          "riesgo de caídas, atragantamiento, escaparse o necesitar dos adultos en salidas",
+          "conductas inseguras a las que haya que prestar atención",
+          "lo que otra persona cuidadora nunca debería asumir que es seguro"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "health_safety",
+        stepTitle: "健康与安全",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份健康与安全指南。",
+        promptLabel: "其他照护者需要特别注意哪些安全问题？",
+        question: "其他照护者需要特别注意哪些安全问题？",
+        examples: [
+          "跌倒、呛咳、走失，或外出时需要两位成人陪同",
+          "需要留意的不安全行为",
+          "其他照护者绝不能想当然地认为安全的事情"
+        ]
+      }
+    }
+  },
+  {
+    id: "daily-schedule-mornings",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "daily_schedule",
+        stepTitle: "Daily schedule",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a daily schedule guide for your loved one.",
+        promptLabel: "What helps mornings go smoothly?",
+        question: "What helps mornings go smoothly?",
+        examples: [
+          "bathroom first, breakfast before medication, or brushing teeth after eating",
+          "what order works best",
+          "what usually throws the morning off"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "daily_schedule",
+        stepTitle: "Rutina diaria",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de rutina diaria para su ser querido.",
+        promptLabel: "¿Qué ayuda a que las mañanas transcurran bien?",
+        question: "¿Qué ayuda a que las mañanas transcurran bien?",
+        examples: [
+          "ir al baño primero, desayunar antes del medicamento, o lavarse los dientes después de comer",
+          "qué orden funciona mejor",
+          "qué suele desordenar la mañana"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "daily_schedule",
+        stepTitle: "日常安排",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份日常安排指南。",
+        promptLabel: "什么能让早晨更顺利？",
+        question: "什么能让早晨更顺利？",
+        examples: [
+          "先上厕所、先吃早餐再吃药，或饭后刷牙",
+          "什么顺序最有效",
+          "什么事情通常会打乱早晨安排"
+        ]
+      }
+    }
+  },
+  {
+    id: "daily-schedule-meals-snacks",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "daily_schedule",
+        stepTitle: "Daily schedule",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a daily schedule guide for your loved one.",
+        promptLabel: "What should another caregiver know about meals and snacks?",
+        question: "What should another caregiver know about meals and snacks?",
+        examples: [
+          "preferred foods, timing, or foods to avoid",
+          "how to tell when they are hungry",
+          "what helps meals go more smoothly"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "daily_schedule",
+        stepTitle: "Rutina diaria",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de rutina diaria para su ser querido.",
+        promptLabel: "¿Qué debería saber otra persona cuidadora sobre las comidas y meriendas?",
+        question: "¿Qué debería saber otra persona cuidadora sobre las comidas y meriendas?",
+        examples: [
+          "comidas preferidas, horarios o alimentos que conviene evitar",
+          "cómo notar que tiene hambre",
+          "qué ayuda a que las comidas sean más fluidas"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "daily_schedule",
+        stepTitle: "日常安排",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份日常安排指南。",
+        promptLabel: "关于正餐和点心，其他照护者应该知道什么？",
+        question: "关于正餐和点心，其他照护者应该知道什么？",
+        examples: [
+          "喜欢的食物、时间安排，或需要避免的食物",
+          "如何判断他们饿了",
+          "什么能让吃饭更顺利"
+        ]
+      }
+    }
+  },
+  {
+    id: "daily-schedule-transitions",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "daily_schedule",
+        stepTitle: "Daily schedule",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a daily schedule guide for your loved one.",
+        promptLabel: "What helps with transitions during the day?",
+        question: "What helps with transitions during the day?",
+        examples: [
+          "countdowns, five more minutes, or visual schedules",
+          "moving slowly from one activity to the next",
+          "what makes transitions harder"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "daily_schedule",
+        stepTitle: "Rutina diaria",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de rutina diaria para su ser querido.",
+        promptLabel: "¿Qué ayuda con las transiciones durante el día?",
+        question: "¿Qué ayuda con las transiciones durante el día?",
+        examples: [
+          "cuenta regresiva, cinco minutos más, u horarios visuales",
+          "pasar poco a poco de una actividad a otra",
+          "qué hace que las transiciones sean más difíciles"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "daily_schedule",
+        stepTitle: "日常安排",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份日常安排指南。",
+        promptLabel: "白天活动切换时，什么方式会有帮助？",
+        question: "白天活动切换时，什么方式会有帮助？",
+        examples: [
+          "倒计时、再五分钟，或视觉日程表",
+          "从一个活动慢慢过渡到下一个活动",
+          "什么会让转换更困难"
+        ]
+      }
+    }
+  },
+  {
+    id: "daily-schedule-bedtime",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "daily_schedule",
+        stepTitle: "Daily schedule",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created a daily schedule guide for your loved one.",
+        promptLabel: "What helps evenings or bedtime go smoothly?",
+        question: "What helps evenings or bedtime go smoothly?",
+        examples: [
+          "bath, pajamas, a show, music, or a set bedtime routine",
+          "what helps them wind down",
+          "what to avoid late in the day"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "daily_schedule",
+        stepTitle: "Rutina diaria",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de rutina diaria para su ser querido.",
+        promptLabel: "¿Qué ayuda a que la tarde o la hora de dormir transcurran bien?",
+        question: "¿Qué ayuda a que la tarde o la hora de dormir transcurran bien?",
+        examples: [
+          "baño, pijama, un programa, música o una rutina fija para dormir",
+          "qué les ayuda a relajarse",
+          "qué conviene evitar al final del día"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "daily_schedule",
+        stepTitle: "日常安排",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份日常安排指南。",
+        promptLabel: "什么能让傍晚或睡前更顺利？",
+        question: "什么能让傍晚或睡前更顺利？",
+        examples: [
+          "洗澡、换睡衣、看节目、听音乐，或固定的睡前流程",
+          "什么能帮助他们平静下来",
+          "一天后半段最好避免什么"
+        ]
+      }
+    }
+  },
+  {
+    id: "activities-preferences-favorite-activities",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "activities_preferences",
+        stepTitle: "Activities & preferences",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created an activities and preferences guide for your loved one.",
+        promptLabel: "What activities do they enjoy most?",
+        question: "What activities do they enjoy most?",
+        examples: [
+          "music, videos, crafts, games, sports, walks, or iPad time",
+          "what usually keeps them engaged",
+          "what they ask for again and again"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "activities_preferences",
+        stepTitle: "Actividades y preferencias",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de actividades y preferencias para su ser querido.",
+        promptLabel: "¿Qué actividades disfrutan más?",
+        question: "¿Qué actividades disfrutan más?",
+        examples: [
+          "música, videos, manualidades, juegos, deportes, caminatas o tiempo con la tableta",
+          "qué suele mantenerles interesados",
+          "qué piden una y otra vez"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "activities_preferences",
+        stepTitle: "活动与偏好",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份活动与偏好指南。",
+        promptLabel: "他们最喜欢哪些活动？",
+        question: "他们最喜欢哪些活动？",
+        examples: [
+          "音乐、视频、手工、游戏、运动、散步或平板时间",
+          "什么通常能让他们投入其中",
+          "他们会一再要求的活动"
+        ]
+      }
+    }
+  },
+  {
+    id: "activities-preferences-outings",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "activities_preferences",
+        stepTitle: "Activities & preferences",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created an activities and preferences guide for your loved one.",
+        promptLabel: "What outings, places, or routines outside the home usually go well?",
+        question: "What outings, places, or routines outside the home usually go well?",
+        examples: [
+          "favorite stores, drives, parks, or familiar places",
+          "what makes an outing feel successful",
+          "what kind of outing usually helps the day"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "activities_preferences",
+        stepTitle: "Actividades y preferencias",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de actividades y preferencias para su ser querido.",
+        promptLabel: "¿Qué salidas, lugares o rutinas fuera de casa suelen salir bien?",
+        question: "¿Qué salidas, lugares o rutinas fuera de casa suelen salir bien?",
+        examples: [
+          "tiendas favoritas, paseos en coche, parques o lugares conocidos",
+          "qué hace que una salida funcione bien",
+          "qué tipo de salida suele ayudar al día"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "activities_preferences",
+        stepTitle: "活动与偏好",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份活动与偏好指南。",
+        promptLabel: "外出时，哪些地方、活动或固定安排通常会比较顺利？",
+        question: "外出时，哪些地方、活动或固定安排通常会比较顺利？",
+        examples: [
+          "喜欢的商店、兜风、公园，或熟悉的地点",
+          "什么会让一次外出更成功",
+          "哪类外出通常有助于让一天更顺利"
+        ]
+      }
+    }
+  },
+  {
+    id: "activities-preferences-trusted-people",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "activities_preferences",
+        stepTitle: "Activities & preferences",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created an activities and preferences guide for your loved one.",
+        promptLabel: "Who do they usually do well with?",
+        question: "Who do they usually do well with?",
+        examples: [
+          "family members, siblings, specific caregivers, or friends",
+          "what those people tend to do well",
+          "who helps them feel safe or calm"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "activities_preferences",
+        stepTitle: "Actividades y preferencias",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de actividades y preferencias para su ser querido.",
+        promptLabel: "¿Con quién suelen estar bien?",
+        question: "¿Con quién suelen estar bien?",
+        examples: [
+          "familiares, hermanos, cuidadores específicos o amistades",
+          "qué hacen bien esas personas",
+          "quién les ayuda a sentirse seguros o tranquilos"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "activities_preferences",
+        stepTitle: "活动与偏好",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份活动与偏好指南。",
+        promptLabel: "他们通常和哪些人在一起会比较顺利？",
+        question: "他们通常和哪些人在一起会比较顺利？",
+        examples: [
+          "家人、兄弟姐妹、特定照护者，或朋友",
+          "这些人通常做对了什么",
+          "谁能帮助他们感到安全或平静"
+        ]
+      }
+    }
+  },
+  {
+    id: "activities-preferences-quiet-time",
+    sectionId: "what_helps_the_day_go_well",
+    translations: {
+      english: {
+        sectionTitle: "What helps the day go well",
+        stepId: "activities_preferences",
+        stepTitle: "Activities & preferences",
+        stepSubtitle: "Answer what you can — short examples help.",
+        stepCompletionMessage: "You just created an activities and preferences guide for your loved one.",
+        promptLabel: "What kind of quiet time or sensory environment helps?",
+        question: "What kind of quiet time or sensory environment helps?",
+        examples: [
+          "low light, music, headphones, rest time, or a sensory space",
+          "what helps them reset",
+          "what kind of environment usually feels calming"
+        ]
+      },
+      spanish: {
+        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        stepId: "activities_preferences",
+        stepTitle: "Actividades y preferencias",
+        stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
+        stepCompletionMessage: "Acaba de crear una guía de actividades y preferencias para su ser querido.",
+        promptLabel: "¿Qué tipo de tiempo tranquilo o ambiente sensorial ayuda?",
+        question: "¿Qué tipo de tiempo tranquilo o ambiente sensorial ayuda?",
+        examples: [
+          "poca luz, música, audífonos, descanso o un espacio sensorial",
+          "qué les ayuda a reiniciarse",
+          "qué tipo de ambiente suele ser calmante"
+        ]
+      },
+      mandarin: {
+        sectionTitle: "什么有助于让一天顺利进行",
+        stepId: "activities_preferences",
+        stepTitle: "活动与偏好",
+        stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
+        stepCompletionMessage: "您刚刚为您的亲人创建了一份活动与偏好指南。",
+        promptLabel: "什么样的安静时间或感官环境会有帮助？",
+        question: "什么样的安静时间或感官环境会有帮助？",
+        examples: [
+          "低光、音乐、耳机、休息时间，或感官空间",
+          "什么能帮助他们重新调整状态",
+          "什么样的环境通常最让人平静"
         ]
       }
     }

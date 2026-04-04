@@ -1,4 +1,9 @@
 export type ReflectionSectionId = "what_helps_the_day_go_well";
+export type ReflectionStepId =
+  | "communication"
+  | "health_safety"
+  | "daily_schedule"
+  | "activities_preferences";
 export type UiLanguage = "english" | "spanish" | "mandarin";
 export type YesNoOption = "" | "yes" | "no";
 
@@ -15,6 +20,10 @@ export interface ConversationTurn {
   promptId?: string;
   sectionId?: ReflectionSectionId;
   sectionTitle?: string;
+  stepId?: ReflectionStepId;
+  stepTitle?: string;
+  stepSubtitle?: string;
+  stepCompletionMessage?: string;
   promptLabel?: string;
   promptExamples?: string[];
   skipped?: boolean;
@@ -63,6 +72,10 @@ export interface ReflectionPrompt {
   id: string;
   sectionId: ReflectionSectionId;
   sectionTitle: string;
+  stepId: ReflectionStepId;
+  stepTitle: string;
+  stepSubtitle: string;
+  stepCompletionMessage: string;
   promptLabel: string;
   question: string;
   examples: string[];
