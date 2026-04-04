@@ -75,6 +75,32 @@ function hasDraftContent(intakeDetails: SessionIntakeDetails, consented: boolean
   );
 }
 
+function isIntakeReadyForReflection(draft: Pick<SessionDraft, "intakeDetails" | "consented">) {
+  const { intakeDetails, consented } = draft;
+
+  return (
+    consented &&
+    intakeDetails.caregiverFirstName.trim().length > 0 &&
+    intakeDetails.caregiverLastName.trim().length > 0 &&
+    Boolean(intakeDetails.caregiver55OrOlder) &&
+    intakeDetails.careRecipientFirstName.trim().length > 0 &&
+    intakeDetails.careRecipientLastName.trim().length > 0 &&
+    hasValidOptionalDate(intakeDetails.careRecipientDateOfBirth)
+  );
+}
+
+function getResumePath(draft: SessionDraft) {
+  if (draft.structuredSummary) {
+    return "/review";
+  }
+
+  if (isIntakeReadyForReflection(draft)) {
+    return "/reflection";
+  }
+
+  return null;
+}
+
 function isEmailNotConfirmedError(error: unknown) {
   return error instanceof Error && error.message.toLowerCase().includes("email not confirmed");
 }
@@ -182,6 +208,11 @@ export function WelcomeForm() {
         ...draft.intakeDetails
       });
       saveDraft(draft);
+
+      const resumePath = getResumePath(draft);
+      if (resumePath) {
+        router.replace(resumePath);
+      }
     } catch (loadError) {
       const localDraft = loadDraft();
       if (localDraft?.email === userEmail) {
@@ -191,6 +222,12 @@ export function WelcomeForm() {
           ...EMPTY_INTAKE_DETAILS,
           ...localDraft.intakeDetails
         });
+        saveDraft(localDraft);
+
+        const resumePath = getResumePath(localDraft);
+        if (resumePath) {
+          router.replace(resumePath);
+        }
       } else {
         setError(loadError instanceof Error ? loadError.message : copy.errors.authFailed);
       }
