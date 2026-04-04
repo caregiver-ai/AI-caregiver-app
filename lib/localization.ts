@@ -114,6 +114,8 @@ type ResetPasswordCopy = {
 type ReflectionCopy = {
   title: string;
   subtitle: string;
+  completionMessage: string;
+  enterAtLeastOneResponse: string;
   skippedLabel: string;
   skipButton: string;
   saveResponseButton: string;
@@ -421,9 +423,10 @@ const welcomeCopy: Record<UiLanguage, WelcomeCopy> = {
 
 const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
   english: {
-    title: "Guided reflection",
-    subtitle:
-      "Start by capturing what helps the day go well. Each prompt covers one subsection, and you can skip anything that does not matter.",
+    title: "What helps the day go well",
+    subtitle: "Communication. Answer what you can — short examples help.",
+    completionMessage: "You just created a communication guide for your loved one.",
+    enterAtLeastOneResponse: "Add at least one communication detail before continuing.",
     skippedLabel: "Skipped",
     skipButton: "Skip",
     saveResponseButton: "Save response",
@@ -465,9 +468,10 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     recordingStatus: (current, max) => `Recording ${current} of ${max}.`
   },
   spanish: {
-    title: "Reflexión guiada",
-    subtitle:
-      "Empiece por describir lo que ayuda a que el día vaya bien. Cada pregunta cubre una parte distinta y puede omitir lo que no sea importante.",
+    title: "Lo que ayuda a que el día vaya bien",
+    subtitle: "Comunicación. Responda lo que pueda; los ejemplos cortos ayudan.",
+    completionMessage: "Acaba de crear una guía de comunicación para su ser querido.",
+    enterAtLeastOneResponse: "Agregue al menos un detalle sobre comunicación antes de continuar.",
     skippedLabel: "Omitido",
     skipButton: "Omitir",
     saveResponseButton: "Guardar respuesta",
@@ -509,8 +513,10 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     recordingStatus: (current, max) => `Grabando ${current} de ${max}.`
   },
   mandarin: {
-    title: "引导式填写",
-    subtitle: "先说明哪些做法能让一天更顺利。每个问题只关注一个小主题，不重要的内容可以跳过。",
+    title: "什么有助于让一天顺利进行",
+    subtitle: "沟通。能回答多少就回答多少，简短例子会有帮助。",
+    completionMessage: "您刚刚为您的亲人创建了一份沟通指南。",
+    enterAtLeastOneResponse: "请至少补充一条与沟通有关的信息后再继续。",
     skippedLabel: "已跳过",
     skipButton: "跳过",
     saveResponseButton: "保存回答",
@@ -759,151 +765,147 @@ const promptDefinitions: Array<{
   translations: Record<UiLanguage, PromptTranslation>;
 }> = [
   {
-    id: "day-goes-well-communication",
+    id: "communication-how-do-they-communicate",
     sectionId: "what_helps_the_day_go_well",
     translations: {
       english: {
         sectionTitle: "What helps the day go well",
-        promptLabel: "Communication",
-        question:
-          "What should another caregiver know about communication so the day goes more smoothly?",
+        promptLabel: "How do they communicate?",
+        question: "How do they communicate?",
         examples: [
-          "gestures, words, sounds, or a communication device",
-          "whether they need extra time to respond",
-          "anything that helps them understand or express needs"
+          "words, sounds, gestures, pointing, or leading you",
+          "pictures, a communication device, or writing",
+          "anything another caregiver will notice right away"
         ]
       },
       spanish: {
         sectionTitle: "Lo que ayuda a que el día vaya bien",
-        promptLabel: "Comunicación",
-        question:
-          "¿Qué debería saber otra persona cuidadora sobre la comunicación para que el día transcurra con más facilidad?",
+        promptLabel: "¿Cómo se comunican?",
+        question: "¿Cómo se comunican?",
         examples: [
-          "gestos, palabras, sonidos o un dispositivo de comunicación",
-          "si necesita más tiempo para responder",
-          "cualquier cosa que le ayude a entender o expresar necesidades"
+          "palabras, sonidos, gestos, señalar o llevarle hacia algo",
+          "imágenes, un dispositivo de comunicación o escritura",
+          "cualquier cosa que otra persona cuidadora notará enseguida"
         ]
       },
       mandarin: {
         sectionTitle: "什么有助于让一天顺利进行",
-        promptLabel: "沟通",
-        question: "为了让一天更顺利，其他照护者需要了解哪些沟通方式？",
+        promptLabel: "他们如何沟通？",
+        question: "他们如何沟通？",
         examples: [
-          "手势、词语、声音，或沟通设备",
-          "是否需要更多时间来回应",
-          "任何有助于理解或表达需求的方式"
+          "词语、声音、手势、指东西，或带你去某处",
+          "图片、沟通设备，或书写",
+          "任何其他照护者一开始就会注意到的方式"
         ]
       }
     }
   },
   {
-    id: "day-goes-well-health-safety",
+    id: "communication-what-do-specific-things-mean",
     sectionId: "what_helps_the_day_go_well",
     translations: {
       english: {
         sectionTitle: "What helps the day go well",
-        promptLabel: "Health & safety",
-        question: "What health or safety information matters most for another caregiver to know?",
+        promptLabel: "Are there things they say or do that mean something specific? What do they mean?",
+        question: "Are there things they say or do that mean something specific? What do they mean?",
         examples: [
-          "allergies, medical conditions, or medications",
-          "equipment such as hearing aids, glasses, wheelchair, or feeding tube",
-          "anything another caregiver must do correctly to keep them safe"
+          "leading you means they want something",
+          "sitting close means they want attention",
+          "repeating a phrase may mean they are anxious or excited"
         ]
       },
       spanish: {
         sectionTitle: "Lo que ayuda a que el día vaya bien",
-        promptLabel: "Salud y seguridad",
+        promptLabel: "¿Hay cosas que dicen o hacen que significan algo específico? ¿Qué significan?",
         question:
-          "¿Qué información de salud o seguridad es más importante que otra persona cuidadora sepa?",
+          "¿Hay cosas que dicen o hacen que significan algo específico? ¿Qué significan?",
         examples: [
-          "alergias, condiciones médicas o medicamentos",
-          "equipo como audífonos, gafas, silla de ruedas o sonda de alimentación",
-          "cualquier cosa que otra persona cuidadora deba hacer correctamente para mantenerle a salvo"
+          "llevarle hacia algo significa que quiere algo",
+          "sentarse muy cerca significa que quiere atención",
+          "repetir una frase puede significar ansiedad o emoción"
         ]
       },
       mandarin: {
         sectionTitle: "什么有助于让一天顺利进行",
-        promptLabel: "健康与安全",
-        question: "有哪些健康或安全信息是其他照护者最需要知道的？",
+        promptLabel: "他们有没有某些话或行为有特定含义？分别是什么意思？",
+        question: "他们有没有某些话或行为有特定含义？分别是什么意思？",
         examples: [
-          "过敏、医疗状况或药物",
-          "助听器、眼镜、轮椅或喂食管等设备",
-          "任何必须正确执行才能确保安全的事情"
+          "带你过去表示他们想要某样东西",
+          "坐得很近表示他们想要关注",
+          "重复一句话可能表示焦虑或兴奋"
         ]
       }
     }
   },
   {
-    id: "day-goes-well-daily-schedule",
+    id: "communication-what-helps-you-communicate",
     sectionId: "what_helps_the_day_go_well",
     translations: {
       english: {
         sectionTitle: "What helps the day go well",
-        promptLabel: "Daily schedule",
-        question: "What routines, transitions, meals, or daily activities help the day stay on track?",
+        promptLabel: "What helps you communicate with them?",
+        question: "What helps you communicate with them?",
         examples: [
-          "morning or bedtime routines",
-          "meal and snack timing",
-          "transition supports like countdowns or visual schedules"
+          "giving choices instead of open-ended questions",
+          "waiting before repeating",
+          "using written questions or images"
         ]
       },
       spanish: {
         sectionTitle: "Lo que ayuda a que el día vaya bien",
-        promptLabel: "Rutina diaria",
-        question:
-          "¿Qué rutinas, transiciones, comidas o actividades diarias ayudan a que el día siga su curso?",
+        promptLabel: "¿Qué le ayuda a comunicarse con ellos?",
+        question: "¿Qué le ayuda a comunicarse con ellos?",
         examples: [
-          "rutinas de la mañana o de la noche",
-          "horarios de comidas y meriendas",
-          "apoyos para transiciones, como cuenta regresiva o horarios visuales"
+          "dar opciones en lugar de preguntas abiertas",
+          "esperar antes de repetir",
+          "usar preguntas escritas o imágenes"
         ]
       },
       mandarin: {
         sectionTitle: "什么有助于让一天顺利进行",
-        promptLabel: "日常安排",
-        question: "哪些固定流程、转换方式、用餐安排或日常活动能帮助一天顺利进行？",
+        promptLabel: "什么方式有助于你与他们沟通？",
+        question: "什么方式有助于你与他们沟通？",
         examples: [
-          "早晨或睡前流程",
-          "正餐和点心时间",
-          "倒计时或视觉日程等转换支持方式"
+          "给选择题而不是开放式问题",
+          "重复前先等一等",
+          "使用书面问题或图片"
         ]
       }
     }
   },
   {
-    id: "day-goes-well-activities",
+    id: "communication-how-can-you-tell-they-need-help",
     sectionId: "what_helps_the_day_go_well",
     translations: {
       english: {
         sectionTitle: "What helps the day go well",
-        promptLabel: "Activities & preferences",
-        question:
-          "What activities, outings, people, or quiet-time preferences usually help things go well?",
+        promptLabel: "How can you tell when they need help, and what should you check first?",
+        question: "How can you tell when they need help, and what should you check first?",
         examples: [
-          "favorite activities, videos, music, crafts, or walks",
-          "trusted people they do well with",
-          "rest, low-light, or sensory-space preferences"
+          "quieter than usual",
+          "not responding, so check the device or environment first",
+          "they may not be able to find what they need"
         ]
       },
       spanish: {
         sectionTitle: "Lo que ayuda a que el día vaya bien",
-        promptLabel: "Actividades y preferencias",
+        promptLabel: "¿Cómo puede saber que necesitan ayuda y qué debería revisar primero?",
         question:
-          "¿Qué actividades, salidas, personas o preferencias de tiempo tranquilo suelen ayudar a que todo vaya bien?",
+          "¿Cómo puede saber que necesitan ayuda y qué debería revisar primero?",
         examples: [
-          "actividades favoritas, videos, música, manualidades o caminatas",
-          "personas de confianza con quienes se siente bien",
-          "preferencias de descanso, poca luz o espacios sensoriales"
+          "más callados de lo habitual",
+          "si no responden, revise primero el dispositivo o el entorno",
+          "puede que no encuentren lo que necesitan"
         ]
       },
       mandarin: {
         sectionTitle: "什么有助于让一天顺利进行",
-        promptLabel: "活动与偏好",
-        question: "哪些活动、外出、陪伴的人，或安静时间的偏好，通常能帮助事情顺利进行？",
+        promptLabel: "你如何判断他们需要帮助？首先应该检查什么？",
+        question: "你如何判断他们需要帮助？首先应该检查什么？",
         examples: [
-          "喜欢的活动、视频、音乐、手工或散步",
-          "让其感觉安心、配合良好的人",
-          "休息、低光环境或感官空间方面的偏好"
+          "比平时更安静",
+          "没有回应时，先检查设备或环境",
+          "他们可能找不到自己需要的东西"
         ]
       }
     }

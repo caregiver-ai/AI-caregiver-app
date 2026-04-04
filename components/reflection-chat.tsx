@@ -13,14 +13,13 @@ import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draf
 import { getLanguageLabel, getReflectionCopy } from "@/lib/localization";
 import {
   ReflectionResponse,
-  areAllPromptsCompleted,
   buildTurnsFromResponses,
   getFirstIncompletePromptIndex,
   getPromptSequence,
   getResponsesFromTurns
 } from "@/lib/reflection";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { ConversationTurn, SessionDraft, UiLanguage } from "@/lib/types";
+import { SessionDraft, UiLanguage } from "@/lib/types";
 
 const MAX_RECORDING_MS = 45 * 1000;
 const MAX_TRANSCRIPTION_UPLOAD_BYTES = 4 * 1024 * 1024;
@@ -34,25 +33,33 @@ function formatDuration(durationMs: number) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function createTurn(
-  role: ConversationTurn["role"],
-  content: string,
-  promptType: ConversationTurn["promptType"],
-  options: Partial<
-    Pick<
-      ConversationTurn,
-      "sectionId" | "sectionTitle" | "promptLabel" | "promptExamples" | "skipped"
-    >
-  > = {}
-): ConversationTurn {
-  return {
-    id: crypto.randomUUID(),
-    role,
-    content,
-    promptType,
-    ...options,
-    createdAt: new Date().toISOString()
-  };
+function hasContent(response?: ReflectionResponse) {
+  return Boolean(response?.content.trim());
+}
+
+function getFirstPromptId(language: UiLanguage) {
+  return getPromptSequence(language)[0]?.id ?? "";
+}
+
+function sanitizeResponses(responses: Record<string, ReflectionResponse>) {
+  const sanitizedEntries: Array<[string, ReflectionResponse]> = [];
+
+  for (const [promptId, response] of Object.entries(responses)) {
+    const content = response.content.trim();
+    if (!content) {
+      continue;
+    }
+
+    sanitizedEntries.push([
+      promptId,
+      {
+        ...response,
+        content
+      }
+    ]);
+  }
+
+  return Object.fromEntries(sanitizedEntries) as Record<string, ReflectionResponse>;
 }
 
 export function ReflectionChat() {
@@ -60,7 +67,6 @@ export function ReflectionChat() {
   const [sessionId, setSessionId] = useState("");
   const [responses, setResponses] = useState<Record<string, ReflectionResponse>>({});
   const [activePromptId, setActivePromptId] = useState("");
-  const [inputValue, setInputValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
@@ -75,6 +81,17 @@ export function ReflectionChat() {
   const recordingTimerRef = useRef<number | null>(null);
   const recordingTimeoutRef = useRef<number | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
+
+  const reflectionCopy = useMemo(() => getReflectionCopy(uiLanguage), [uiLanguage]);
+  const prompts = useMemo(() => getPromptSequence(uiLanguage), [uiLanguage]);
+  const currentPrompt = useMemo(
+    () => prompts.find((prompt) => prompt.id === activePromptId) ?? prompts[0] ?? null,
+    [activePromptId, prompts]
+  );
+  const hasAnyResponse = useMemo(
+    () => prompts.some((prompt) => hasContent(responses[prompt.id])),
+    [prompts, responses]
+  );
 
   useEffect(() => {
     let active = true;
@@ -93,7 +110,8 @@ export function ReflectionChat() {
         setUiLanguage(preferredLanguage);
         setAudioLanguage(preferredLanguage);
         setActivePromptId(
-          promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : promptSequence.length - 1]?.id ?? ""
+          promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0]?.id ??
+            getFirstPromptId(preferredLanguage)
         );
       }
 
@@ -131,7 +149,8 @@ export function ReflectionChat() {
       setUiLanguage(preferredLanguage);
       setAudioLanguage(preferredLanguage);
       setActivePromptId(
-        promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : promptSequence.length - 1]?.id ?? ""
+        promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0]?.id ??
+          getFirstPromptId(preferredLanguage)
       );
     }
 
@@ -164,67 +183,32 @@ export function ReflectionChat() {
     };
   }, []);
 
-  const reflectionCopy = useMemo(() => getReflectionCopy(uiLanguage), [uiLanguage]);
-  const prompts = useMemo(() => getPromptSequence(uiLanguage), [uiLanguage]);
-  const allPromptsCompleted = useMemo(
-    () => areAllPromptsCompleted(responses, uiLanguage),
-    [responses, uiLanguage]
-  );
-  const currentPrompt = useMemo(
-    () => prompts.find((prompt) => prompt.id === activePromptId) ?? prompts[0] ?? null,
-    [activePromptId, prompts]
-  );
-  const promptIndex = useMemo(
-    () => prompts.findIndex((prompt) => prompt.id === currentPrompt?.id),
-    [currentPrompt?.id, prompts]
-  );
-  const visiblePrompts = useMemo(() => {
-    if (!currentPrompt || promptIndex < 0) {
-      return [];
-    }
-
-    return prompts.slice(0, promptIndex + 1);
-  }, [currentPrompt, promptIndex, prompts]);
-  const hasPendingChanges = useMemo(() => {
-    if (!currentPrompt) {
-      return false;
-    }
-
-    const savedResponse = responses[currentPrompt.id];
-    if (!savedResponse) {
-      return inputValue.trim().length > 0;
-    }
-
-    if (savedResponse.skipped) {
-      return inputValue.trim().length > 0;
-    }
-
-    return savedResponse.content !== inputValue.trim();
-  }, [currentPrompt, inputValue, responses]);
-  const currentResponse = currentPrompt ? responses[currentPrompt.id] : undefined;
-  const isFinalPrompt = Boolean(currentPrompt) && promptIndex === prompts.length - 1;
-  const canCompleteFromCurrentPrompt = Boolean(
-    currentPrompt &&
-      !submitting &&
-      !recording &&
-      !transcribing &&
-      (inputValue.trim().length > 0 || (currentResponse && !hasPendingChanges))
-  );
-
   useEffect(() => {
-    if (!currentPrompt) {
-      setInputValue("");
+    if (!sessionId) {
       return;
     }
 
-    const savedResponse = responses[currentPrompt.id];
-    if (!savedResponse || savedResponse.skipped) {
-      setInputValue("");
-      return;
-    }
+    const timeoutId = window.setTimeout(() => {
+      const draft = loadDraft();
+      if (!draft) {
+        return;
+      }
 
-    setInputValue(savedResponse.content);
-  }, [currentPrompt, responses]);
+      const nextDraft = {
+        ...draft,
+        turns: buildTurnsFromResponses(sanitizeResponses(responses), uiLanguage)
+      };
+
+      saveDraft(nextDraft);
+      void saveRemoteDraft(nextDraft, "in_progress").catch(() => {
+        // Keep local progress even if remote persistence is briefly unavailable.
+      });
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [responses, sessionId, uiLanguage]);
 
   function getAudioPanelCopy({
     recordingState,
@@ -264,14 +248,32 @@ export function ReflectionChat() {
     }
   }
 
-  async function persistDraft(nextDraft: SessionDraft) {
-    saveDraft(nextDraft);
+  function updateResponse(promptId: string, value: string) {
+    setActivePromptId(promptId);
+    setError("");
+    setStatusMessage("");
 
-    try {
-      await saveRemoteDraft(nextDraft, "in_progress");
-    } catch {
-      // Keep local progress even if the server save fails temporarily.
-    }
+    setResponses((current) => {
+      if (!value.trim()) {
+        if (!current[promptId]) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[promptId];
+        return next;
+      }
+
+      return {
+        ...current,
+        [promptId]: {
+          promptId,
+          content: value,
+          skipped: false,
+          createdAt: current[promptId]?.createdAt ?? new Date().toISOString()
+        }
+      };
+    });
   }
 
   async function transcribeAudio(audioBlob: Blob) {
@@ -348,9 +350,20 @@ export function ReflectionChat() {
         return;
       }
 
-      setInputValue((current) =>
-        current.trim() ? `${current.trim()}\n${transcriptText}` : transcriptText
-      );
+      setResponses((current) => {
+        const currentValue = current[currentPrompt.id]?.content.trim() ?? "";
+        const nextValue = currentValue ? `${currentValue}\n${transcriptText}` : transcriptText;
+
+        return {
+          ...current,
+          [currentPrompt.id]: {
+            promptId: currentPrompt.id,
+            content: nextValue,
+            skipped: false,
+            createdAt: current[currentPrompt.id]?.createdAt ?? new Date().toISOString()
+          }
+        };
+      });
       setStatusMessage(reflectionCopy.audioAdded(audioLanguage === "english"));
       setStatusTone("success");
     } catch (requestError) {
@@ -442,32 +455,26 @@ export function ReflectionChat() {
     }
   }
 
-  async function persistResponses(nextResponses: Record<string, ReflectionResponse>) {
-    const draft = loadDraft();
-    if (draft) {
-      draft.turns = buildTurnsFromResponses(nextResponses, uiLanguage);
-      await persistDraft(draft);
+  async function persistDraft(nextDraft: SessionDraft) {
+    saveDraft(nextDraft);
+
+    try {
+      await saveRemoteDraft(nextDraft, "in_progress");
+    } catch {
+      // Keep local progress even if the server save fails temporarily.
     }
   }
 
-  function selectNextPrompt(nextResponses: Record<string, ReflectionResponse>, promptId: string) {
-    const nextIncompleteIndex = getFirstIncompletePromptIndex(nextResponses, uiLanguage);
-    if (nextIncompleteIndex >= 0) {
-      setActivePromptId(prompts[nextIncompleteIndex]?.id ?? promptId);
-      return;
-    }
-
-    const currentIndex = prompts.findIndex((prompt) => prompt.id === promptId);
-    const nextPrompt = currentIndex >= 0 ? prompts[currentIndex + 1] : null;
-    setActivePromptId(nextPrompt?.id ?? promptId);
-  }
-
-  async function finalizeFlow(finalResponses: Record<string, ReflectionResponse> = responses) {
-    if (!areAllPromptsCompleted(finalResponses, uiLanguage)) {
+  async function finalizeFlow() {
+    const finalResponses = sanitizeResponses(responses);
+    if (Object.keys(finalResponses).length === 0) {
+      setError(reflectionCopy.enterAtLeastOneResponse);
       return;
     }
 
     setSubmitting(true);
+    setError("");
+    setStatusMessage("");
 
     try {
       const finalTurns = buildTurnsFromResponses(finalResponses, uiLanguage);
@@ -479,6 +486,7 @@ export function ReflectionChat() {
           .filter(Boolean)
           .join(" ")
           .trim();
+
       const response = await fetch("/api/summary", {
         method: "POST",
         headers: {
@@ -498,6 +506,7 @@ export function ReflectionChat() {
       const data = await response.json();
       const updatedDraft = loadDraft();
       if (updatedDraft) {
+        updatedDraft.turns = finalTurns;
         updatedDraft.structuredSummary = data.summary;
         updatedDraft.editedSummary = data.summary;
         delete updatedDraft.feedback;
@@ -509,274 +518,125 @@ export function ReflectionChat() {
       setError(
         requestError instanceof Error ? requestError.message : reflectionCopy.unableToGenerateSummary
       );
-    } finally {
       setSubmitting(false);
     }
   }
 
-  async function handleSubmit() {
-    if (!inputValue.trim() || !sessionId || !currentPrompt || recording || transcribing) {
-      return;
-    }
-
-    const nextResponses = {
-      ...responses,
-      [currentPrompt.id]: {
-        promptId: currentPrompt.id,
-        content: inputValue.trim(),
-        skipped: false,
-        createdAt: new Date().toISOString()
-      }
-    };
-
-    setResponses(nextResponses);
-    setError("");
-    setStatusMessage("");
-    await persistResponses(nextResponses);
-    selectNextPrompt(nextResponses, currentPrompt.id);
-  }
-
-  async function handleSkip() {
-    if (!sessionId || !currentPrompt || submitting || recording || transcribing) {
-      return;
-    }
-
-    const nextResponses = {
-      ...responses,
-      [currentPrompt.id]: {
-        promptId: currentPrompt.id,
-        content: "",
-        skipped: true,
-        createdAt: new Date().toISOString()
-      }
-    };
-
-    setResponses(nextResponses);
-    setInputValue("");
-    setError("");
-    setStatusMessage("");
-    await persistResponses(nextResponses);
-    selectNextPrompt(nextResponses, currentPrompt.id);
-  }
-
-  async function handleComplete() {
-    if (!allPromptsCompleted || hasPendingChanges || submitting || recording || transcribing) {
-      return;
-    }
-
-    await finalizeFlow();
-  }
-
-  async function handleCompleteFromCurrentPrompt() {
-    if (!currentPrompt || !canCompleteFromCurrentPrompt) {
-      return;
-    }
-
-    const trimmedInput = inputValue.trim();
-    if (trimmedInput) {
-      const nextResponses = {
-        ...responses,
-        [currentPrompt.id]: {
-          promptId: currentPrompt.id,
-          content: trimmedInput,
-          skipped: false,
-          createdAt: new Date().toISOString()
-        }
-      };
-
-      setResponses(nextResponses);
-      setError("");
-      setStatusMessage("");
-      await persistResponses(nextResponses);
-      await finalizeFlow(nextResponses);
-      return;
-    }
-
-    if (!hasPendingChanges && currentResponse) {
-      setError("");
-      setStatusMessage("");
-      await finalizeFlow(responses);
-    }
+  if (submitting) {
+    return (
+      <AppShell title={reflectionCopy.completionMessage} subtitle={reflectionCopy.buildingSummaryLabel}>
+        <StatusBanner tone="success">{reflectionCopy.completionMessage}</StatusBanner>
+      </AppShell>
+    );
   }
 
   return (
     <AppShell title={reflectionCopy.title} subtitle={reflectionCopy.subtitle}>
-      <div className="flex h-full min-h-[70vh] flex-col">
-        <div className="mb-4 rounded-2xl border border-border bg-canvas px-4 py-3 text-sm text-slate-700">
-          {reflectionCopy.promptCounter(Math.min(Math.max(promptIndex, 0) + 1, prompts.length), prompts.length)}
-        </div>
-        <div className="space-y-4 overflow-y-auto pb-4">
-          {visiblePrompts.map((prompt, index) => {
-            const savedResponse = responses[prompt.id];
-            const showSectionHeader =
-              prompt.sectionTitle &&
-              (index === 0 || visiblePrompts[index - 1]?.sectionTitle !== prompt.sectionTitle);
-            const isActive = currentPrompt?.id === prompt.id;
+      <div className="space-y-5">
+        {prompts.map((prompt, index) => {
+          const isActive = currentPrompt?.id === prompt.id;
 
-            return (
-              <div key={prompt.id} className="space-y-2">
-                {showSectionHeader ? (
-                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    {prompt.sectionTitle}
-                  </div>
-                ) : null}
-                {isActive ? (
-                  <div className="mr-auto w-full rounded-3xl bg-canvas px-4 py-3 text-left text-sm leading-6 text-slate-700 ring-2 ring-accent/30 sm:max-w-[88%]">
-                    {prompt.promptLabel ? (
-                      <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        {prompt.promptLabel}
-                      </div>
-                    ) : null}
-                    <div>{prompt.content}</div>
-                    {prompt.promptExamples?.length ? (
-                      <ul className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
-                        {prompt.promptExamples.map((example) => (
-                          <li key={example}>- {example}</li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                ) : savedResponse ? (
-                  <button
-                    className={`ml-auto block w-full max-w-[88%] rounded-3xl px-4 py-3 text-left text-sm leading-6 transition ${
-                      savedResponse.skipped
-                        ? "border border-dashed border-border bg-white text-slate-500 hover:bg-slate-50"
-                        : "bg-accent text-white hover:bg-teal-700"
-                    }`}
-                    type="button"
-                    onClick={() => setActivePromptId(prompt.id)}
-                  >
-                    {prompt.promptLabel ? (
-                      <div
-                        className={`mb-2 text-xs font-semibold uppercase tracking-[0.16em] ${
-                          savedResponse.skipped ? "text-slate-400" : "text-white/80"
-                        }`}
-                      >
-                        {prompt.promptLabel}
-                      </div>
-                    ) : null}
-                    <div>{savedResponse.skipped ? reflectionCopy.skippedLabel : savedResponse.content}</div>
-                  </button>
+          return (
+            <div
+              key={prompt.id}
+              className={`space-y-4 rounded-3xl border px-5 py-5 transition ${
+                isActive ? "border-accent bg-canvas ring-2 ring-accent/20" : "border-border bg-white"
+              }`}
+            >
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Question {index + 1}
+                </div>
+                <h2 className="text-lg font-semibold leading-8 text-ink">{prompt.content}</h2>
+                {prompt.promptExamples?.length ? (
+                  <ul className="space-y-1 text-sm leading-6 text-slate-500">
+                    {prompt.promptExamples.map((example) => (
+                      <li key={example}>({example})</li>
+                    ))}
+                  </ul>
                 ) : null}
               </div>
-            );
-          })}
-        </div>
 
-        {error ? (
-          <div className="mb-3">
-            <StatusBanner tone="error">{error}</StatusBanner>
-          </div>
-        ) : null}
-        {!error && statusMessage ? (
-          <div className="mb-3">
-            <StatusBanner tone={statusTone}>{statusMessage}</StatusBanner>
-          </div>
-        ) : null}
+              <textarea
+                className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent disabled:bg-slate-50"
+                disabled={transcribing || recording}
+                placeholder={reflectionCopy.textareaPlaceholder}
+                value={responses[prompt.id]?.content ?? ""}
+                onChange={(event) => updateResponse(prompt.id, event.target.value)}
+                onFocus={() => setActivePromptId(prompt.id)}
+              />
 
-        <div className="mt-auto space-y-3 border-t border-border pt-4">
-          <textarea
-            className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent disabled:bg-slate-50"
-            disabled={!currentPrompt || submitting || transcribing}
-            placeholder={
-              currentPrompt ? reflectionCopy.textareaPlaceholder : reflectionCopy.allQuestionsAnswered
-            }
-            value={inputValue}
-            onChange={(event) => setInputValue(event.target.value)}
-          />
-          {currentPrompt ? (
-            <div className="rounded-2xl border border-border bg-canvas px-4 py-3">
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <div className="text-sm font-semibold text-slate-700">
-                    {reflectionCopy.recordResponseTitle}
+              {isActive ? (
+                <div className="rounded-2xl border border-border bg-canvas px-4 py-3">
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-slate-700">
+                        {reflectionCopy.recordResponseTitle}
+                      </div>
+                      <div className="text-sm leading-6 text-slate-600">
+                        {getAudioPanelCopy({
+                          recordingState: recording,
+                          transcribingState: transcribing,
+                          durationMs: recordingDurationMs
+                        })}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                      {reflectionCopy.audioLimitNotice}
+                    </div>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                      <label className="flex-1 text-sm text-slate-600">
+                        <span className="mb-2 block font-medium text-slate-700">
+                          {reflectionCopy.spokenLanguageLabel}
+                        </span>
+                        <select
+                          className="w-full rounded-full border border-border bg-white px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-accent disabled:bg-slate-50"
+                          disabled={recording || transcribing}
+                          value={audioLanguage}
+                          onChange={(event) => setAudioLanguage(event.target.value as UiLanguage)}
+                        >
+                          {SPOKEN_LANGUAGE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {getLanguageLabel(option, uiLanguage)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {recordingSupported ? (
+                        <button
+                          className={`w-full rounded-full px-4 py-2.5 text-sm font-semibold transition sm:w-auto sm:min-w-[12rem] ${
+                            recording
+                              ? "bg-red-600 text-white hover:bg-red-700"
+                              : "border border-border bg-white text-slate-700 hover:bg-slate-50"
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
+                          disabled={transcribing}
+                          type="button"
+                          onClick={recording ? () => void stopRecording() : () => void startRecording()}
+                        >
+                          {recording ? reflectionCopy.stopRecordingButton : reflectionCopy.recordButton}
+                        </button>
+                      ) : (
+                        <div className="text-xs text-slate-500">{reflectionCopy.audioNotSupported}</div>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-sm leading-6 text-slate-600">
-                    {getAudioPanelCopy({
-                      recordingState: recording,
-                      transcribingState: transcribing,
-                      durationMs: recordingDurationMs
-                    })}
-                  </div>
                 </div>
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
-                  {reflectionCopy.audioLimitNotice}
-                </div>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <label className="flex-1 text-sm text-slate-600">
-                    <span className="mb-2 block font-medium text-slate-700">
-                      {reflectionCopy.spokenLanguageLabel}
-                    </span>
-                    <select
-                      className="w-full rounded-full border border-border bg-white px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-accent disabled:bg-slate-50"
-                      disabled={recording || transcribing || submitting}
-                      value={audioLanguage}
-                      onChange={(event) => setAudioLanguage(event.target.value as UiLanguage)}
-                    >
-                      {SPOKEN_LANGUAGE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {getLanguageLabel(option, uiLanguage)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {recordingSupported ? (
-                    <button
-                      className={`w-full rounded-full px-4 py-2.5 text-sm font-semibold transition sm:w-auto sm:min-w-[12rem] ${
-                        recording
-                          ? "bg-red-600 text-white hover:bg-red-700"
-                          : "border border-border bg-white text-slate-700 hover:bg-slate-50"
-                      } disabled:cursor-not-allowed disabled:opacity-60`}
-                      disabled={submitting || transcribing}
-                      type="button"
-                      onClick={recording ? () => void stopRecording() : () => void startRecording()}
-                    >
-                      {recording ? reflectionCopy.stopRecordingButton : reflectionCopy.recordButton}
-                    </button>
-                  ) : (
-                    <div className="text-xs text-slate-500">{reflectionCopy.audioNotSupported}</div>
-                  )}
-                </div>
-              </div>
+              ) : null}
             </div>
-          ) : null}
-          <div className="flex gap-3">
-            <button
-              className="w-full rounded-2xl border border-border px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!currentPrompt || submitting || recording || transcribing}
-              type="button"
-              onClick={handleSkip}
-            >
-              {reflectionCopy.skipButton}
-            </button>
-            <button
-              className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={
-                isFinalPrompt
-                  ? !canCompleteFromCurrentPrompt
-                  : !currentPrompt || !inputValue.trim() || submitting || recording || transcribing
-              }
-              type="button"
-              onClick={isFinalPrompt ? handleCompleteFromCurrentPrompt : handleSubmit}
-            >
-              {isFinalPrompt
-                ? submitting
-                  ? reflectionCopy.buildingSummaryLabel
-                  : reflectionCopy.completeButton
-                : reflectionCopy.saveResponseButton}
-            </button>
-          </div>
-          {!isFinalPrompt ? (
-            <button
-              className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!allPromptsCompleted || hasPendingChanges || submitting || recording || transcribing}
-              type="button"
-              onClick={handleComplete}
-            >
-              {submitting ? reflectionCopy.buildingSummaryLabel : reflectionCopy.completeButton}
-            </button>
-          ) : null}
-        </div>
+          );
+        })}
+
+        {error ? <StatusBanner tone="error">{error}</StatusBanner> : null}
+        {!error && statusMessage ? <StatusBanner tone={statusTone}>{statusMessage}</StatusBanner> : null}
+
+        <button
+          className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!hasAnyResponse || recording || transcribing || !sessionId}
+          type="button"
+          onClick={finalizeFlow}
+        >
+          {reflectionCopy.completeButton}
+        </button>
       </div>
     </AppShell>
   );
