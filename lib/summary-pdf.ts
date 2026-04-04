@@ -253,7 +253,7 @@ export async function createSummaryPdf(summary: StructuredSummary) {
   return pdf.save();
 }
 
-export function buildSummaryEmailHtml(summary: StructuredSummary) {
+export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: string) {
   const generatedAtText = formatSummaryGeneratedAt(summary.generatedAt, "english");
   const sections = summary.sections
     .filter((section) => section.items.length > 0)
@@ -272,6 +272,11 @@ export function buildSummaryEmailHtml(summary: StructuredSummary) {
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#334155;">
       <p style="margin:0 0 12px;">Attached is the caregiver handoff summary as a PDF.</p>
+      ${
+        editUrl
+          ? `<p style="margin:0 0 16px;"><a href="${escapeHtml(editUrl)}" style="color:#0f766e;font-weight:600;text-decoration:underline;">Open the app to review or edit this summary</a></p>`
+          : ""
+      }
       <p style="margin:0 0 16px;"><strong>${escapeHtml(summary.title)}</strong></p>
       ${
         generatedAtText

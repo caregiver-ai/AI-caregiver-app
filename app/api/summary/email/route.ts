@@ -89,6 +89,16 @@ function isEmptySummary(summary: StructuredSummary) {
   return !summary.overview.trim() && summary.sections.length === 0;
 }
 
+function buildEditUrl(request: Request) {
+  return new URL("/review", request.url).toString();
+}
+
+function buildSummaryEmailText(summary: StructuredSummary, editUrl: string) {
+  const baseText = summaryToPlainText(summary);
+
+  return `${baseText}\n\nReview or edit this summary in the app: ${editUrl}`;
+}
+
 export async function POST(request: Request) {
   const { user, error: authError } = await getSupabaseAuthUserFromRequest(request);
   if (!user) {
@@ -160,6 +170,7 @@ export async function POST(request: Request) {
 
     const pdfBytes = await createSummaryPdf(summary);
     const filename = `${sanitizePdfFilename(summary.title)}.pdf`;
+    const editUrl = buildEditUrl(request);
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -170,8 +181,8 @@ export async function POST(request: Request) {
         from: resendFromEmail,
         to: [recipientEmail],
         subject: summary.title || "Caregiver Handoff Summary",
-        html: buildSummaryEmailHtml(summary),
-        text: summaryToPlainText(summary),
+        html: buildSummaryEmailHtml(summary, editUrl),
+        text: buildSummaryEmailText(summary, editUrl),
         attachments: [
           {
             filename,
