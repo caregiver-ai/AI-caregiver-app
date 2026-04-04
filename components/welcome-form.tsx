@@ -75,6 +75,14 @@ function hasDraftContent(intakeDetails: SessionIntakeDetails, consented: boolean
   );
 }
 
+function shouldStayOnIntakePage() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return new URLSearchParams(window.location.search).get("view") === "intake";
+}
+
 function isIntakeReadyForReflection(draft: Pick<SessionDraft, "intakeDetails" | "consented">) {
   const { intakeDetails, consented } = draft;
 
@@ -210,7 +218,7 @@ export function WelcomeForm() {
       saveDraft(draft);
 
       const resumePath = getResumePath(draft);
-      if (resumePath) {
+      if (resumePath && !shouldStayOnIntakePage()) {
         router.replace(resumePath);
       }
     } catch (loadError) {
@@ -225,7 +233,7 @@ export function WelcomeForm() {
         saveDraft(localDraft);
 
         const resumePath = getResumePath(localDraft);
-        if (resumePath) {
+        if (resumePath && !shouldStayOnIntakePage()) {
           router.replace(resumePath);
         }
       } else {
