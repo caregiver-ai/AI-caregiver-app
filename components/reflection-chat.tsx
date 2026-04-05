@@ -652,7 +652,12 @@ export function ReflectionChat() {
         title={currentStepMeta?.sectionTitle ?? reflectionCopy.title}
         subtitle={
           currentStepMeta
-            ? `${currentStepMeta.stepTitle}. ${currentStepMeta.stepSubtitle}`
+            ? (
+                <>
+                  <div className="font-semibold text-ink">{currentStepMeta.stepTitle}</div>
+                  <div className="italic">{currentStepMeta.stepSubtitle}</div>
+                </>
+              )
             : reflectionCopy.subtitle
         }
       >

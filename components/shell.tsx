@@ -9,7 +9,7 @@ export function AppShell({
 }: {
   children: ReactNode;
   title: string;
-  subtitle: string;
+  subtitle: ReactNode;
 }) {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-6 sm:px-6">
@@ -21,7 +21,7 @@ export function AppShell({
           {APP_NAME}
         </Link>
         <h1 className="mt-3 text-3xl font-semibold text-ink">{title}</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-600">{subtitle}</p>
+        <div className="mt-2 text-sm leading-6 text-slate-600">{subtitle}</div>
       </div>
       <section className="flex-1 rounded-[28px] border border-border bg-white/90 p-5 shadow-card backdrop-blur">
         {children}
