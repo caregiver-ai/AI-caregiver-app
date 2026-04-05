@@ -794,8 +794,7 @@ const promptDefinitions: Array<{
         question: "How do they communicate?",
         examples: [
           "words, sounds, gestures, pointing, or leading you",
-          "pictures, a communication device, or writing",
-          "anything another caregiver will notice right away"
+          "pictures, communication device, or writing"
         ]
       },
       spanish: {
@@ -841,9 +840,9 @@ const promptDefinitions: Array<{
         promptLabel: "Are there things they say or do that mean something specific? What do they mean?",
         question: "Are there things they say or do that mean something specific? What do they mean?",
         examples: [
-          "leading you means they want something",
-          "sitting close means they want attention",
-          "repeating a phrase may mean they are anxious or excited"
+          "leading you = wants something",
+          "sitting close = wants attention",
+          "repeating a phrase = anxious or excited"
         ]
       },
       spanish: {
@@ -939,8 +938,7 @@ const promptDefinitions: Array<{
         question: "How can you tell when they need help, and what should you check first?",
         examples: [
           "quieter than usual",
-          "not responding, so check the device or environment first",
-          "they may not be able to find what they need"
+          "not responding -> check device, environment, or whether they can find what they need"
         ]
       },
       spanish: {
@@ -981,15 +979,15 @@ const promptDefinitions: Array<{
       english: {
         sectionTitle: "What helps the day go well",
         stepId: "health_safety",
-        stepTitle: "Health & safety",
+        stepTitle: "Health & Safety",
         stepSubtitle: "Answer what you can — short examples help.",
         stepCompletionMessage: "You just created a health and safety guide for your loved one.",
-        promptLabel: "What health or medical information should another caregiver know right away?",
-        question: "What health or medical information should another caregiver know right away?",
+        promptLabel: "Are there any allergies?",
+        question: "Are there any allergies?",
         examples: [
-          "allergies, diagnoses, seizures, asthma, or GI concerns",
-          "anything urgent or easy to miss",
-          "what another caregiver should know before starting the day"
+          "food",
+          "medication",
+          "animals"
         ]
       },
       spanish: {
@@ -1029,15 +1027,16 @@ const promptDefinitions: Array<{
       english: {
         sectionTitle: "What helps the day go well",
         stepId: "health_safety",
-        stepTitle: "Health & safety",
+        stepTitle: "Health & Safety",
         stepSubtitle: "Answer what you can — short examples help.",
         stepCompletionMessage: "You just created a health and safety guide for your loved one.",
-        promptLabel: "What medications, treatments, or health routines need to happen correctly?",
-        question: "What medications, treatments, or health routines need to happen correctly?",
+        promptLabel: "Do they have any health conditions?",
+        question: "Do they have any health conditions?",
         examples: [
-          "medication timing or how it is taken",
-          "what should happen before or after meals",
-          "what must not be missed"
+          "seizures",
+          "asthma",
+          "diabetes",
+          "GI issues"
         ]
       },
       spanish: {
@@ -1077,15 +1076,17 @@ const promptDefinitions: Array<{
       english: {
         sectionTitle: "What helps the day go well",
         stepId: "health_safety",
-        stepTitle: "Health & safety",
+        stepTitle: "Health & Safety",
         stepSubtitle: "Answer what you can — short examples help.",
         stepCompletionMessage: "You just created a health and safety guide for your loved one.",
-        promptLabel: "What equipment, devices, or physical supports do they use?",
-        question: "What equipment, devices, or physical supports do they use?",
+        promptLabel: "Do they take any medication? What should others know?",
+        question: "Do they take any medication? What should others know?",
         examples: [
-          "glasses, hearing aids, wheelchair, gait belt, or feeding equipment",
-          "what helps them move, eat, hear, or stay safe",
-          "anything a caregiver should check or set up"
+          "time of day",
+          "with food",
+          "crushed",
+          "liquid",
+          "needs reminders"
         ]
       },
       spanish: {
@@ -1125,15 +1126,17 @@ const promptDefinitions: Array<{
       english: {
         sectionTitle: "What helps the day go well",
         stepId: "health_safety",
-        stepTitle: "Health & safety",
+        stepTitle: "Health & Safety",
         stepSubtitle: "Answer what you can — short examples help.",
         stepCompletionMessage: "You just created a health and safety guide for your loved one.",
-        promptLabel: "What safety concerns should another caregiver keep in mind?",
-        question: "What safety concerns should another caregiver keep in mind?",
+        promptLabel: "Do they use any equipment or supports?",
+        question: "Do they use any equipment or supports?",
         examples: [
-          "fall risk, choking, wandering, or needing two adults for outings",
-          "unsafe behaviors to watch for",
-          "what another caregiver should never assume is safe"
+          "glasses",
+          "hearing aids",
+          "wheelchair",
+          "feeding tube",
+          "braces"
         ]
       },
       spanish: {
