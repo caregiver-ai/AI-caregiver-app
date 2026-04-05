@@ -807,8 +807,7 @@ const promptDefinitions: Array<{
         question: "¿Cómo se comunican?",
         examples: [
           "palabras, sonidos, gestos, señalar o llevarle hacia algo",
-          "imágenes, un dispositivo de comunicación o escritura",
-          "cualquier cosa que otra persona cuidadora notará enseguida"
+          "imágenes, dispositivo de comunicación o escritura"
         ]
       },
       mandarin: {
@@ -821,8 +820,7 @@ const promptDefinitions: Array<{
         question: "他们如何沟通？",
         examples: [
           "词语、声音、手势、指东西，或带你去某处",
-          "图片、沟通设备，或书写",
-          "任何其他照护者一开始就会注意到的方式"
+          "图片、沟通设备，或书写"
         ]
       }
     }
@@ -855,9 +853,9 @@ const promptDefinitions: Array<{
         question:
           "¿Hay cosas que dicen o hacen que significan algo específico? ¿Qué significan?",
         examples: [
-          "llevarle hacia algo significa que quiere algo",
-          "sentarse muy cerca significa que quiere atención",
-          "repetir una frase puede significar ansiedad o emoción"
+          "llevarle hacia algo = quiere algo",
+          "sentarse cerca = quiere atención",
+          "repetir una frase = está ansioso o emocionado"
         ]
       },
       mandarin: {
@@ -869,9 +867,9 @@ const promptDefinitions: Array<{
         promptLabel: "他们有没有某些话或行为有特定含义？分别是什么意思？",
         question: "他们有没有某些话或行为有特定含义？分别是什么意思？",
         examples: [
-          "带你过去表示他们想要某样东西",
-          "坐得很近表示他们想要关注",
-          "重复一句话可能表示焦虑或兴奋"
+          "带你过去 = 他们想要某样东西",
+          "坐得很近 = 他们想要关注",
+          "重复一句话 = 焦虑或兴奋"
         ]
       }
     }
@@ -938,7 +936,7 @@ const promptDefinitions: Array<{
         question: "How can you tell when they need help, and what should you check first?",
         examples: [
           "quieter than usual",
-          "not responding -> check device, environment, or whether they can find what they need"
+          "not responding → check device, environment, or if they can find what they need"
         ]
       },
       spanish: {
@@ -952,8 +950,7 @@ const promptDefinitions: Array<{
           "¿Cómo puede saber que necesitan ayuda y qué debería revisar primero?",
         examples: [
           "más callados de lo habitual",
-          "si no responden, revise primero el dispositivo o el entorno",
-          "puede que no encuentren lo que necesitan"
+          "si no responden → revise el dispositivo, el entorno o si pueden encontrar lo que necesitan"
         ]
       },
       mandarin: {
@@ -966,8 +963,7 @@ const promptDefinitions: Array<{
         question: "你如何判断他们需要帮助？首先应该检查什么？",
         examples: [
           "比平时更安静",
-          "没有回应时，先检查设备或环境",
-          "他们可能找不到自己需要的东西"
+          "没有回应 → 先检查设备、环境，或他们是否找得到自己需要的东西"
         ]
       }
     }
@@ -996,12 +992,12 @@ const promptDefinitions: Array<{
         stepTitle: "Salud y seguridad",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
         stepCompletionMessage: "Acaba de crear una guía de salud y seguridad para su ser querido.",
-        promptLabel: "¿Qué información de salud o médica debería saber otra persona cuidadora de inmediato?",
-        question: "¿Qué información de salud o médica debería saber otra persona cuidadora de inmediato?",
+        promptLabel: "¿Tienen alguna alergia?",
+        question: "¿Tienen alguna alergia?",
         examples: [
-          "alergias, diagnósticos, convulsiones, asma o problemas gastrointestinales",
-          "cualquier cosa urgente o fácil de pasar por alto",
-          "lo que otra persona cuidadora debería saber antes de empezar el día"
+          "alimentos",
+          "medicamentos",
+          "animales"
         ]
       },
       mandarin: {
@@ -1010,12 +1006,12 @@ const promptDefinitions: Array<{
         stepTitle: "健康与安全",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
         stepCompletionMessage: "您刚刚为您的亲人创建了一份健康与安全指南。",
-        promptLabel: "其他照护者一开始就应该知道哪些健康或医疗信息？",
-        question: "其他照护者一开始就应该知道哪些健康或医疗信息？",
+        promptLabel: "他们有过敏吗？",
+        question: "他们有过敏吗？",
         examples: [
-          "过敏、诊断、癫痫、哮喘或胃肠问题",
-          "任何紧急或容易忽略的情况",
-          "其他照护者开始照护前需要知道的内容"
+          "食物",
+          "药物",
+          "动物"
         ]
       }
     }
@@ -1045,12 +1041,13 @@ const promptDefinitions: Array<{
         stepTitle: "Salud y seguridad",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
         stepCompletionMessage: "Acaba de crear una guía de salud y seguridad para su ser querido.",
-        promptLabel: "¿Qué medicamentos, tratamientos o rutinas de salud deben hacerse correctamente?",
-        question: "¿Qué medicamentos, tratamientos o rutinas de salud deben hacerse correctamente?",
+        promptLabel: "¿Tienen alguna condición de salud?",
+        question: "¿Tienen alguna condición de salud?",
         examples: [
-          "horarios de medicamentos o cómo se administran",
-          "qué debe suceder antes o después de las comidas",
-          "qué no se debe omitir"
+          "convulsiones",
+          "asma",
+          "diabetes",
+          "problemas gastrointestinales"
         ]
       },
       mandarin: {
@@ -1059,12 +1056,13 @@ const promptDefinitions: Array<{
         stepTitle: "健康与安全",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
         stepCompletionMessage: "您刚刚为您的亲人创建了一份健康与安全指南。",
-        promptLabel: "哪些药物、治疗或健康相关流程必须正确完成？",
-        question: "哪些药物、治疗或健康相关流程必须正确完成？",
+        promptLabel: "他们有任何健康状况吗？",
+        question: "他们有任何健康状况吗？",
         examples: [
-          "用药时间或服用方式",
-          "饭前或饭后需要做什么",
-          "哪些事情绝不能漏掉"
+          "癫痫",
+          "哮喘",
+          "糖尿病",
+          "胃肠问题"
         ]
       }
     }
@@ -1095,12 +1093,14 @@ const promptDefinitions: Array<{
         stepTitle: "Salud y seguridad",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
         stepCompletionMessage: "Acaba de crear una guía de salud y seguridad para su ser querido.",
-        promptLabel: "¿Qué equipo, dispositivos o apoyos físicos usan?",
-        question: "¿Qué equipo, dispositivos o apoyos físicos usan?",
+        promptLabel: "¿Toman algún medicamento? ¿Qué deben saber otras personas?",
+        question: "¿Toman algún medicamento? ¿Qué deben saber otras personas?",
         examples: [
-          "gafas, audífonos, silla de ruedas, cinturón de marcha o equipo de alimentación",
-          "lo que les ayuda a moverse, comer, oír o mantenerse seguros",
-          "cualquier cosa que otra persona cuidadora deba revisar o preparar"
+          "hora del día",
+          "con comida",
+          "triturado",
+          "líquido",
+          "necesita recordatorios"
         ]
       },
       mandarin: {
@@ -1109,12 +1109,14 @@ const promptDefinitions: Array<{
         stepTitle: "健康与安全",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
         stepCompletionMessage: "您刚刚为您的亲人创建了一份健康与安全指南。",
-        promptLabel: "他们会使用哪些设备、器具或身体支持工具？",
-        question: "他们会使用哪些设备、器具或身体支持工具？",
+        promptLabel: "他们会服用任何药物吗？其他人需要知道什么？",
+        question: "他们会服用任何药物吗？其他人需要知道什么？",
         examples: [
-          "眼镜、助听器、轮椅、步行带或喂食设备",
-          "帮助他们移动、进食、听清或保持安全的工具",
-          "照护者需要检查或准备的任何东西"
+          "一天中的什么时间",
+          "是否要随餐",
+          "是否要压碎",
+          "液体",
+          "是否需要提醒"
         ]
       }
     }
@@ -1145,12 +1147,14 @@ const promptDefinitions: Array<{
         stepTitle: "Salud y seguridad",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
         stepCompletionMessage: "Acaba de crear una guía de salud y seguridad para su ser querido.",
-        promptLabel: "¿Qué preocupaciones de seguridad debería tener presentes otra persona cuidadora?",
-        question: "¿Qué preocupaciones de seguridad debería tener presentes otra persona cuidadora?",
+        promptLabel: "¿Usan algún equipo o apoyo?",
+        question: "¿Usan algún equipo o apoyo?",
         examples: [
-          "riesgo de caídas, atragantamiento, escaparse o necesitar dos adultos en salidas",
-          "conductas inseguras a las que haya que prestar atención",
-          "lo que otra persona cuidadora nunca debería asumir que es seguro"
+          "gafas",
+          "audífonos",
+          "silla de ruedas",
+          "sonda de alimentación",
+          "férulas"
         ]
       },
       mandarin: {
@@ -1159,12 +1163,14 @@ const promptDefinitions: Array<{
         stepTitle: "健康与安全",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
         stepCompletionMessage: "您刚刚为您的亲人创建了一份健康与安全指南。",
-        promptLabel: "其他照护者需要特别注意哪些安全问题？",
-        question: "其他照护者需要特别注意哪些安全问题？",
+        promptLabel: "他们会使用任何设备或辅助工具吗？",
+        question: "他们会使用任何设备或辅助工具吗？",
         examples: [
-          "跌倒、呛咳、走失，或外出时需要两位成人陪同",
-          "需要留意的不安全行为",
-          "其他照护者绝不能想当然地认为安全的事情"
+          "眼镜",
+          "助听器",
+          "轮椅",
+          "喂食管",
+          "支具"
         ]
       }
     }

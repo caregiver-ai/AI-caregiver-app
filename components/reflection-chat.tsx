@@ -25,6 +25,16 @@ import { ReflectionStepId, SessionDraft, UiLanguage } from "@/lib/types";
 const MAX_RECORDING_MS = 45 * 1000;
 const MAX_TRANSCRIPTION_UPLOAD_BYTES = 4 * 1024 * 1024;
 const SPOKEN_LANGUAGE_OPTIONS: UiLanguage[] = ["english", "spanish", "mandarin"];
+const EXAMPLE_LABELS: Record<UiLanguage, string> = {
+  english: "Examples",
+  spanish: "Ejemplos",
+  mandarin: "示例"
+};
+const EXAMPLE_SENTENCE_ENDINGS: Record<UiLanguage, string> = {
+  english: ".",
+  spanish: ".",
+  mandarin: "。"
+};
 
 function formatDuration(durationMs: number) {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
@@ -57,6 +67,15 @@ function sanitizeResponses(responses: Record<string, ReflectionResponse>) {
 
 function getFirstPromptIdForStep(stepId: ReflectionStepId, language: UiLanguage) {
   return getPromptSequence(language).find((prompt) => prompt.stepId === stepId)?.id ?? "";
+}
+
+function formatPromptExamples(examples: string[], language: UiLanguage) {
+  const normalized = examples.map((example) => example.trim().replace(/[.。]+$/u, "")).filter(Boolean);
+  if (normalized.length === 0) {
+    return "";
+  }
+
+  return `${EXAMPLE_LABELS[language]}: ${normalized.join(", ")}${EXAMPLE_SENTENCE_ENDINGS[language]}`;
 }
 
 export function ReflectionChat() {
@@ -679,11 +698,9 @@ export function ReflectionChat() {
                 <div className="space-y-2">
                   <h2 className="text-lg font-semibold leading-8 text-ink">{prompt.content}</h2>
                   {prompt.promptExamples?.length ? (
-                    <ul className="space-y-1 text-sm leading-6 text-slate-500">
-                      {prompt.promptExamples.map((example) => (
-                        <li key={example}>({example})</li>
-                      ))}
-                    </ul>
+                    <p className="text-sm leading-6 text-slate-500">
+                      {formatPromptExamples(prompt.promptExamples, uiLanguage)}
+                    </p>
                   ) : null}
                 </div>
 
