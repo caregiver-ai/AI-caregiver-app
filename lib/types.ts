@@ -3,7 +3,11 @@ export type ReflectionStepId =
   | "communication"
   | "health_safety"
   | "daily_schedule"
-  | "activities_preferences";
+  | "activities_preferences"
+  | "upset_overwhelm"
+  | "signs_need_help"
+  | "hard_time_support"
+  | "who_to_contact";
 export type UiLanguage = "english" | "spanish" | "mandarin";
 export type YesNoOption = "" | "yes" | "no";
 
