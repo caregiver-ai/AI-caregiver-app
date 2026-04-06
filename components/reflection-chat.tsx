@@ -103,6 +103,7 @@ export function ReflectionChat() {
   const recordingTimerRef = useRef<number | null>(null);
   const recordingTimeoutRef = useRef<number | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
+  const shouldScrollToTopRef = useRef(false);
 
   const reflectionCopy = useMemo(() => getReflectionCopy(uiLanguage), [uiLanguage]);
   const prompts = useMemo(() => getPromptSequence(uiLanguage), [uiLanguage]);
@@ -121,6 +122,8 @@ export function ReflectionChat() {
     [currentStepId, stepOrder]
   );
   const currentStepMeta = stepPrompts[0] ?? null;
+  const showSubtitleStepTitle =
+    Boolean(currentStepMeta?.stepTitle) && currentStepMeta?.stepTitle !== currentStepMeta?.sectionTitle;
   const currentSectionIndex = useMemo(
     () => Math.max(0, sectionOrder.findIndex((sectionId) => sectionId === currentStepMeta?.sectionId)),
     [currentStepMeta?.sectionId, sectionOrder]
@@ -221,6 +224,20 @@ export function ReflectionChat() {
       setActivePromptId(currentStepMeta.id);
     }
   }, [activePromptId, currentStepMeta]);
+
+  useEffect(() => {
+    if (!currentStepMeta || !shouldScrollToTopRef.current) {
+      return;
+    }
+
+    shouldScrollToTopRef.current = false;
+
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    });
+  }, [currentStepMeta]);
 
   useEffect(() => {
     return () => {
@@ -656,6 +673,7 @@ export function ReflectionChat() {
 
     setError("");
     setStatusMessage("");
+    shouldScrollToTopRef.current = true;
     setCurrentStepId(previousStepId);
     setActivePromptId(getFirstPromptIdForStep(previousStepId, uiLanguage));
   }
@@ -667,6 +685,7 @@ export function ReflectionChat() {
 
     setError("");
     setStatusMessage("");
+    shouldScrollToTopRef.current = true;
     setCurrentStepId(pendingStepAdvance.nextStepId);
     setActivePromptId(getFirstPromptIdForStep(pendingStepAdvance.nextStepId, uiLanguage));
     setPendingStepAdvance(null);
@@ -691,7 +710,9 @@ export function ReflectionChat() {
           currentStepMeta
             ? (
                 <>
-                  <div className="font-semibold text-ink">{currentStepMeta.stepTitle}</div>
+                  {showSubtitleStepTitle ? (
+                    <div className="font-semibold text-ink">{currentStepMeta.stepTitle}</div>
+                  ) : null}
                   <div className="italic">{currentStepMeta.stepSubtitle}</div>
                 </>
               )
