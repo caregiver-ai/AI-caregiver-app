@@ -1,4 +1,9 @@
-export type ReflectionSectionId = "what_helps_the_day_go_well";
+export type ReflectionSectionId =
+  | "what_helps_the_day_go_well"
+  | "what_can_upset_or_overwhelm_them"
+  | "signs_they_may_need_help"
+  | "what_helps_when_they_are_having_a_hard_time"
+  | "who_to_contact_and_when";
 export type ReflectionStepId =
   | "communication"
   | "health_safety"

@@ -17,6 +17,7 @@ import {
   getFirstIncompletePromptIndex,
   getPromptSequence,
   getResponsesFromTurns,
+  getSectionOrder,
   getStepOrder
 } from "@/lib/reflection";
 import { loadDraft, saveDraft } from "@/lib/storage";
@@ -105,6 +106,7 @@ export function ReflectionChat() {
 
   const reflectionCopy = useMemo(() => getReflectionCopy(uiLanguage), [uiLanguage]);
   const prompts = useMemo(() => getPromptSequence(uiLanguage), [uiLanguage]);
+  const sectionOrder = useMemo(() => getSectionOrder(uiLanguage), [uiLanguage]);
   const stepOrder = useMemo(() => getStepOrder(uiLanguage), [uiLanguage]);
   const stepPrompts = useMemo(
     () => prompts.filter((prompt) => prompt.stepId === currentStepId),
@@ -119,6 +121,22 @@ export function ReflectionChat() {
     [currentStepId, stepOrder]
   );
   const currentStepMeta = stepPrompts[0] ?? null;
+  const currentSectionIndex = useMemo(
+    () => Math.max(0, sectionOrder.findIndex((sectionId) => sectionId === currentStepMeta?.sectionId)),
+    [currentStepMeta?.sectionId, sectionOrder]
+  );
+  const nextSectionIndex = useMemo(() => {
+    if (!pendingStepAdvance) {
+      return -1;
+    }
+
+    const nextSectionId = prompts.find((prompt) => prompt.stepId === pendingStepAdvance.nextStepId)?.sectionId;
+    if (!nextSectionId) {
+      return -1;
+    }
+
+    return Math.max(0, sectionOrder.findIndex((sectionId) => sectionId === nextSectionId));
+  }, [pendingStepAdvance, prompts, sectionOrder]);
   const hasAnyResponse = useMemo(
     () => Object.values(sanitizeResponses(responses)).length > 0,
     [responses]
@@ -682,7 +700,7 @@ export function ReflectionChat() {
       >
         <div className="space-y-5">
           <div className="rounded-2xl border border-border bg-canvas px-4 py-3 text-sm text-slate-700">
-            {reflectionCopy.sectionCounter(currentStepIndex + 1, stepOrder.length)}
+            {reflectionCopy.sectionCounter(currentSectionIndex + 1, sectionOrder.length)}
           </div>
 
           {stepPrompts.map((prompt) => {
@@ -812,8 +830,8 @@ export function ReflectionChat() {
                 {pendingStepAdvance.message}
               </h2>
               <p className="text-sm leading-6 text-slate-600">
-                {stepOrder[currentStepIndex + 1]
-                  ? reflectionCopy.sectionCounter(currentStepIndex + 2, stepOrder.length)
+                {pendingStepAdvance && nextSectionIndex >= 0
+                  ? reflectionCopy.sectionCounter(nextSectionIndex + 1, sectionOrder.length)
                   : ""}
               </p>
             </div>

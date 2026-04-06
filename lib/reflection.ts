@@ -1,5 +1,5 @@
 import { getLocalizedReflectionPrompts } from "@/lib/localization";
-import { ConversationTurn, ReflectionStepId, UiLanguage } from "@/lib/types";
+import { ConversationTurn, ReflectionSectionId, ReflectionStepId, UiLanguage } from "@/lib/types";
 
 export type ReflectionResponse = {
   promptId: string;
@@ -142,6 +142,18 @@ export function getStepOrder(language: UiLanguage = "english"): ReflectionStepId
   for (const prompt of getLocalizedReflectionPrompts(language)) {
     if (!ordered.includes(prompt.stepId)) {
       ordered.push(prompt.stepId);
+    }
+  }
+
+  return ordered;
+}
+
+export function getSectionOrder(language: UiLanguage = "english"): ReflectionSectionId[] {
+  const ordered: ReflectionSectionId[] = [];
+
+  for (const prompt of getLocalizedReflectionPrompts(language)) {
+    if (!ordered.includes(prompt.sectionId)) {
+      ordered.push(prompt.sectionId);
     }
   }
 

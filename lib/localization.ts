@@ -1699,10 +1699,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "upset-overwhelm-plan-changes",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "what_can_upset_or_overwhelm_them",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "What can upset or overwhelm them",
         stepId: "upset_overwhelm",
         stepTitle: "What can upset or overwhelm them",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -1717,7 +1717,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "Qué puede molestarles o abrumarles",
         stepId: "upset_overwhelm",
         stepTitle: "Qué puede molestarles o abrumarles",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -1732,7 +1732,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "什么会让他们感到不安或不堪重负",
         stepId: "upset_overwhelm",
         stepTitle: "什么会让他们感到不安或不堪重负",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -1750,10 +1750,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "upset-overwhelm-environment",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "what_can_upset_or_overwhelm_them",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "What can upset or overwhelm them",
         stepId: "upset_overwhelm",
         stepTitle: "What can upset or overwhelm them",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -1771,7 +1771,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "Qué puede molestarles o abrumarles",
         stepId: "upset_overwhelm",
         stepTitle: "Qué puede molestarles o abrumarles",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -1789,7 +1789,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "什么会让他们感到不安或不堪重负",
         stepId: "upset_overwhelm",
         stepTitle: "什么会让他们感到不安或不堪重负",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -1810,10 +1810,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "upset-overwhelm-physical-state",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "what_can_upset_or_overwhelm_them",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "What can upset or overwhelm them",
         stepId: "upset_overwhelm",
         stepTitle: "What can upset or overwhelm them",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -1827,7 +1827,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "Qué puede molestarles o abrumarles",
         stepId: "upset_overwhelm",
         stepTitle: "Qué puede molestarles o abrumarles",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -1841,7 +1841,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "什么会让他们感到不安或不堪重负",
         stepId: "upset_overwhelm",
         stepTitle: "什么会让他们感到不安或不堪重负",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -1858,10 +1858,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "signs-need-help-body-signs",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "signs_they_may_need_help",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "Signs they may need help",
         stepId: "signs_need_help",
         stepTitle: "Signs they may need help",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -1880,7 +1880,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "Señales de que pueden necesitar ayuda",
         stepId: "signs_need_help",
         stepTitle: "Señales de que pueden necesitar ayuda",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -1899,7 +1899,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "他们可能需要帮助的迹象",
         stepId: "signs_need_help",
         stepTitle: "他们可能需要帮助的迹象",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -1921,10 +1921,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "signs-need-help-behavior-changes",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "signs_they_may_need_help",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "Signs they may need help",
         stepId: "signs_need_help",
         stepTitle: "Signs they may need help",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -1943,7 +1943,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "Señales de que pueden necesitar ayuda",
         stepId: "signs_need_help",
         stepTitle: "Señales de que pueden necesitar ayuda",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -1962,7 +1962,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "他们可能需要帮助的迹象",
         stepId: "signs_need_help",
         stepTitle: "他们可能需要帮助的迹象",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -1984,10 +1984,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "signs-need-help-communication-changes",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "signs_they_may_need_help",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "Signs they may need help",
         stepId: "signs_need_help",
         stepTitle: "Signs they may need help",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -2003,7 +2003,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "Señales de que pueden necesitar ayuda",
         stepId: "signs_need_help",
         stepTitle: "Señales de que pueden necesitar ayuda",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -2019,7 +2019,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "他们可能需要帮助的迹象",
         stepId: "signs_need_help",
         stepTitle: "他们可能需要帮助的迹象",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -2038,10 +2038,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "hard-time-support-environment",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "what_helps_when_they_are_having_a_hard_time",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "What helps when they are having a hard time",
         stepId: "hard_time_support",
         stepTitle: "What helps when they are having a hard time",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -2056,7 +2056,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "Qué ayuda cuando están pasando por un momento difícil",
         stepId: "hard_time_support",
         stepTitle: "Qué ayuda cuando están pasando por un momento difícil",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -2071,7 +2071,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "当他们状态不好时，什么会有帮助",
         stepId: "hard_time_support",
         stepTitle: "当他们状态不好时，什么会有帮助",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -2089,10 +2089,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "hard-time-support-calming-items",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "what_helps_when_they_are_having_a_hard_time",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "What helps when they are having a hard time",
         stepId: "hard_time_support",
         stepTitle: "What helps when they are having a hard time",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -2107,7 +2107,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "Qué ayuda cuando están pasando por un momento difícil",
         stepId: "hard_time_support",
         stepTitle: "Qué ayuda cuando están pasando por un momento difícil",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -2122,7 +2122,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "当他们状态不好时，什么会有帮助",
         stepId: "hard_time_support",
         stepTitle: "当他们状态不好时，什么会有帮助",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -2140,10 +2140,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "hard-time-support-in-the-moment",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "what_helps_when_they_are_having_a_hard_time",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "What helps when they are having a hard time",
         stepId: "hard_time_support",
         stepTitle: "What helps when they are having a hard time",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -2160,7 +2160,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "Qué ayuda cuando están pasando por un momento difícil",
         stepId: "hard_time_support",
         stepTitle: "Qué ayuda cuando están pasando por un momento difícil",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -2177,7 +2177,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "当他们状态不好时，什么会有帮助",
         stepId: "hard_time_support",
         stepTitle: "当他们状态不好时，什么会有帮助",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -2197,10 +2197,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "who-to-contact-emergency",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "who_to_contact_and_when",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "Who to contact (and when)",
         stepId: "who_to_contact",
         stepTitle: "Who to contact (and when)",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -2214,7 +2214,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "A quién contactar (y cuándo)",
         stepId: "who_to_contact",
         stepTitle: "A quién contactar (y cuándo)",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -2228,7 +2228,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "联系谁（以及何时联系）",
         stepId: "who_to_contact",
         stepTitle: "联系谁（以及何时联系）",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -2245,10 +2245,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "who-to-contact-non-emergency",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "who_to_contact_and_when",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "Who to contact (and when)",
         stepId: "who_to_contact",
         stepTitle: "Who to contact (and when)",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -2264,7 +2264,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "A quién contactar (y cuándo)",
         stepId: "who_to_contact",
         stepTitle: "A quién contactar (y cuándo)",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -2280,7 +2280,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "联系谁（以及何时联系）",
         stepId: "who_to_contact",
         stepTitle: "联系谁（以及何时联系）",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
@@ -2299,10 +2299,10 @@ const promptDefinitions: Array<{
   },
   {
     id: "who-to-contact-call-guidance",
-    sectionId: "what_helps_the_day_go_well",
+    sectionId: "who_to_contact_and_when",
     translations: {
       english: {
-        sectionTitle: "What helps the day go well",
+        sectionTitle: "Who to contact (and when)",
         stepId: "who_to_contact",
         stepTitle: "Who to contact (and when)",
         stepSubtitle: "Answer what you can — short examples help.",
@@ -2316,7 +2316,7 @@ const promptDefinitions: Array<{
         ]
       },
       spanish: {
-        sectionTitle: "Lo que ayuda a que el día vaya bien",
+        sectionTitle: "A quién contactar (y cuándo)",
         stepId: "who_to_contact",
         stepTitle: "A quién contactar (y cuándo)",
         stepSubtitle: "Responda lo que pueda; los ejemplos cortos ayudan.",
@@ -2330,7 +2330,7 @@ const promptDefinitions: Array<{
         ]
       },
       mandarin: {
-        sectionTitle: "什么有助于让一天顺利进行",
+        sectionTitle: "联系谁（以及何时联系）",
         stepId: "who_to_contact",
         stepTitle: "联系谁（以及何时联系）",
         stepSubtitle: "能回答多少就回答多少，简短例子会有帮助。",
