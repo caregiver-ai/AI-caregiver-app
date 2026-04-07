@@ -16,43 +16,61 @@ const schemaDescription = `Return JSON with exactly these keys:
   ]
 }`;
 
-const synthesisRules = `Requirements:
+const synthesisRules = `You are organizing caregiver input into a structured caregiver handoff.
+
+Step 1: Understand and extract
+- Carefully review the full transcript.
+- Break the caregiver's input into individual statements.
+- Each statement should represent one idea, behavior, need, support, trigger, safety issue, or contact instruction.
+- Do not assume the caregiver placed information in the correct section.
+
+Step 2: Categorize by meaning, not location
+- Assign each statement to the single best category based on meaning.
+- Use these section titles, in this order, when the transcript supports them:
+  1. Communication
+  2. Daily Needs & Routines
+  3. What helps the day go well
+  4. What can upset or overwhelm them
+  5. Signs they need help
+  6. What helps when they are having a hard time
+  7. Health & Safety
+  8. Who to contact (and when)
+- Categorization rules:
+  - Communication: how the person expresses themselves and how to understand them.
+  - Daily Needs & Routines: regular supports, schedules, meals, hygiene, toileting, bedtime, and daily living assistance.
+  - What helps the day go well: proactive and preventive supports that help them stay regulated and successful.
+  - What can upset or overwhelm them: triggers, stressors, overload, or situations that make regulation harder.
+  - Signs they need help: observable changes in body, behavior, or communication that suggest distress, illness, pain, hunger, toileting needs, or another need.
+  - What helps when they are having a hard time: actions a caregiver should take in response to distress.
+  - Health & Safety: medical needs, allergies, medications, equipment, and safety risks.
+  - Who to contact (and when): emergency and non-emergency contact instructions.
+- Special rules:
+  - Behaviors or changes that signal a need belong in Signs they need help.
+  - Medical or risk-related details belong in Health & Safety.
+  - Preventive supports belong in What helps the day go well.
+  - Caregiver responses during distress belong in What helps when they are having a hard time.
+- If a detail could fit more than one section, place it where it would be most useful to another caregiver in the moment.
+- Do not repeat the same fact across sections unless omitting it would create a safety risk.
+
+Step 3: Generate output
 - Always write the final output in English.
-- Summarize and normalize the caregiver's answers instead of copying their wording.
-- Build a useful caregiver handoff, not a rigid worksheet.
-- Pull important details across the whole transcript, even if the caregiver said them while answering a different prompt.
-- Create only the sections that are actually helpful for this person.
-- Prefer specific, practical section titles such as Communication, How to understand what he means, How they ask for help, Bathroom needs, What helps the day go well, What can upset or overwhelm him, Signs he needs help, What helps when he is having a hard time, Safety notes, or similar.
-- Avoid vague umbrella titles like Preferences & cues or Daily routines & needs when more specific sections are possible.
-- Keep separate sections for interpreted meaning, help-seeking, daily needs, distress signs, calming strategies, and safety if those details appear in the transcript.
-- When the transcript supports them, prefer a structure like: Communication; How to understand what they mean; How they ask for help; Daily needs related to communication; What helps the day go well; What can upset or overwhelm them; Signs they need help; What helps when they are having a hard time; Safety notes.
-- If the transcript includes both triggers and outward behaviors, keep What can upset or overwhelm them separate from Signs they need help.
-- Use What can upset or overwhelm them for triggers, causes, or situations that make things harder. Do not put outward distress behaviors there.
-- Use Signs they need help for observable behaviors or communication changes such as yelling, eloping, hand biting, covering ears, withdrawing, or other signs of dysregulation.
-- If the transcript includes preventive supports for a smooth day and reactive calming strategies for distress, keep What helps the day go well separate from What helps when they are having a hard time.
-- When the transcript implies proactive caregiver guidance, create a section like What helps the day go well even if the caregiver did not label it that way.
-- If you can derive at least 2 proactive caregiver actions from the transcript, include a What helps the day go well section.
-- Convert repeated practical advice into caregiver-facing guidance, such as responding to AAC selections as meaningful requests, checking search history when a device request suggests something is not working, prompting bathroom use, or noticing hunger cues early.
-- If the transcript explains how the person asks for help or attention, do not bury that inside Communication. Give it its own section when there is enough detail.
-- If the transcript explains what specific sounds, gestures, behaviors, or device selections usually mean, give that interpreted meaning its own section when there is enough detail.
-- Fold hunger cues, bathroom cues, and similar daily-function details into interpreted meaning or daily-needs sections instead of inventing a vague standalone category unless that category is clearly warranted.
-- It is fine to create subsections that were not explicit prompts if the caregiver mentioned important details.
-- If enough meaningful details exist, create 6-9 sections rather than compressing everything into a few broad buckets.
-- Keep sections focused and concrete.
-- Keep each bullet concise and specific, usually 1 short sentence.
-- Do not over-compress. If a detail changes how another caregiver should respond, include it.
-- When the caregiver explains that a word, device selection, sound, behavior, or routine usually means something, convert that into explicit handoff guidance.
-- Surface practical "if X, it usually means Y" details clearly.
-- Include clear response guidance when it was stated, such as checking search history, prompting bathroom use, redirecting instead of physically intervening, or requiring two adults for outings.
-- Prefer 2-5 bullets per section when relevant.
+- Build a useful caregiver handoff, not a worksheet recap.
+- Keep only sections supported by the transcript.
+- Use clear section headers and concise bullet items.
+- Each bullet should contain one actionable idea in plain language.
+- Prefer a 6th-8th grade reading level.
+- Avoid jargon, meta commentary, process notes, or unsupported assumptions.
 - overview must be a short 1-2 sentence summary of the most important themes, not a transcript recap.
 - Keep overview under 80 words.
-- Deduplicate overlap across sections.
-- Avoid repeating the same fact in multiple places unless it materially changes how a caregiver should respond.
-- Emphasize actionable meaning: what the person is communicating, what helps, what escalates distress, what is a safety issue, and what another caregiver must know.
-- Do not invent facts. If something is unclear, leave it out rather than guessing.
-- Write in neutral, supportive language suitable for caregiver handoff review.
-- The final result should read like polished handoff notes, not raw notes or a therapy summary.`;
+- Make the summary easy to scan in under 2 minutes.
+- Highlight important safety information clearly.
+
+Step 4: Quality check
+- Every item is in the correct category based on meaning, not where it was entered.
+- Similar ideas are combined when that improves clarity.
+- There are no unnecessary duplicates across sections.
+- No important safety information is missing.
+- The final result is clear, concise, respectful, and actionable.`;
 
 const summarySchema = {
   type: "object",
@@ -93,8 +111,8 @@ async function generateSummaryWithGemini(turns: ConversationTurn[], nameHint?: s
 
   const model = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
   const titleInstruction = nameHint
-    ? `Use the title "Caring for ${nameHint}" unless the transcript clearly suggests a better handoff title for the same person.`
-    : 'If the person\'s name is clear in the transcript, use a title like "Caring for <Name>". Otherwise use "Caregiver Handoff Summary".';
+    ? `The product already displays the overall heading "Caregiver Handoff". For the JSON "title" field, use exactly "Caring for ${nameHint}".`
+    : 'The product already displays the overall heading "Caregiver Handoff". For the JSON "title" field, use "Caring for <Name>" if the name is clear and reliable in the transcript. Otherwise use "Caregiver Handoff Summary".';
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
@@ -107,7 +125,7 @@ async function generateSummaryWithGemini(turns: ConversationTurn[], nameHint?: s
         systemInstruction: {
           parts: [
             {
-              text: "You are summarizing caregiver reflections into polished structured notes for review. Your job is to synthesize, organize, and clarify. Prefer abstraction over quotation, prioritize the most decision-relevant themes, keep the output concise but not reductive, and never invent facts."
+              text: "You are a classifier and organizer for caregiver handoff notes. Read nonlinear caregiver input, extract individual facts, place each fact into the best handoff category based on meaning, prioritize safety and actionability, deduplicate overlap, and never invent facts."
             }
           ]
         },
