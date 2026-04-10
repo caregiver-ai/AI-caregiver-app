@@ -27,6 +27,7 @@ Step 1: Understand and extract
 - Each statement should represent one idea, behavior, need, support, trigger, safety issue, or contact instruction.
 - Extract all meaningful information.
 - Do not assume the caregiver placed information in the correct section.
+- Ignore copied question text, worksheet instructions, skip notes, testing notes, transcription filler, and obvious non-answer noise unless they clearly contain care information.
 
 Step 2: Categorize by meaning, not location
 - Assign each statement to the single best category based on meaning.
@@ -66,13 +67,16 @@ Step 3: Generate output
 - Include all eight sections, even when no information is available.
 - Every section field must be an array of bullet strings.
 - If a section has no supported information, return exactly ["${NO_INFORMATION_PLACEHOLDER}"] for that section.
+- Rewrite the information into caregiver-ready bullet points. Do not echo the worksheet wording.
 - Each bullet should contain one idea only.
 - Keep bullets concise, specific, and easy to scan.
 - Do not merge multiple ideas into one bullet.
 - Avoid run-on bullets.
+- Do not output question fragments, skip markers, uncertainty notes, or filler/noise such as "Use Skip", "Skip", "Not clearly stated in the raw input", "What do they mean?", "um", or "eheheh".
 - Prefer a 6th-8th grade reading level.
 - Avoid jargon, meta commentary, process notes, or unsupported assumptions.
 - overview must be a short 1-2 sentence summary of the most important themes, not a transcript recap.
+- If possible, the overview should briefly state how the person communicates and the most important safety or supervision risks.
 - Keep overview under 80 words.
 - Make the summary easy to scan in under 2 minutes.
 - Highlight important safety information clearly.
