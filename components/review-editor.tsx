@@ -22,14 +22,6 @@ function textareaToItems(value: string) {
     .filter(Boolean);
 }
 
-function createEmptySection(): SummarySection {
-  return {
-    id: crypto.randomUUID(),
-    title: "",
-    items: []
-  };
-}
-
 export function ReviewEditor() {
   const router = useRouter();
   const [summary, setSummary] = useState<StructuredSummary>(EMPTY_SUMMARY);
@@ -130,13 +122,6 @@ export function ReviewEditor() {
       sections: current.sections.map((section) =>
         section.id === sectionId ? { ...section, ...changes } : section
       )
-    }));
-  }
-
-  function addSection() {
-    setSummary((current) => ({
-      ...current,
-      sections: [...current.sections, createEmptySection()]
     }));
   }
 
@@ -254,16 +239,7 @@ export function ReviewEditor() {
         </label>
 
         <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-medium text-slate-700">{copy.sectionsLabel}</h2>
-            <button
-              className="rounded-2xl border border-border px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-canvas"
-              type="button"
-              onClick={addSection}
-            >
-              {copy.addSectionButton}
-            </button>
-          </div>
+          <h2 className="text-sm font-medium text-slate-700">{copy.sectionsLabel}</h2>
 
           {summary.sections.map((section) => (
             <div key={section.id} className="space-y-3 rounded-3xl border border-border bg-canvas px-4 py-4">

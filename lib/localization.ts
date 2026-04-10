@@ -160,7 +160,6 @@ type ReviewCopy = {
   sectionItemsLabel: string;
   sectionTitlePlaceholder: string;
   sectionItemsPlaceholder: string;
-  addSectionButton: string;
   removeSectionButton: string;
   saveButton: string;
   savingButton: string;
@@ -640,7 +639,6 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
     sectionItemsLabel: "Section details",
     sectionTitlePlaceholder: "For example: Communication",
     sectionItemsPlaceholder: "One bullet per line",
-    addSectionButton: "Add section",
     removeSectionButton: "Remove section",
     saveButton: "Confirm and save",
     savingButton: "Saving...",
@@ -661,7 +659,6 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
     sectionItemsLabel: "Detalles de la sección",
     sectionTitlePlaceholder: "Por ejemplo: Comunicación",
     sectionItemsPlaceholder: "Una viñeta por línea",
-    addSectionButton: "Agregar sección",
     removeSectionButton: "Eliminar sección",
     saveButton: "Confirmar y guardar",
     savingButton: "Guardando...",
@@ -681,7 +678,6 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
     sectionItemsLabel: "部分内容",
     sectionTitlePlaceholder: "例如：沟通方式",
     sectionItemsPlaceholder: "每行一条要点",
-    addSectionButton: "新增部分",
     removeSectionButton: "删除部分",
     saveButton: "确认并保存",
     savingButton: "正在保存...",
