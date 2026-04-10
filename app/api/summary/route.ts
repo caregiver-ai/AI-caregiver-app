@@ -1,32 +1,36 @@
 import { NextResponse } from "next/server";
-import { buildTranscript } from "@/lib/reflection";
-import { buildFallbackSummary, normalizeStructuredSummary, summaryToPlainText } from "@/lib/summary";
+import { buildFallbackSummary, normalizeGeneratedSummary, summaryToPlainText } from "@/lib/summary";
 import { createSupabaseServerClient } from "@/lib/supabase";
 import { ConversationTurn } from "@/lib/types";
 
-const schemaDescription = `Return JSON with exactly these keys:
+const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
+
+const schemaDescription = `Return JSON with exactly these keys and no others:
 {
   "title": "string",
   "overview": "string",
-  "sections": [
-    {
-      "title": "string",
-      "items": ["string"]
-    }
-  ]
+  "communication": ["string"],
+  "dailyNeedsRoutines": ["string"],
+  "whatHelpsTheDayGoWell": ["string"],
+  "whatCanUpsetOrOverwhelmThem": ["string"],
+  "signsTheyNeedHelp": ["string"],
+  "whatHelpsWhenTheyAreHavingAHardTime": ["string"],
+  "healthAndSafety": ["string"],
+  "whoToContactAndWhen": ["string"]
 }`;
 
-const synthesisRules = `You are organizing caregiver input into a structured caregiver handoff.
+const synthesisRules = `You are building a caregiver handoff from caregiver input.
 
 Step 1: Understand and extract
-- Carefully review the full transcript.
-- Break the caregiver's input into individual statements.
+- Carefully review all caregiver input.
+- Break the input into individual statements.
 - Each statement should represent one idea, behavior, need, support, trigger, safety issue, or contact instruction.
+- Extract all meaningful information.
 - Do not assume the caregiver placed information in the correct section.
 
 Step 2: Categorize by meaning, not location
 - Assign each statement to the single best category based on meaning.
-- Use these section titles, in this order, when the transcript supports them:
+- Use these section titles, in this order, every time:
   1. Communication
   2. Daily Needs & Routines
   3. What helps the day go well
@@ -49,15 +53,23 @@ Step 2: Categorize by meaning, not location
   - Medical or risk-related details belong in Health & Safety.
   - Preventive supports belong in What helps the day go well.
   - Caregiver responses during distress belong in What helps when they are having a hard time.
+- Examples of correct categorization:
+  - Running away -> Signs they need help
+  - Do not block biting -> What helps when they are having a hard time
+  - Needs 2 caregivers -> Health & Safety
 - If a detail could fit more than one section, place it where it would be most useful to another caregiver in the moment.
 - Do not repeat the same fact across sections unless omitting it would create a safety risk.
 
 Step 3: Generate output
 - Always write the final output in English.
 - Build a useful caregiver handoff, not a worksheet recap.
-- Keep only sections supported by the transcript.
-- Use clear section headers and concise bullet items.
-- Each bullet should contain one actionable idea in plain language.
+- Include all eight sections, even when no information is available.
+- Every section field must be an array of bullet strings.
+- If a section has no supported information, return exactly ["${NO_INFORMATION_PLACEHOLDER}"] for that section.
+- Each bullet should contain one idea only.
+- Keep bullets concise, specific, and easy to scan.
+- Do not merge multiple ideas into one bullet.
+- Avoid run-on bullets.
 - Prefer a 6th-8th grade reading level.
 - Avoid jargon, meta commentary, process notes, or unsupported assumptions.
 - overview must be a short 1-2 sentence summary of the most important themes, not a transcript recap.
@@ -69,11 +81,13 @@ Step 4: Quality check
 - Every item is in the correct category based on meaning, not where it was entered.
 - Similar ideas are combined when that improves clarity.
 - There are no unnecessary duplicates across sections.
+- No meaningful information is lost, especially safety, behavior, and supervision details.
 - No important safety information is missing.
 - The final result is clear, concise, respectful, and actionable.`;
 
 const summarySchema = {
   type: "object",
+  additionalProperties: false,
   properties: {
     title: {
       type: "string"
@@ -81,27 +95,110 @@ const summarySchema = {
     overview: {
       type: "string"
     },
-    sections: {
+    communication: {
       type: "array",
+      minItems: 1,
       items: {
-        type: "object",
-        properties: {
-          title: {
-            type: "string"
-          },
-          items: {
-            type: "array",
-            items: {
-              type: "string"
-            }
-          }
-        },
-        required: ["title", "items"]
+        type: "string"
+      }
+    },
+    dailyNeedsRoutines: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "string"
+      }
+    },
+    whatHelpsTheDayGoWell: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "string"
+      }
+    },
+    whatCanUpsetOrOverwhelmThem: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "string"
+      }
+    },
+    signsTheyNeedHelp: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "string"
+      }
+    },
+    whatHelpsWhenTheyAreHavingAHardTime: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "string"
+      }
+    },
+    healthAndSafety: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "string"
+      }
+    },
+    whoToContactAndWhen: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "string"
       }
     }
   },
-  required: ["title", "overview", "sections"]
+  required: [
+    "title",
+    "overview",
+    "communication",
+    "dailyNeedsRoutines",
+    "whatHelpsTheDayGoWell",
+    "whatCanUpsetOrOverwhelmThem",
+    "signsTheyNeedHelp",
+    "whatHelpsWhenTheyAreHavingAHardTime",
+    "healthAndSafety",
+    "whoToContactAndWhen"
+  ]
 };
+
+function compactWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeSummarySourceText(value: string) {
+  return value
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => (line.trim() ? compactWhitespace(line) : ""))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function buildSummarySource(turns: ConversationTurn[]) {
+  const entries = turns
+    .filter((turn) => turn.role === "user" && !turn.skipped)
+    .map((turn, index) => {
+      const lines = [
+        `Entry ${index + 1}`,
+        turn.sectionTitle ? `Original main category: ${compactWhitespace(turn.sectionTitle)}` : "",
+        turn.stepTitle && turn.stepTitle !== turn.sectionTitle
+          ? `Original subsection: ${compactWhitespace(turn.stepTitle)}`
+          : "",
+        turn.promptLabel ? `Question asked: ${compactWhitespace(turn.promptLabel)}` : "",
+        `Caregiver input:\n${normalizeSummarySourceText(turn.content)}`
+      ].filter(Boolean);
+
+      return lines.join("\n");
+    });
+
+  return entries.join("\n\n");
+}
 
 async function generateSummaryWithGemini(turns: ConversationTurn[], nameHint?: string) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -113,61 +210,66 @@ async function generateSummaryWithGemini(turns: ConversationTurn[], nameHint?: s
   const titleInstruction = nameHint
     ? `The product already displays the overall heading "Caregiver Handoff". For the JSON "title" field, use exactly "Caring for ${nameHint}".`
     : 'The product already displays the overall heading "Caregiver Handoff". For the JSON "title" field, use "Caring for <Name>" if the name is clear and reliable in the transcript. Otherwise use "Caregiver Handoff Summary".';
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [
-            {
-              text: "You are a classifier and organizer for caregiver handoff notes. Read nonlinear caregiver input, extract individual facts, place each fact into the best handoff category based on meaning, prioritize safety and actionability, deduplicate overlap, and never invent facts."
-            }
-          ]
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey
         },
-        contents: [
-          {
-            role: "user",
+        body: JSON.stringify({
+          systemInstruction: {
             parts: [
               {
-                text: `${schemaDescription}\n\n${synthesisRules}\n\n${titleInstruction}\n\nConversation transcript:\n${buildTranscript(turns)}`
+                text: "You are a classifier and organizer for caregiver handoff notes. Read nonlinear caregiver input, extract individual facts, place each fact into the best handoff category based on meaning, prioritize safety and actionability, deduplicate overlap, and never invent facts."
               }
             ]
+          },
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `${schemaDescription}\n\n${synthesisRules}\n\n${titleInstruction}\n\nCaregiver input:\n${buildSummarySource(turns)}`
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseJsonSchema: summarySchema,
+            temperature: 0.1,
+            maxOutputTokens: 4096
           }
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseJsonSchema: summarySchema
-        }
-      })
+        })
+      }
+    );
+
+    if (!response.ok) {
+      return buildFallbackSummary(turns, nameHint);
     }
-  );
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini request failed: ${errorText}`);
-  }
+    const data = (await response.json()) as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{
+            text?: string;
+          }>;
+        };
+      }>;
+    };
 
-  const data = (await response.json()) as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{
-          text?: string;
-        }>;
-      };
-    }>;
-  };
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!content) {
+      return buildFallbackSummary(turns, nameHint);
+    }
 
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!content) {
+    return normalizeGeneratedSummary(JSON.parse(content), nameHint);
+  } catch {
     return buildFallbackSummary(turns, nameHint);
   }
-
-  return normalizeStructuredSummary(JSON.parse(content), nameHint);
 }
 
 function isUsefulNameHint(value: string) {

@@ -12,7 +12,9 @@ type LegacyStructuredSummary = {
   caregiver_summary_text?: unknown;
 };
 
-const PREFERRED_SUMMARY_SECTION_ORDER = [
+const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
+
+export const PREFERRED_SUMMARY_SECTION_ORDER = [
   "Communication",
   "Daily Needs & Routines",
   "What helps the day go well",
@@ -23,12 +25,31 @@ const PREFERRED_SUMMARY_SECTION_ORDER = [
   "Who to contact (and when)"
 ] as const;
 
+const GENERATED_SUMMARY_SECTION_FIELDS = [
+  { key: "communication", title: "Communication" },
+  { key: "dailyNeedsRoutines", title: "Daily Needs & Routines" },
+  { key: "whatHelpsTheDayGoWell", title: "What helps the day go well" },
+  { key: "whatCanUpsetOrOverwhelmThem", title: "What can upset or overwhelm them" },
+  { key: "signsTheyNeedHelp", title: "Signs they need help" },
+  { key: "whatHelpsWhenTheyAreHavingAHardTime", title: "What helps when they are having a hard time" },
+  { key: "healthAndSafety", title: "Health & Safety" },
+  { key: "whoToContactAndWhen", title: "Who to contact (and when)" }
+] as const;
+
+type GeneratedSummarySectionKey = (typeof GENERATED_SUMMARY_SECTION_FIELDS)[number]["key"];
+
+type GeneratedStructuredSummary = {
+  title?: unknown;
+  overview?: unknown;
+  generatedAt?: unknown;
+} & Partial<Record<GeneratedSummarySectionKey, unknown>>;
+
 const CONTACT_PATTERN =
   /\b(911|emergency|non-?emergenc|guardian|doctor|contact|call right away|call first|crisis support)\b/i;
 const HEALTH_AND_SAFETY_PATTERN =
-  /\b(allerg|medicat|medicine|dose|doctor|seizure|asthma|diabet|gi issues?|medical|wheelchair|hearing aids?|glasses|feeding tube|brace|equipment|safety|unsafe|supervision|risk)\b/i;
+  /\b(allerg|medicat|medicine|dose|doctor|seizure|asthma|diabet|gi issues?|medical|wheelchair|hearing aids?|glasses|feeding tube|brace|equipment|safety|unsafe|supervision|risk|two caregivers?|two people)\b/i;
 const HARD_TIME_SUPPORT_PATTERN =
-  /\b(quieter space|another room|outside|car ride|turn(?:ing)? off tv|lowering voices|dim lights|headphones|music|fidget|weighted blanket|snack|drink|stay with|support communication|sensory supports?|brushing|preferred treat|basic needs)\b/i;
+  /\b(quieter space|another room|outside|car ride|turn(?:ing)? off tv|lowering voices|dim lights|headphones|music|fidget|weighted blanket|snack|drink|stay with|support communication|sensory supports?|brushing|preferred treat|basic needs|redirect|do not try to stop|do not block|do not physically stop)\b/i;
 const SIGNS_NEED_HELP_PATTERN =
   /\b(covering ears|covering eyes|breathing changes?|low energy|guarding|staring|not responding|blinking|fluttering|stiffening|jerking|pacing|yelling|becoming quieter|aggression|self-injury|withdrawing|running away|repetitive movements|changes in eating|talking less|unable to answer|pain|hungry|hunger|toilet|bathroom)\b/i;
 const UPSET_OR_OVERWHELM_PATTERN =
@@ -39,6 +60,8 @@ const COMMUNICATION_PATTERN =
   /\b(communicat|gesture|gestures|pointing|leading you|pictures?|device|writing|words?|sounds?|phrase|phrases|mean|attention)\b/i;
 const WHAT_HELPS_DAY_GO_WELL_PATTERN =
   /\b(choices instead of open-ended questions|waiting before repeating|written questions|images|walks?|ipad|sensory swing|sports|crafts|games|videos|quiet time|downtime|resting|low lights|sensory space)\b/i;
+const CAREGIVER_HARM_PATTERN =
+  /\b(bite you|bite caregiver|hurt caregiver|harm caregiver|injure caregiver|could hurt you)\b/i;
 
 const FALLBACK_STEP_TO_SECTION_TITLE: Record<string, (typeof PREFERRED_SUMMARY_SECTION_ORDER)[number]> = {
   communication: "Communication",
@@ -65,6 +88,15 @@ function splitSentences(text: string) {
     .filter(Boolean);
 }
 
+function splitFallbackClauses(text: string) {
+  return text
+    .split(
+      /\s*(?:;\s+|,\s*(?:but|however|though|although|whereas|as|because)\s+|\b(?:but|however|though|although|whereas|because)\b\s+)/i
+    )
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function dedupe(items: string[]) {
   const seen = new Set<string>();
 
@@ -79,12 +111,14 @@ function dedupe(items: string[]) {
   });
 }
 
-function limitItems(items: string[], limit = 5) {
-  return dedupe(
+function limitItems(items: string[], limit?: number) {
+  const deduped = dedupe(
     items
       .map((item) => item.trim())
       .filter(Boolean)
-  ).slice(0, limit);
+  );
+
+  return typeof limit === "number" ? deduped.slice(0, limit) : deduped;
 }
 
 function shortenOverview(text: string) {
@@ -117,6 +151,25 @@ function slugify(value: string) {
 
 function defaultSummaryTitle(nameHint?: string) {
   return nameHint ? `Caring for ${nameHint}` : "Caregiver Handoff Summary";
+}
+
+function isNoInformationItem(value: string) {
+  return value.trim().toLowerCase() === NO_INFORMATION_PLACEHOLDER.toLowerCase();
+}
+
+function normalizeSummaryItems(items: string[], limit?: number) {
+  const expanded = items.flatMap((item) =>
+    item
+      .replace(/\r/g, "\n")
+      .split(/\n+/)
+      .flatMap((line) => line.split(/\s*[•*]\s*/u))
+      .flatMap((line) => line.split(/;\s+/))
+      .flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-Z(])/))
+      .map((line) => line.trim())
+      .filter(Boolean)
+  );
+
+  return limitItems(expanded, limit);
 }
 
 function canonicalizeSectionTitle(title: string) {
@@ -166,14 +219,14 @@ function sortAndMergeSections(sections: SummarySection[]) {
     const existing = merged.get(key);
 
     if (existing) {
-      existing.items = limitItems([...existing.items, ...section.items]);
+      existing.items = normalizeSummaryItems([...existing.items, ...section.items]);
       continue;
     }
 
     merged.set(key, {
       ...section,
       title,
-      items: limitItems(section.items)
+      items: normalizeSummaryItems(section.items)
     });
   }
 
@@ -193,11 +246,45 @@ function sortAndMergeSections(sections: SummarySection[]) {
   });
 }
 
+function createPlaceholderSection(title: (typeof PREFERRED_SUMMARY_SECTION_ORDER)[number], index: number): SummarySection {
+  return {
+    id: `${slugify(title) || "section"}-${index + 1}`,
+    title,
+    items: [NO_INFORMATION_PLACEHOLDER]
+  };
+}
+
+function ensurePreferredSections(sections: SummarySection[]) {
+  const normalizedSections = sortAndMergeSections(sections);
+  const byTitle = new Map(normalizedSections.map((section) => [section.title.toLowerCase(), section]));
+
+  return PREFERRED_SUMMARY_SECTION_ORDER.map((title, index) => {
+    const existing = byTitle.get(title.toLowerCase());
+
+    if (!existing) {
+      return createPlaceholderSection(title, index);
+    }
+
+    return {
+      ...existing,
+      items: existing.items.length > 0 ? existing.items : [NO_INFORMATION_PLACEHOLDER]
+    };
+  });
+}
+
+function usesPreferredSectionStructure(sections: SummarySection[]) {
+  const preferredTitles = new Set(PREFERRED_SUMMARY_SECTION_ORDER.map((title) => title.toLowerCase()));
+
+  return sections.every((section) => preferredTitles.has(canonicalizeSectionTitle(section.title).toLowerCase()));
+}
+
 function normalizeSection(input: unknown, index: number): SummarySection | null {
   const candidate = input as Partial<SummarySection> | undefined;
   const title =
     typeof candidate?.title === "string" ? canonicalizeSectionTitle(candidate.title) : "";
-  const items = Array.isArray(candidate?.items) ? limitItems(candidate.items.map(String)) : [];
+  const items = Array.isArray(candidate?.items)
+    ? normalizeSummaryItems(candidate.items.map(String))
+    : [];
 
   if (!title || items.length === 0) {
     return null;
@@ -216,7 +303,7 @@ function normalizeSection(input: unknown, index: number): SummarySection | null 
 }
 
 function coerceStringArray(value: unknown) {
-  return Array.isArray(value) ? limitItems(value.map(String)) : [];
+  return Array.isArray(value) ? normalizeSummaryItems(value.map(String)) : [];
 }
 
 function normalizeLegacySummary(input: LegacyStructuredSummary, nameHint?: string): StructuredSummary {
@@ -263,12 +350,44 @@ function splitTurnIntoStatements(turn: ConversationTurn) {
     .filter(Boolean);
 }
 
+function normalizeFallbackIdeaText(value: string) {
+  return value
+    .replace(/^[,\-\s]+/, "")
+    .replace(/[,\-\s]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractFallbackIdeas(turn: ConversationTurn) {
+  return splitTurnIntoStatements(turn).flatMap((statement) => {
+    const clauseIdeas = splitFallbackClauses(statement)
+      .map(normalizeFallbackIdeaText)
+      .filter(Boolean)
+      .map((text) => {
+        const title = inferFallbackSectionTitle(turn, text);
+        return title ? { title, text } : null;
+      })
+      .filter((idea): idea is { title: (typeof PREFERRED_SUMMARY_SECTION_ORDER)[number]; text: string } =>
+        Boolean(idea)
+      );
+
+    const clauseTitles = new Set(clauseIdeas.map((idea) => idea.title));
+    if (clauseTitles.size > 1) {
+      return clauseIdeas;
+    }
+
+    const normalizedStatement = normalizeFallbackIdeaText(statement);
+    const statementTitle = inferFallbackSectionTitle(turn, normalizedStatement);
+    return statementTitle ? [{ title: statementTitle, text: normalizedStatement }] : [];
+  });
+}
+
 function inferFallbackSectionTitle(turn: ConversationTurn, statement: string) {
   if (CONTACT_PATTERN.test(statement)) {
     return "Who to contact (and when)";
   }
 
-  if (HEALTH_AND_SAFETY_PATTERN.test(statement)) {
+  if (HEALTH_AND_SAFETY_PATTERN.test(statement) || CAREGIVER_HARM_PATTERN.test(statement)) {
     return "Health & Safety";
   }
 
@@ -305,8 +424,11 @@ function inferFallbackSectionTitle(turn: ConversationTurn, statement: string) {
 }
 
 function buildOverview(sections: SummarySection[]) {
-  const firstSection = sections[0];
-  const secondSection = sections[1];
+  const meaningfulSections = sections.filter((section) =>
+    section.items.some((item) => !isNoInformationItem(item))
+  );
+  const firstSection = meaningfulSections[0];
+  const secondSection = meaningfulSections[1];
 
   if (!firstSection) {
     return "This summary highlights the most important caregiver handoff details that were shared.";
@@ -324,6 +446,44 @@ function buildOverview(sections: SummarySection[]) {
   return shortenOverview(fragments.join(". "));
 }
 
+function buildSectionsFromStructuredPayload(candidate: GeneratedStructuredSummary) {
+  return GENERATED_SUMMARY_SECTION_FIELDS.map((field, index) => ({
+    id: `${slugify(field.title) || "section"}-${index + 1}`,
+    title: field.title,
+    items: coerceStringArray(candidate[field.key])
+  }));
+}
+
+export function normalizeGeneratedSummary(input: unknown, nameHint?: string): StructuredSummary {
+  const candidate = input as GeneratedStructuredSummary | undefined;
+
+  if (!candidate || typeof candidate !== "object") {
+    return {
+      ...EMPTY_SUMMARY,
+      title: defaultSummaryTitle(nameHint),
+      sections: ensurePreferredSections([])
+    };
+  }
+
+  const sections = ensurePreferredSections(buildSectionsFromStructuredPayload(candidate));
+
+  return {
+    title:
+      typeof candidate.title === "string" && candidate.title.trim()
+        ? candidate.title.trim()
+        : defaultSummaryTitle(nameHint),
+    overview:
+      typeof candidate.overview === "string"
+        ? shortenOverview(candidate.overview)
+        : buildOverview(sections),
+    sections,
+    generatedAt:
+      typeof candidate.generatedAt === "string" && candidate.generatedAt.trim()
+        ? candidate.generatedAt.trim()
+        : ""
+  };
+}
+
 export function buildFallbackSummary(
   turns: ConversationTurn[],
   nameHint?: string
@@ -336,17 +496,10 @@ export function buildFallbackSummary(
       continue;
     }
 
-    const statements = splitTurnIntoStatements(turn);
-
-    for (const statement of statements) {
-      const title = inferFallbackSectionTitle(turn, statement);
-      if (!title) {
-        continue;
-      }
-
-      const existing = sectionBuckets.get(title) ?? [];
-      existing.push(statement);
-      sectionBuckets.set(title, existing);
+    for (const idea of extractFallbackIdeas(turn)) {
+      const existing = sectionBuckets.get(idea.title) ?? [];
+      existing.push(idea.text);
+      sectionBuckets.set(idea.title, existing);
     }
   }
 
@@ -354,7 +507,7 @@ export function buildFallbackSummary(
     [...sectionBuckets.entries()].map(([title, items], index) => ({
       id: `${slugify(title) || "section"}-${index + 1}`,
       title,
-      items: limitItems(items)
+      items: normalizeSummaryItems(items)
     }))
   );
 
@@ -362,8 +515,7 @@ export function buildFallbackSummary(
     const fallbackItems = limitItems(
       turns
         .filter((turn) => turn.role === "user" && !turn.skipped)
-        .flatMap((turn) => splitTurnIntoStatements(turn)),
-      5
+        .flatMap((turn) => splitTurnIntoStatements(turn))
     );
 
     sections.push({
@@ -376,8 +528,8 @@ export function buildFallbackSummary(
   return {
     ...EMPTY_SUMMARY,
     title: defaultSummaryTitle(nameHint),
-    overview: buildOverview(sections),
-    sections,
+    overview: buildOverview(ensurePreferredSections(sections)),
+    sections: ensurePreferredSections(sections),
     generatedAt: ""
   };
 }
@@ -417,7 +569,9 @@ export function summaryToPlainText(summary: StructuredSummary) {
     return overview;
   }
 
-  const flattenedItems = summary.sections.flatMap((section) => section.items);
+  const flattenedItems = summary.sections
+    .flatMap((section) => section.items)
+    .filter((item) => !isNoInformationItem(item));
   if (flattenedItems.length > 0) {
     return shortenOverview(flattenedItems.slice(0, 2).join(". "));
   }
@@ -426,13 +580,17 @@ export function summaryToPlainText(summary: StructuredSummary) {
 }
 
 export function normalizeStructuredSummary(input: unknown, nameHint?: string): StructuredSummary {
-  const candidate = input as Partial<StructuredSummary & LegacyStructuredSummary> | undefined;
+  const candidate = input as Partial<StructuredSummary & LegacyStructuredSummary & GeneratedStructuredSummary> | undefined;
 
   if (!candidate) {
     return {
       ...EMPTY_SUMMARY,
       title: defaultSummaryTitle(nameHint)
     };
+  }
+
+  if (GENERATED_SUMMARY_SECTION_FIELDS.some((field) => field.key in candidate)) {
+    return normalizeGeneratedSummary(candidate, nameHint);
   }
 
   if (Array.isArray(candidate.sections) || typeof candidate.title === "string" || typeof candidate.overview === "string") {
@@ -443,6 +601,9 @@ export function normalizeStructuredSummary(input: unknown, nameHint?: string): S
       : [];
 
     const orderedSections = sortAndMergeSections(sections);
+    const finalSections = usesPreferredSectionStructure(orderedSections)
+      ? ensurePreferredSections(orderedSections)
+      : orderedSections;
 
     return {
       title:
@@ -452,8 +613,8 @@ export function normalizeStructuredSummary(input: unknown, nameHint?: string): S
       overview:
         typeof candidate.overview === "string"
           ? shortenOverview(candidate.overview)
-          : buildOverview(orderedSections),
-      sections: orderedSections,
+          : buildOverview(finalSections),
+      sections: finalSections,
       generatedAt:
         typeof candidate.generatedAt === "string" && candidate.generatedAt.trim()
           ? candidate.generatedAt.trim()

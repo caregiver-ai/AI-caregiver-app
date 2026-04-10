@@ -125,13 +125,6 @@ export function ReviewEditor() {
     }));
   }
 
-  function removeSection(sectionId: string) {
-    setSummary((current) => ({
-      ...current,
-      sections: current.sections.filter((section) => section.id !== sectionId)
-    }));
-  }
-
   async function handleConfirm() {
     setSaving(true);
     setError("");
@@ -243,22 +236,12 @@ export function ReviewEditor() {
 
           {summary.sections.map((section) => (
             <div key={section.id} className="space-y-3 rounded-3xl border border-border bg-canvas px-4 py-4">
-              <div className="flex items-center justify-between gap-3">
+              <div className="space-y-1">
                 <span className="text-sm font-medium text-slate-700">{copy.sectionTitleLabel}</span>
-                <button
-                  className="text-sm font-semibold text-slate-500 transition hover:text-red-600"
-                  type="button"
-                  onClick={() => removeSection(section.id)}
-                >
-                  {copy.removeSectionButton}
-                </button>
+                <div className="rounded-2xl border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+                  {section.title}
+                </div>
               </div>
-              <input
-                className="w-full rounded-2xl border border-border bg-white px-4 py-3 outline-none transition focus:border-accent"
-                placeholder={copy.sectionTitlePlaceholder}
-                value={section.title}
-                onChange={(event) => updateSection(section.id, { title: event.target.value })}
-              />
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-700">{copy.sectionItemsLabel}</span>
                 <textarea
