@@ -1,10 +1,22 @@
 import { NextResponse } from "next/server";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
-const DEFAULT_TRANSCRIPTION_MODEL = "gemini-2.5-flash";
+const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
+const DEFAULT_TEXT_MODEL = "gpt-4.1";
 const MAX_TRANSCRIPTION_ATTEMPTS = 3;
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 503]);
 const SUPPORTED_SPOKEN_LANGUAGES = new Set(["english", "spanish", "mandarin"]);
+
+const translationSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    transcript: {
+      type: "string"
+    }
+  },
+  required: ["transcript"]
+} as const;
 
 type SpokenLanguage = "english" | "spanish" | "mandarin";
 
@@ -14,81 +26,32 @@ function sleep(delayMs: number) {
   });
 }
 
-async function requestGeminiTranscription({
-  apiKey,
-  model,
-  audioBytes,
-  audioMimeType,
-  promptContext,
-  spokenLanguage
-}: {
-  apiKey: string;
-  model: string;
-  audioBytes: string;
-  audioMimeType: string;
-  promptContext: string;
-  spokenLanguage: SpokenLanguage;
-}) {
+function extractChatCompletionText(
+  content?: string | Array<{ type?: string; text?: string }>
+) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
+    .join("")
+    .trim();
+}
+
+async function requestWithRetry(
+  requestFn: () => Promise<Response>,
+  unknownErrorMessage: string
+) {
   let lastStatus = 500;
-  let lastErrorText = "Unknown Gemini transcription error.";
+  let lastErrorText = unknownErrorMessage;
 
   for (let attempt = 1; attempt <= MAX_TRANSCRIPTION_ATTEMPTS; attempt += 1) {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: [
-                    "Transcribe the spoken audio as faithfully as possible.",
-                    "Always return the final transcript in English.",
-                    spokenLanguage === "english"
-                      ? "The expected spoken language is English."
-                      : spokenLanguage === "spanish"
-                        ? "The expected spoken language is Spanish. Translate it into natural English while preserving meaning and important detail."
-                        : "The expected spoken language is Mandarin Chinese. Translate it into natural English while preserving meaning and important detail.",
-                    promptContext
-                      ? `The speaker is responding to this caregiver intake prompt: ${promptContext}.`
-                      : "",
-                    "Return JSON with one key: transcript.",
-                    "Do not answer the prompt, do not summarize, do not add speaker labels, and do not keep the output in Spanish or Mandarin.",
-                    "If the audio is blank or unintelligible, return an empty transcript."
-                  ]
-                    .filter(Boolean)
-                    .join(" ")
-                },
-                {
-                  inline_data: {
-                    mime_type: audioMimeType,
-                    data: audioBytes
-                  }
-                }
-              ]
-            }
-          ],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseJsonSchema: {
-              type: "object",
-              properties: {
-                transcript: {
-                  type: "string"
-                }
-              },
-              required: ["transcript"]
-            }
-          }
-        })
-      }
-    );
+    const response = await requestFn();
 
     if (response.ok) {
       return response;
@@ -130,11 +93,161 @@ function getPromptContext({
   return [sectionTitle, promptLabel, question].filter(Boolean).join(" / ");
 }
 
+function getSpokenLanguageCode(spokenLanguage: SpokenLanguage) {
+  if (spokenLanguage === "spanish") {
+    return "es";
+  }
+
+  if (spokenLanguage === "mandarin") {
+    return "zh";
+  }
+
+  return "en";
+}
+
+function buildTranscriptionPrompt({
+  promptContext,
+  spokenLanguage
+}: {
+  promptContext: string;
+  spokenLanguage: SpokenLanguage;
+}) {
+  return [
+    "Transcribe the spoken audio as faithfully as possible.",
+    spokenLanguage === "english"
+      ? "Return the transcript in English."
+      : spokenLanguage === "spanish"
+        ? "The expected spoken language is Spanish. Return a faithful transcript in Spanish without translating yet."
+        : "The expected spoken language is Mandarin Chinese. Return a faithful transcript in Mandarin Chinese without translating yet.",
+    promptContext
+      ? `The speaker is responding to this caregiver intake prompt: ${promptContext}.`
+      : "",
+    "Do not answer the prompt, do not summarize, and do not add speaker labels.",
+    "If the audio is blank or unintelligible, return an empty transcript."
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+async function requestOpenAITranscription({
+  apiKey,
+  model,
+  audio,
+  promptContext,
+  spokenLanguage
+}: {
+  apiKey: string;
+  model: string;
+  audio: File;
+  promptContext: string;
+  spokenLanguage: SpokenLanguage;
+}) {
+  const openAiFormData = new FormData();
+  openAiFormData.append("file", audio, audio.name || "recording.webm");
+  openAiFormData.append("model", model);
+  openAiFormData.append("language", getSpokenLanguageCode(spokenLanguage));
+  openAiFormData.append("prompt", buildTranscriptionPrompt({ promptContext, spokenLanguage }));
+  openAiFormData.append("response_format", "json");
+
+  return requestWithRetry(
+    () =>
+      fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: openAiFormData
+      }),
+    "Unknown OpenAI transcription error."
+  );
+}
+
+async function translateTranscriptToEnglish({
+  apiKey,
+  model,
+  transcript,
+  promptContext,
+  spokenLanguage
+}: {
+  apiKey: string;
+  model: string;
+  transcript: string;
+  promptContext: string;
+  spokenLanguage: Exclude<SpokenLanguage, "english">;
+}) {
+  const response = await requestWithRetry(
+    () =>
+      fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          store: false,
+          temperature: 0,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You translate caregiver intake transcripts into natural English. Preserve meaning and important detail. Do not summarize, answer the prompt, or add commentary."
+            },
+            {
+              role: "user",
+              content: [
+                `Spoken language: ${spokenLanguage}.`,
+                promptContext ? `Caregiver intake prompt: ${promptContext}.` : "",
+                "Return JSON with one key: transcript.",
+                "The transcript must be in natural English only.",
+                `Transcript:\n${transcript}`
+              ]
+                .filter(Boolean)
+                .join("\n\n")
+            }
+          ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "translated_transcript",
+              strict: true,
+              schema: translationSchema
+            }
+          }
+        })
+      }),
+    "Unknown OpenAI translation error."
+  );
+
+  const data = (await response.json()) as {
+    choices?: Array<{
+      message?: {
+        content?: string | Array<{
+          type?: string;
+          text?: string;
+        }>;
+      };
+    }>;
+  };
+
+  const content = extractChatCompletionText(data.choices?.[0]?.message?.content);
+  if (!content) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(content) as { transcript?: string };
+    return typeof parsed.transcript === "string" ? parsed.transcript.trim() : "";
+  } catch {
+    return content.trim();
+  }
+}
+
 export async function POST(request: Request) {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      { error: "GEMINI_API_KEY is required for audio transcription." },
+      { error: "OPENAI_API_KEY is required for audio transcription." },
       { status: 500 }
     );
   }
@@ -161,66 +274,64 @@ export async function POST(request: Request) {
     );
   }
 
-  const model = process.env.GEMINI_TRANSCRIPTION_MODEL ?? DEFAULT_TRANSCRIPTION_MODEL;
-  const audioBytes = Buffer.from(await audio.arrayBuffer()).toString("base64");
+  const transcriptionModel =
+    process.env.OPENAI_TRANSCRIPTION_MODEL ?? DEFAULT_TRANSCRIPTION_MODEL;
+  const textModel = process.env.OPENAI_MODEL ?? DEFAULT_TEXT_MODEL;
   const promptContext = getPromptContext({ question, sectionTitle, promptLabel });
 
   try {
-    const response = await requestGeminiTranscription({
+    const transcriptionResponse = await requestOpenAITranscription({
       apiKey,
-      model,
-      audioBytes,
-      audioMimeType: audio.type || "audio/wav",
+      model: transcriptionModel,
+      audio,
       promptContext,
       spokenLanguage
     });
 
-    const data = (await response.json()) as {
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{
-            text?: string;
-          }>;
-        };
-      }>;
-    };
+    const transcriptionData = (await transcriptionResponse.json()) as { text?: string };
+    const transcript =
+      typeof transcriptionData.text === "string" ? transcriptionData.text.trim() : "";
 
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!content) {
+    if (!transcript) {
       return NextResponse.json({ transcript: "" });
     }
 
-    try {
-      const parsed = JSON.parse(content) as { transcript?: string };
-
-      return NextResponse.json({
-        transcript: typeof parsed.transcript === "string" ? parsed.transcript.trim() : ""
-      });
-    } catch {
-      return NextResponse.json({
-        transcript: content.trim()
-      });
+    if (spokenLanguage === "english") {
+      return NextResponse.json({ transcript });
     }
+
+    const translatedTranscript = await translateTranscriptToEnglish({
+      apiKey,
+      model: textModel,
+      transcript,
+      promptContext,
+      spokenLanguage
+    });
+
+    return NextResponse.json({ transcript: translatedTranscript });
   } catch (error) {
     const status = error instanceof Error && "status" in error ? Number(error.status) : 500;
     const rawMessage = error instanceof Error ? error.message : "Unknown transcription failure.";
 
     if (status === 429 || status === 500 || status === 503) {
-      console.error("Transient Gemini transcription error after retrying:", rawMessage);
+      console.error("Transient OpenAI transcription error after retrying:", rawMessage);
 
       return NextResponse.json(
         {
           error:
-            "Gemini is temporarily overloaded. We retried automatically but could not finish the transcription. Please try again in a moment."
+            "OpenAI is temporarily overloaded. We retried automatically but could not finish the transcription. Please try again in a moment."
         },
         { status: 503 }
       );
     }
 
-    console.error("Gemini transcription failed:", rawMessage);
+    console.error("OpenAI transcription failed:", rawMessage);
 
-    return NextResponse.json({
-      error: "Unable to transcribe audio right now. Please try again."
-    }, { status });
+    return NextResponse.json(
+      {
+        error: "Unable to transcribe audio right now. Please try again."
+      },
+      { status }
+    );
   }
 }

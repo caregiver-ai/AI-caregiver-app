@@ -472,8 +472,8 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
         : "English translation added to the response field. You can edit it before saving.",
     audioLimitReached: (languageLabel, isEnglish) =>
       isEnglish
-        ? "45-second limit reached. Transcribing now and retrying automatically if Gemini is busy..."
-        : `45-second limit reached. Translating ${languageLabel} speech into English now and retrying automatically if Gemini is busy...`,
+        ? "45-second limit reached. Transcribing now and retrying automatically if the transcription service is busy..."
+        : `45-second limit reached. Translating ${languageLabel} speech into English now and retrying automatically if the transcription service is busy...`,
     recordingStatus: (current, max) => `Recording ${current} of ${max}.`
   },
   spanish: {
@@ -520,8 +520,8 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
         : "La traducción al inglés se agregó al campo de respuesta. Puede editarla antes de guardarla.",
     audioLimitReached: (languageLabel, isEnglish) =>
       isEnglish
-        ? "Se alcanzó el límite de 45 segundos. Se transcribirá ahora y se volverá a intentar automáticamente si Gemini está ocupado..."
-        : `Se alcanzó el límite de 45 segundos. La voz en ${languageLabel} se traducirá al inglés ahora y se volverá a intentar automáticamente si Gemini está ocupado...`,
+        ? "Se alcanzó el límite de 45 segundos. Se transcribirá ahora y se volverá a intentar automáticamente si el servicio de transcripción está ocupado..."
+        : `Se alcanzó el límite de 45 segundos. La voz en ${languageLabel} se traducirá al inglés ahora y se volverá a intentar automáticamente si el servicio de transcripción está ocupado...`,
     recordingStatus: (current, max) => `Grabando ${current} de ${max}.`
   },
   mandarin: {
@@ -567,8 +567,8 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
         : "英文译文已加入回答框，保存前可以编辑。",
     audioLimitReached: (languageLabel, isEnglish) =>
       isEnglish
-        ? "已达到 45 秒上限。现在开始转录；如果 Gemini 正忙，系统会自动重试。"
-        : `已达到 45 秒上限。现在开始把${languageLabel}语音翻译成英文；如果 Gemini 正忙，系统会自动重试。`,
+        ? "已达到 45 秒上限。现在开始转录；如果转录服务正忙，系统会自动重试。"
+        : `已达到 45 秒上限。现在开始把${languageLabel}语音翻译成英文；如果转录服务正忙，系统会自动重试。`,
     recordingStatus: (current, max) => `正在录音 ${current} / ${max}。`
   }
 };

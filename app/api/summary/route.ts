@@ -101,56 +101,48 @@ const summarySchema = {
     },
     communication: {
       type: "array",
-      minItems: 1,
       items: {
         type: "string"
       }
     },
     dailyNeedsRoutines: {
       type: "array",
-      minItems: 1,
       items: {
         type: "string"
       }
     },
     whatHelpsTheDayGoWell: {
       type: "array",
-      minItems: 1,
       items: {
         type: "string"
       }
     },
     whatCanUpsetOrOverwhelmThem: {
       type: "array",
-      minItems: 1,
       items: {
         type: "string"
       }
     },
     signsTheyNeedHelp: {
       type: "array",
-      minItems: 1,
       items: {
         type: "string"
       }
     },
     whatHelpsWhenTheyAreHavingAHardTime: {
       type: "array",
-      minItems: 1,
       items: {
         type: "string"
       }
     },
     healthAndSafety: {
       type: "array",
-      minItems: 1,
       items: {
         type: "string"
       }
     },
     whoToContactAndWhen: {
       type: "array",
-      minItems: 1,
       items: {
         type: "string"
       }
@@ -169,6 +161,23 @@ const summarySchema = {
     "whoToContactAndWhen"
   ]
 };
+
+function extractChatCompletionText(
+  content?: string | Array<{ type?: string; text?: string }>
+) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
+    .join("")
+    .trim();
+}
 
 function compactWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -204,48 +213,47 @@ function buildSummarySource(turns: ConversationTurn[]) {
   return entries.join("\n\n");
 }
 
-async function generateSummaryWithGemini(turns: ConversationTurn[], nameHint?: string) {
-  const apiKey = process.env.GEMINI_API_KEY;
+async function generateSummaryWithOpenAI(turns: ConversationTurn[], nameHint?: string) {
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return buildFallbackSummary(turns, nameHint);
   }
 
-  const model = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+  const model = process.env.OPENAI_MODEL ?? "gpt-4.1";
   const titleInstruction = nameHint
     ? `The product already displays the overall heading "Caregiver Handoff". For the JSON "title" field, use exactly "Caring for ${nameHint}".`
     : 'The product already displays the overall heading "Caregiver Handoff". For the JSON "title" field, use "Caring for <Name>" if the name is clear and reliable in the transcript. Otherwise use "Caregiver Handoff Summary".';
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      "https://api.openai.com/v1/chat/completions",
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-goog-api-key": apiKey
+          Authorization: `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          systemInstruction: {
-            parts: [
-              {
-                text: "You are a classifier and organizer for caregiver handoff notes. Read nonlinear caregiver input, extract individual facts, place each fact into the best handoff category based on meaning, prioritize safety and actionability, deduplicate overlap, and never invent facts."
-              }
-            ]
-          },
-          contents: [
+          model,
+          store: false,
+          temperature: 0.1,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a classifier and organizer for caregiver handoff notes. Read nonlinear caregiver input, extract individual facts, place each fact into the best handoff category based on meaning, prioritize safety and actionability, deduplicate overlap, and never invent facts."
+            },
             {
               role: "user",
-              parts: [
-                {
-                  text: `${schemaDescription}\n\n${synthesisRules}\n\n${titleInstruction}\n\nCaregiver input:\n${buildSummarySource(turns)}`
-                }
-              ]
+              content: `${schemaDescription}\n\n${synthesisRules}\n\n${titleInstruction}\n\nCaregiver input:\n${buildSummarySource(turns)}`
             }
           ],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseJsonSchema: summarySchema,
-            temperature: 0.1,
-            maxOutputTokens: 4096
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "caregiver_handoff_summary",
+              strict: true,
+              schema: summarySchema
+            }
           }
         })
       }
@@ -256,16 +264,17 @@ async function generateSummaryWithGemini(turns: ConversationTurn[], nameHint?: s
     }
 
     const data = (await response.json()) as {
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{
+      choices?: Array<{
+        message?: {
+          content?: string | Array<{
+            type?: string;
             text?: string;
           }>;
         };
       }>;
     };
 
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const content = extractChatCompletionText(data.choices?.[0]?.message?.content);
     if (!content) {
       return buildFallbackSummary(turns, nameHint);
     }
@@ -323,7 +332,7 @@ export async function POST(request: Request) {
     const rawNameHint = typeof body.nameHint === "string" ? body.nameHint.trim() : "";
     const nameHint = isUsefulNameHint(rawNameHint) ? rawNameHint : "";
     const summary = {
-      ...(await generateSummaryWithGemini(body.turns, nameHint || undefined)),
+      ...(await generateSummaryWithOpenAI(body.turns, nameHint || undefined)),
       generatedAt: new Date().toISOString()
     };
 

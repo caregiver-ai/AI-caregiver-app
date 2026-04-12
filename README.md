@@ -8,7 +8,7 @@ Caregiver Handoff is a guided intake app that helps caregivers capture what matt
 - React + TypeScript
 - Tailwind CSS
 - Supabase Auth + Postgres
-- Gemini API for transcription, translation, and summary generation
+- OpenAI API for transcription, translation, and summary generation
 - Vercel hosting with native Git deployments
 
 ## Current workflow
@@ -28,7 +28,7 @@ Caregiver Handoff is a guided intake app that helps caregivers capture what matt
 - Auth-backed resume flow
 - Autosaved intake and reflection drafts
 - Multilingual UI: English, Spanish, Mandarin
-- Audio recording with Gemini transcription
+- Audio recording with OpenAI transcription
 - English-normalized transcript input for summary generation
 - Editable review step before final save
 - Supabase-backed persistence for sessions, turns, summaries, and feedback
@@ -60,7 +60,7 @@ npm run dev
 ## Required environment variables
 
 ```bash
-GEMINI_API_KEY=
+OPENAI_API_KEY=
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SECRET_KEY=
@@ -70,8 +70,8 @@ Also supported:
 
 ```bash
 SUPABASE_SERVICE_ROLE_KEY=
-GEMINI_MODEL=gemini-2.5-flash
-GEMINI_TRANSCRIPTION_MODEL=gemini-2.5-flash
+OPENAI_MODEL=gpt-4.1
+OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 ```
 
 `SUPABASE_SECRET_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are interchangeable in the current server code. Only one is required.
@@ -95,15 +95,15 @@ For a new project:
 
 If Supabase is not configured, the app can still keep a local browser draft, but auth-backed persistence and shared resume behavior require Supabase.
 
-## Gemini
+## OpenAI
 
-Gemini handles:
+OpenAI handles:
 
 - audio transcription
 - Spanish and Mandarin speech translation into English
 - structured summary generation
 
-If `GEMINI_API_KEY` is missing, the summary route falls back to a lightweight heuristic summary so the app can still run locally.
+If `OPENAI_API_KEY` is missing, the summary route falls back to a lightweight heuristic summary so the app can still run locally.
 
 ## Deployments
 
@@ -140,7 +140,7 @@ Changing only `supabase/schema.sql` is not enough for production.
 - `app/review/page.tsx`: review and edit
 - `app/complete/page.tsx`: completion and feedback
 - `app/api/draft/route.ts`: auth-backed draft load/save
-- `app/api/transcribe/route.ts`: Gemini audio transcription
+- `app/api/transcribe/route.ts`: OpenAI audio transcription
 - `app/api/summary/route.ts`: summary generation
 - `components/welcome-form.tsx`: intake and sign-in flow
 - `components/reflection-chat.tsx`: editable guided reflection flow
