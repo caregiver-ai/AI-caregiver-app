@@ -61,7 +61,7 @@ const DAILY_NEEDS_PATTERN =
 const COMMUNICATION_PATTERN =
   /\b(communicat|gesture|gestures|pointing|leading you|pictures?|device|writing|words?|sounds?|phrase|phrases|mean|attention)\b/i;
 const WHAT_HELPS_DAY_GO_WELL_PATTERN =
-  /\b(choices instead of open-ended questions|waiting before repeating|written questions|images|walks?|ipad|sensory swing|sports|crafts|games|videos|quiet time|downtime|resting|low lights|sensory space)\b/i;
+  /\b(choices instead of open-ended questions|waiting before repeating|written questions|images|walks?|ipad time|preferred videos?|sensory swing|sports|crafts|games|quiet time|downtime|resting|low lights|sensory space)\b/i;
 const CAREGIVER_HARM_PATTERN =
   /\b(bite you|bite caregiver|hurt caregiver|harm caregiver|injure caregiver|could hurt you)\b/i;
 const QUESTION_ECHO_PATTERN =
@@ -488,6 +488,15 @@ function inferNormalizedSectionTitle(
   item: string,
   currentTitle: PreferredSummarySectionTitle
 ): PreferredSummarySectionTitle {
+  if (
+    /\b(non-speaking|AAC|TouchChat|iPad|sounds? to express|ask for help|selects? (?:car|color|iPad)|search history|communicat|touch you|lead you|sit close|attention)\b/i.test(
+      item
+    ) ||
+    COMMUNICATION_PATTERN.test(item)
+  ) {
+    return "Communication";
+  }
+
   if (CONTACT_PATTERN.test(item)) {
     return "Who to contact (and when)";
   }
@@ -541,15 +550,6 @@ function inferNormalizedSectionTitle(
     WHAT_HELPS_DAY_GO_WELL_PATTERN.test(item)
   ) {
     return "What helps the day go well";
-  }
-
-  if (
-    /\b(non-speaking|AAC|TouchChat|iPad|sounds? to express|ask for help|selects? (?:car|color|iPad)|search history|communicat|touch you|lead you|sit close|attention)\b/i.test(
-      item
-    ) ||
-    COMMUNICATION_PATTERN.test(item)
-  ) {
-    return "Communication";
   }
 
   return currentTitle;

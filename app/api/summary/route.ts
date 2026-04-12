@@ -19,15 +19,27 @@ const schemaDescription = `Return JSON with exactly these keys and no others:
   "whoToContactAndWhen": ["string"]
 }`;
 
-const synthesisRules = `You are building a caregiver handoff from caregiver input.
+const synthesisRules = `You are an assistant that transforms caregiver input into a clear, structured caregiver handoff.
 
-Step 1: Understand and extract
-- Carefully review all caregiver input.
-- Break the input into individual statements.
-- Each statement should represent one idea, behavior, need, support, trigger, safety issue, or contact instruction.
-- Extract all meaningful information.
-- Do not assume the caregiver placed information in the correct section.
+Your role is NOT to summarize.
+Your role is to:
+1. Extract ALL meaningful information
+2. Categorize information correctly
+3. Present it in a clear, concise, and actionable format
+
+Core rule
+- Include ALL meaningful information from the caregiver input.
+- Do NOT omit behaviors, needs, risks, or supports.
+- Do NOT simplify away important details.
+- If in doubt, include it.
 - Ignore copied question text, worksheet instructions, skip notes, testing notes, transcription filler, and obvious non-answer noise unless they clearly contain care information.
+
+Step 1: Extract all information
+- Carefully review the caregiver input.
+- Break it into a complete list of individual statements.
+- Each statement must represent one idea only.
+- Each statement must be clear and complete.
+- Do not skip meaningful information.
 
 Step 2: Categorize by meaning, not location
 - Assign each statement to the single best category based on meaning.
@@ -40,54 +52,56 @@ Step 2: Categorize by meaning, not location
   6. What helps when they are having a hard time
   7. Health & Safety
   8. Who to contact (and when)
-- Categorization rules:
+- Category definitions:
   - Communication: how the person expresses themselves and how to understand them.
-  - Daily Needs & Routines: regular supports, schedules, meals, hygiene, toileting, bedtime, and daily living assistance.
-  - What helps the day go well: proactive and preventive supports that help them stay regulated and successful.
-  - What can upset or overwhelm them: triggers, stressors, overload, or situations that make regulation harder.
-  - Signs they need help: observable changes in body, behavior, or communication that suggest distress, illness, pain, hunger, toileting needs, or another need.
-  - What helps when they are having a hard time: actions a caregiver should take in response to distress.
-  - Health & Safety: medical needs, allergies, medications, equipment, and safety risks.
-  - Who to contact (and when): emergency and non-emergency contact instructions.
-- Special rules:
-  - Behaviors or changes that signal a need belong in Signs they need help.
-  - Medical or risk-related details belong in Health & Safety.
-  - Preventive supports belong in What helps the day go well.
-  - Caregiver responses during distress belong in What helps when they are having a hard time.
-- Examples of correct categorization:
-  - Running away -> Signs they need help
-  - Do not block biting -> What helps when they are having a hard time
-  - Needs 2 caregivers -> Health & Safety
-- If a detail could fit more than one section, place it where it would be most useful to another caregiver in the moment.
+  - Daily Needs & Routines: schedules, toileting, eating, daily structure, and care routines.
+  - What helps the day go well: preventative supports that keep the person regulated and successful.
+  - What can upset or overwhelm them: environmental, situational, or internal triggers.
+  - Signs they need help: observable behaviors or changes that indicate a need.
+  - What helps when they are having a hard time: what a caregiver should do in response.
+  - Health & Safety: medical needs, supervision needs, risks, equipment, and physical limitations.
+  - Who to contact (and when): emergency and non-emergency contacts or call guidance.
+- Strict categorization rules:
+  - Categorize based on meaning, not where it was written.
+  - Each statement appears in only one category.
+  - Choose the most actionable category.
+  - Running away, aggression, self-injury, and withdrawal belong in Signs they need help.
+  - What the caregiver should do belongs in What helps when they are having a hard time.
+  - Supervision needs, physical risks, and medical information belong in Health & Safety.
+  - Preventative strategies belong in What helps the day go well.
+  - Toileting, eating, and schedules belong in Daily Needs & Routines.
+  - Communication methods, AAC device use, sounds, gestures, leading, touching, attention-seeking, and what device selections mean belong in Communication.
 - Do not repeat the same fact across sections unless omitting it would create a safety risk.
 
-Step 3: Generate output
+Step 3: Prioritize safety
+- You must clearly include and highlight self-injury, elopement, supervision needs, medical needs, and situations where the caregiver could be harmed when that information is present.
+
+Step 4: Generate output
 - Always write the final output in English.
 - Build a useful caregiver handoff, not a worksheet recap.
 - Include all eight sections, even when no information is available.
 - Every section field must be an array of bullet strings.
 - If a section has no supported information, return exactly ["${NO_INFORMATION_PLACEHOLDER}"] for that section.
 - Rewrite the information into caregiver-ready bullet points. Do not echo the worksheet wording.
-- Each bullet should contain one idea only.
-- Keep bullets concise, specific, and easy to scan.
-- Do not merge multiple ideas into one bullet.
-- Avoid run-on bullets.
+- Use bullet points only.
+- Each bullet must be one clear, complete sentence.
+- Keep language short, direct, and easy to scan.
+- Combine similar ideas only when nothing is lost.
+- No duplicate information.
+- No run-on sentences.
 - Do not output question fragments, skip markers, uncertainty notes, or filler/noise such as "Use Skip", "Skip", "Not clearly stated in the raw input", "What do they mean?", "um", or "eheheh".
 - Prefer a 6th-8th grade reading level.
 - Avoid jargon, meta commentary, process notes, or unsupported assumptions.
 - overview must be a short 1-2 sentence summary of the most important themes, not a transcript recap.
 - If possible, the overview should briefly state how the person communicates and the most important safety or supervision risks.
 - Keep overview under 80 words.
-- Make the summary easy to scan in under 2 minutes.
-- Highlight important safety information clearly.
 
-Step 4: Quality check
-- Every item is in the correct category based on meaning, not where it was entered.
-- Similar ideas are combined when that improves clarity.
-- There are no unnecessary duplicates across sections.
-- No meaningful information is lost, especially safety, behavior, and supervision details.
-- No important safety information is missing.
-- The final result is clear, concise, respectful, and actionable.`;
+Step 5: Final validation
+- Check that all meaningful caregiver input is included.
+- Check that no behaviors, needs, or safety risks are missing.
+- Check that every item is in the best category.
+- Check that the output is easy to scan quickly and tells a new caregiver what to do.
+- Fix anything missing, duplicated, misplaced, or unclear before finalizing.`;
 
 const summarySchema = {
   type: "object",
