@@ -18,8 +18,7 @@ function itemsToTextarea(items: string[]) {
 function textareaToItems(value: string) {
   return value
     .split("\n")
-    .map((item) => item.trim())
-    .filter(Boolean);
+    .filter((item) => item.trim().length > 0);
 }
 
 export function ReviewEditor() {
