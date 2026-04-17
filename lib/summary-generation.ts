@@ -350,6 +350,8 @@ Strict categorization rules:
 - If the device not working or inability to access content causes distress, place it in What can upset or overwhelm them.
 - If checking search history or helping find content is a preventative support, place it in What helps the day go well.
 - If helping find content is phrased as an in-the-moment caregiver action, place it in What helps when they are having a hard time.
+- Use communication only for how Gavin expresses himself and what his signals mean.
+- Do not place proactive supports, triggers, signs of distress, or caregiver instructions in Communication.
 
 Use the provided Entry labels in entryId exactly, such as "Entry 1".`;
 
@@ -386,6 +388,9 @@ Output rules:
   - an in-the-moment caregiver action during distress -> What helps when they are having a hard time
 - Keep general regulation supports such as car rides, walks, or preferred activities in What helps the day go well.
 - Keep direct action bullets such as "offer a car ride" or "help him access" in What helps when they are having a hard time.
+- Keep bathroom reminders and regular food access in What helps the day go well when they are presented as proactive supports.
+- Keep repeated trips to the fridge, grabbing cheese, hiding, grunting, angry vocalizations, elopement, and hand biting in Signs they need help.
+- Keep inability to open items, inability to access iPad content, hunger, and missing preferred items in What can upset or overwhelm them.
 - overview must be a short 1-2 sentence summary of the most important themes.
 - If possible, the overview should briefly state how the person communicates and the most important safety or supervision risks.
 - Keep overview under 80 words.`;
@@ -531,6 +536,16 @@ function statementLooksCovered(statement: string, existingItems: string[]) {
   });
 }
 
+function sortCaptureFactsForMerge(facts: StructuredCaptureFact[]) {
+  return [...facts].sort((left, right) => {
+    if (left.safetyRelevant !== right.safetyRelevant) {
+      return left.safetyRelevant ? -1 : 1;
+    }
+
+    return left.statement.length - right.statement.length;
+  });
+}
+
 function formatStructuredCaptureForPrompt(capture: StructuredCapture) {
   return SUMMARY_SECTION_TITLES.map((title) => {
     const sectionFacts = capture.facts.filter((fact) => fact.section === title);
@@ -561,7 +576,7 @@ function formatStructuredCaptureForPrompt(capture: StructuredCapture) {
   }).join("\n\n");
 }
 
-function mergeCriticalCapturedFactsIntoSummary(
+function mergeCapturedFactsIntoSummary(
   summary: StructuredSummary,
   capture: StructuredCapture,
   nameHint?: string
@@ -572,7 +587,7 @@ function mergeCriticalCapturedFactsIntoSummary(
   }));
   const byTitle = new Map(sections.map((section) => [section.title, section]));
 
-  for (const fact of capture.facts) {
+  for (const fact of sortCaptureFactsForMerge(capture.facts)) {
     const section = byTitle.get(fact.section);
     if (!section) {
       continue;
@@ -585,9 +600,8 @@ function mergeCriticalCapturedFactsIntoSummary(
       continue;
     }
 
-    if (fact.safetyRelevant && !statementLooksCovered(fact.statement, meaningfulItems)) {
+    if (!statementLooksCovered(fact.statement, meaningfulItems)) {
       section.items.push(fact.statement);
-      continue;
     }
   }
 
@@ -764,7 +778,7 @@ async function generateSummaryTwoStep(
     return null;
   }
 
-  return mergeCriticalCapturedFactsIntoSummary(rewrittenSummary, capture, nameHint);
+  return mergeCapturedFactsIntoSummary(rewrittenSummary, capture, nameHint);
 }
 
 export function buildSummarySource(turns: ConversationTurn[]) {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeStructuredSummary, summaryToPlainText } from "@/lib/summary";
+import { normalizeAuthoritativeStructuredSummary, summaryToPlainText } from "@/lib/summary";
 import { createSupabaseServerClient } from "@/lib/supabase";
 
 export async function POST(request: Request) {
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "sessionId and editedSummary are required." }, { status: 400 });
   }
 
-  const editedSummary = normalizeStructuredSummary(body.editedSummary);
+  const editedSummary = normalizeAuthoritativeStructuredSummary(body.editedSummary);
 
   const supabase = createSupabaseServerClient();
 

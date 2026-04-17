@@ -6,7 +6,7 @@ import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
 import { authenticatedFetch, getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
 import { getCompletionCopy } from "@/lib/localization";
-import { formatSummaryGeneratedAt, normalizeStructuredSummary } from "@/lib/summary";
+import { formatSummaryGeneratedAt, normalizeAuthoritativeStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { StructuredSummary, UiLanguage } from "@/lib/types";
 
@@ -63,7 +63,7 @@ export function CompletionView() {
       const normalizedLocalEmail = localDraft?.email.trim().toLowerCase();
 
       if (localDraft?.editedSummary) {
-        setSummary(normalizeStructuredSummary(localDraft.editedSummary));
+        setSummary(normalizeAuthoritativeStructuredSummary(localDraft.editedSummary));
         setSessionId(localDraft.sessionId);
         setRating(localDraft.feedback?.usefulnessRating ?? "");
         setComments(localDraft.feedback?.comments ?? "");
@@ -94,7 +94,7 @@ export function CompletionView() {
         return;
       }
 
-      setSummary(normalizeStructuredSummary(draft.editedSummary));
+      setSummary(normalizeAuthoritativeStructuredSummary(draft.editedSummary));
       setSessionId(draft.sessionId);
       setRating(draft.feedback?.usefulnessRating ?? "");
       setComments(draft.feedback?.comments ?? "");

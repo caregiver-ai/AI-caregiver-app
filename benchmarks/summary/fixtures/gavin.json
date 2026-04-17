@@ -6,7 +6,7 @@
       "id": "gavin-1",
       "role": "user",
       "promptType": "section_prompt",
-      "content": "Gavin is non-speaking and cannot use words.\nHe makes sounds to express himself, including happy sounds, angry sounds, and singing-like sounds.\nHe uses an AAC device on an iPad with TouchChat.\nIf he selects car, it means he wants to go for a ride.\nIf he selects iPad, it may mean the device is not working or he cannot find what he wants.\nChecking his search history can help identify what he is trying to access.\nIf he selects a color, he is looking for an object of that color, and at home it usually means a mini bus toy.\nHe may approach, touch, or lead you to what he needs.\nHe may sit very close to show he wants attention.",
+      "content": "Gavin is non-speaking and cannot use words.\nHe makes sounds to express himself, including happy sounds, angry sounds, and singing-like sounds.\nHe uses an AAC device on an iPad with TouchChat.\nHe uses his AAC device to ask for help, for example when he cannot open his water bottle.\nIf he selects car, it means he wants to go for a ride.\nIf he selects iPad, it may mean the device is not working or he cannot find what he wants.\nChecking his search history can help identify what he is trying to access.\nIf he selects a color, he is looking for an object of that color, and at home it usually means a mini bus toy.\nHe may approach, touch, or lead you to what he needs.\nHe may sit very close to show he wants attention.",
       "createdAt": "2026-04-16T00:00:00.000Z",
       "sectionId": "what_helps_the_day_go_well",
       "sectionTitle": "What helps the day go well",
@@ -18,7 +18,7 @@
       "id": "gavin-2",
       "role": "user",
       "promptType": "section_prompt",
-      "content": "He needs regular reminders to use the bathroom.\nHe does not independently communicate when he needs the bathroom.\nThe home has hourly prompts to remind him to use the bathroom.\nHe will usually go when prompted but may need additional reminders.\nHe urinates in the toilet but has bowel movements in a pull-up.\nHe often hides behind furniture or curtains and grunts when having a bowel movement.\nHe needs food often, and repeated trips to the fridge or grabbing cheese usually means he is hungry.",
+      "content": "He needs regular reminders to use the bathroom.\nHe does not independently communicate when he needs the bathroom.\nThe home has hourly prompts to remind him to use the bathroom.\nHe will usually go when prompted but may need additional reminders.\nHe urinates in the toilet but has bowel movements in a pull-up.\nHe often hides behind furniture or curtains and grunts when having a bowel movement.\nHe needs food often and needs frequent access to food.\nRepeated trips to the fridge or grabbing cheese usually means he is hungry.",
       "createdAt": "2026-04-16T00:01:00.000Z",
       "sectionId": "what_helps_the_day_go_well",
       "sectionTitle": "What helps the day go well",
@@ -128,17 +128,25 @@
         },
         {
           "label": "food access",
-          "anyOf": ["needs food often", "frequent access to food", "hungry"]
+          "anyOf": ["needs food often", "frequent access to food"]
         }
       ],
       "What helps the day go well": [
         {
+          "label": "bathroom support",
+          "anyOf": ["consistent bathroom reminders", "bathroom reminders", "hourly prompts"]
+        },
+        {
+          "label": "regular food access support",
+          "anyOf": ["regular access to food", "frequent access to food", "food helps prevent distress"]
+        },
+        {
           "label": "car ride regulation",
-          "anyOf": ["car rides help", "car ride helps", "offer a car ride"]
+          "anyOf": ["car rides help", "car ride helps", "car rides are especially soothing", "car rides soothe him"]
         },
         {
           "label": "walk support",
-          "anyOf": ["walks can help", "walks help regulate", "walks can regulate"]
+          "anyOf": ["walks can help", "walks help regulate", "walks can regulate", "walks can soothe"]
         },
         {
           "label": "ipad help reduces frustration",
@@ -180,11 +188,11 @@
       "What helps when they are having a hard time": [
         {
           "label": "offer car ride",
-          "anyOf": ["offer a car ride", "car ride"]
+          "anyOf": ["offer a car ride", "offer a car ride to help calm", "offer a car ride to help regulate"]
         },
         {
           "label": "help with iPad access",
-          "anyOf": ["access what he is trying to find", "find on his iPad", "search history"]
+          "anyOf": ["access what he is trying to find", "find on his iPad", "help him find what he wants on the iPad"]
         },
         {
           "label": "do not physically stop biting",
@@ -220,7 +228,9 @@
       "use skip",
       "not clearly stated in the raw input",
       "what do they mean?",
-      "eheheh"
+      "eheheh",
+      "problems with access can upset him",
+      "if the problem is the iPad, check the internet and his search history"
     ],
     "maxDuplicateItems": 0
   }

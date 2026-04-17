@@ -846,6 +846,10 @@ export function normalizeStructuredSummary(input: unknown, nameHint?: string): S
   return normalizeStructuredSummaryWithOptions(input, nameHint);
 }
 
+export function normalizeAuthoritativeStructuredSummary(input: unknown, nameHint?: string): StructuredSummary {
+  return normalizeStructuredSummaryWithOptions(input, nameHint, { reclassify: false });
+}
+
 export function normalizeStructuredSummaryWithOptions(
   input: unknown,
   nameHint?: string,
