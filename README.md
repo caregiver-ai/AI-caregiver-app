@@ -20,7 +20,7 @@ Caregiver Handoff is a guided intake app that helps caregivers capture what matt
 5. Responses can be typed or recorded with audio.
 6. Audio can be transcribed and, for Spanish or Mandarin, translated into English before saving.
 7. Users can go back to earlier prompts, edit saved answers, or fill in skipped prompts later.
-8. The app generates an English summary for review and editing.
+8. The app generates an English summary for review and editing through a two-step AI pipeline: structured capture, then clean rewrite.
 9. The final summary and feedback are saved in Supabase.
 
 ## Features
@@ -30,6 +30,7 @@ Caregiver Handoff is a guided intake app that helps caregivers capture what matt
 - Multilingual UI: English, Spanish, Mandarin
 - Audio recording with OpenAI transcription
 - English-normalized transcript input for summary generation
+- Two-step caregiver summary pipeline for capture + rewrite
 - Editable review step before final save
 - Supabase-backed persistence for sessions, turns, summaries, and feedback
 
@@ -70,7 +71,7 @@ Also supported:
 
 ```bash
 SUPABASE_SERVICE_ROLE_KEY=
-OPENAI_MODEL=gpt-4.1
+OPENAI_MODEL=gpt-5.4
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 ```
 
@@ -104,6 +105,19 @@ OpenAI handles:
 - structured summary generation
 
 If `OPENAI_API_KEY` is missing, the summary route falls back to a lightweight heuristic summary so the app can still run locally.
+
+The summary pipeline uses the same `OPENAI_MODEL` for both steps:
+
+1. structured capture of atomic caregiver facts
+2. caregiver-ready rewrite into the final 8-section handoff
+
+To run the local benchmark fixture set against both the legacy one-step flow and the current two-step flow:
+
+```bash
+npm run summary:benchmark
+```
+
+The benchmark runner loads `.env.local`, uses the same server-side summary pipeline as production, and prints per-fixture pass/fail checks for completeness, section placement, banned noise, and duplicate bullets.
 
 ## Deployments
 
@@ -142,6 +156,8 @@ Changing only `supabase/schema.sql` is not enough for production.
 - `app/api/draft/route.ts`: auth-backed draft load/save
 - `app/api/transcribe/route.ts`: OpenAI audio transcription
 - `app/api/summary/route.ts`: summary generation
+- `lib/summary-generation.ts`: one-step and two-step summary pipeline
 - `components/welcome-form.tsx`: intake and sign-in flow
 - `components/reflection-chat.tsx`: editable guided reflection flow
+- `benchmarks/summary/fixtures/`: summary benchmark inputs and expectations
 - `supabase/migrations/`: database migrations

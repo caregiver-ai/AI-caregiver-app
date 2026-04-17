@@ -46,6 +46,10 @@ type GeneratedStructuredSummary = {
 
 type PreferredSummarySectionTitle = (typeof PREFERRED_SUMMARY_SECTION_ORDER)[number];
 
+type SummaryNormalizationOptions = {
+  reclassify?: boolean;
+};
+
 const CONTACT_PATTERN =
   /\b(911|emergency|non-?emergenc|guardian|doctor|contact|call right away|call first|crisis support)\b/i;
 const HEALTH_AND_SAFETY_PATTERN =
@@ -695,6 +699,22 @@ function buildSectionsFromStructuredPayload(candidate: GeneratedStructuredSummar
 }
 
 export function normalizeGeneratedSummary(input: unknown, nameHint?: string): StructuredSummary {
+  return normalizeGeneratedSummaryWithOptions(input, nameHint);
+}
+
+function normalizePreferredSections(
+  sections: SummarySection[],
+  { reclassify = true }: SummaryNormalizationOptions = {}
+) {
+  const preferredSections = ensurePreferredSections(sections);
+  return reclassify ? reclassifySummarySections(preferredSections) : preferredSections;
+}
+
+export function normalizeGeneratedSummaryWithOptions(
+  input: unknown,
+  nameHint?: string,
+  options: SummaryNormalizationOptions = {}
+): StructuredSummary {
   const candidate = input as GeneratedStructuredSummary | undefined;
 
   if (!candidate || typeof candidate !== "object") {
@@ -705,7 +725,7 @@ export function normalizeGeneratedSummary(input: unknown, nameHint?: string): St
     };
   }
 
-  const sections = reclassifySummarySections(ensurePreferredSections(buildSectionsFromStructuredPayload(candidate)));
+  const sections = normalizePreferredSections(buildSectionsFromStructuredPayload(candidate), options);
   const summaryTitle =
     typeof candidate.title === "string" && candidate.title.trim()
       ? candidate.title.trim()
@@ -823,6 +843,14 @@ export function summaryToPlainText(summary: StructuredSummary) {
 }
 
 export function normalizeStructuredSummary(input: unknown, nameHint?: string): StructuredSummary {
+  return normalizeStructuredSummaryWithOptions(input, nameHint);
+}
+
+export function normalizeStructuredSummaryWithOptions(
+  input: unknown,
+  nameHint?: string,
+  options: SummaryNormalizationOptions = {}
+): StructuredSummary {
   const candidate = input as Partial<StructuredSummary & LegacyStructuredSummary & GeneratedStructuredSummary> | undefined;
 
   if (!candidate) {
@@ -833,7 +861,7 @@ export function normalizeStructuredSummary(input: unknown, nameHint?: string): S
   }
 
   if (GENERATED_SUMMARY_SECTION_FIELDS.some((field) => field.key in candidate)) {
-    return normalizeGeneratedSummary(candidate, nameHint);
+    return normalizeGeneratedSummaryWithOptions(candidate, nameHint, options);
   }
 
   if (Array.isArray(candidate.sections) || typeof candidate.title === "string" || typeof candidate.overview === "string") {
@@ -845,7 +873,7 @@ export function normalizeStructuredSummary(input: unknown, nameHint?: string): S
 
     const orderedSections = sortAndMergeSections(sections);
     const finalSections = usesPreferredSectionStructure(orderedSections)
-      ? reclassifySummarySections(ensurePreferredSections(orderedSections))
+      ? normalizePreferredSections(orderedSections, options)
       : orderedSections;
     const summaryTitle =
       typeof candidate.title === "string" && candidate.title.trim()
