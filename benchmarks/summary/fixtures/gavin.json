@@ -235,9 +235,32 @@
     "sectionBannedPhrases": {
       "What helps the day go well": [
         "he needs regular reminders to use the bathroom",
-        "he needs food often and needs frequent access to food"
+        "he needs food often and needs frequent access to food",
+        "he likes walks.",
+        "he likes videos.",
+        "he likes ipad time.",
+        "he likes car rides.",
+        "he enjoys walks.",
+        "he enjoys videos.",
+        "he enjoys ipad time.",
+        "he enjoys car rides.",
+        "going for a car ride helps soothe him."
       ],
-      "Signs they need help": ["making loud or angry vocalizations"]
+      "What can upset or overwhelm them": [
+        "car rides help soothe him when he is upset"
+      ],
+      "Signs they need help": [
+        "making loud or angry vocalizations",
+        "select \"car\"",
+        "select a color",
+        "aac device to ask for help",
+        "i want ipad",
+        "if food runs out"
+      ],
+      "What helps when they are having a hard time": [
+        "first check whether the ipad is not working",
+        "first check whether the internet is not working"
+      ]
     },
     "maxDuplicateItems": 0,
     "maxDuplicateItemsBySection": {

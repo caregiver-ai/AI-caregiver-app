@@ -386,11 +386,16 @@ Output rules:
   - a trigger caused by device/content access problems -> What can upset or overwhelm them
   - a proactive support such as helping find content before distress escalates -> What helps the day go well
   - an in-the-moment caregiver action during distress -> What helps when they are having a hard time
+- AAC selection meanings, AAC help requests, and what device buttons mean must stay in Communication, not Signs they need help.
 - Keep general regulation supports such as car rides, walks, or preferred activities in What helps the day go well.
 - Keep direct action bullets such as "offer a car ride" or "help him access" in What helps when they are having a hard time.
 - Keep bathroom reminders and regular food access in What helps the day go well when they are presented as proactive supports.
 - Keep repeated trips to the fridge, grabbing cheese, hiding, grunting, angry vocalizations, elopement, and hand biting in Signs they need help.
 - Keep inability to open items, inability to access iPad content, hunger, and missing preferred items in What can upset or overwhelm them.
+- In What helps the day go well, collapse preferred activities into 1-2 concise bullets. Do not repeat the same preference in separate "likes" or "enjoys" bullets.
+- In Communication, do not repeat the same cue twice in different wording.
+- In What can upset or overwhelm them, collapse repeated transition or stop-activity triggers into one bullet.
+- In What helps when they are having a hard time, collapse repeated troubleshooting steps into one clean caregiver action bullet.
 - overview must be a short 1-2 sentence summary of the most important themes.
 - If possible, the overview should briefly state how the person communicates and the most important safety or supervision risks.
 - Keep overview under 80 words.`;
@@ -800,7 +805,7 @@ async function generateSummaryOneStep(
     userPrompt: `${summarySchemaDescription}\n\n${oneStepSynthesisRules}\n\n${buildTitleInstruction(
       nameHint
     )}\n\nCaregiver input:\n${buildSummarySource(turns)}`,
-    temperature: 0.1,
+    temperature: 0,
     maxCompletionTokens: 5000
   });
 

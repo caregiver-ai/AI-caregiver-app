@@ -32,6 +32,16 @@ type EvaluationResult = {
   duplicateCount: number;
 };
 
+type AggregateEvaluationResult = {
+  label: string;
+  runs: EvaluationResult[];
+  worstPassedChecks: number;
+  totalChecks: number;
+  maxDuplicateCount: number;
+  failedRuns: number;
+  failureCounts: Map<string, number>;
+};
+
 function normalizeText(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -240,6 +250,48 @@ function printEvaluation(result: EvaluationResult) {
   }
 }
 
+function aggregateEvaluations(
+  label: string,
+  runs: EvaluationResult[]
+): AggregateEvaluationResult {
+  const failureCounts = new Map<string, number>();
+
+  for (const result of runs) {
+    for (const failure of result.failures) {
+      failureCounts.set(failure, (failureCounts.get(failure) ?? 0) + 1);
+    }
+  }
+
+  return {
+    label,
+    runs,
+    worstPassedChecks: Math.min(...runs.map((result) => result.passedChecks)),
+    totalChecks: runs[0]?.totalChecks ?? 0,
+    maxDuplicateCount: Math.max(...runs.map((result) => result.duplicateCount)),
+    failedRuns: runs.filter((result) => result.failures.length > 0).length,
+    failureCounts
+  };
+}
+
+function printAggregateEvaluation(result: AggregateEvaluationResult) {
+  if (result.runs.length === 1) {
+    printEvaluation(result.runs[0]);
+    return;
+  }
+
+  for (const run of result.runs) {
+    printEvaluation(run);
+  }
+
+  console.log(
+    `  ${result.label} aggregate: worst ${result.worstPassedChecks}/${result.totalChecks} checks passed, failed_runs=${result.failedRuns}/${result.runs.length}, max_duplicates=${result.maxDuplicateCount}`
+  );
+
+  for (const [failure, count] of [...result.failureCounts.entries()].sort((left, right) => right[1] - left[1])) {
+    console.log(`    - ${failure} (${count}/${result.runs.length} runs)`);
+  }
+}
+
 async function loadFixtures(fixturesDir: string) {
   const entries = await readdir(fixturesDir);
 
@@ -257,10 +309,17 @@ async function loadFixtures(fixturesDir: string) {
 
 async function runMode(
   fixture: BenchmarkFixture,
-  mode: SummaryGenerationMode
-): Promise<EvaluationResult> {
-  const summary = await generateCaregiverSummary(fixture.turns, fixture.nameHint, mode);
-  return evaluateSummary(summary, fixture, mode);
+  mode: SummaryGenerationMode,
+  runs: number
+): Promise<AggregateEvaluationResult> {
+  const results: EvaluationResult[] = [];
+
+  for (let index = 0; index < runs; index += 1) {
+    const summary = await generateCaregiverSummary(fixture.turns, fixture.nameHint, mode);
+    results.push(evaluateSummary(summary, fixture, `${mode} run ${index + 1}`));
+  }
+
+  return aggregateEvaluations(mode, results);
 }
 
 async function main() {
@@ -273,6 +332,7 @@ async function main() {
 
   const fixturesDir = path.join(projectRoot, "benchmarks", "summary", "fixtures");
   const fixtures = await loadFixtures(fixturesDir);
+  const benchmarkRuns = Math.max(1, Number.parseInt(process.env.SUMMARY_BENCHMARK_RUNS ?? "3", 10) || 1);
 
   if (fixtures.length === 0) {
     throw new Error("No benchmark fixtures found.");
@@ -283,21 +343,21 @@ async function main() {
   for (const fixture of fixtures) {
     console.log(`\nFixture: ${fixture.id}`);
 
-    const oneStep = await runMode(fixture, "one-step");
-    const twoStep = await runMode(fixture, "two-step");
+    const oneStep = await runMode(fixture, "one-step", benchmarkRuns);
+    const twoStep = await runMode(fixture, "two-step", benchmarkRuns);
 
-    printEvaluation(oneStep);
-    printEvaluation(twoStep);
+    printAggregateEvaluation(oneStep);
+    printAggregateEvaluation(twoStep);
 
-    const scoreDelta = twoStep.passedChecks - oneStep.passedChecks;
-    const duplicateDelta = oneStep.duplicateCount - twoStep.duplicateCount;
+    const scoreDelta = twoStep.worstPassedChecks - oneStep.worstPassedChecks;
+    const duplicateDelta = oneStep.maxDuplicateCount - twoStep.maxDuplicateCount;
     console.log(
       `  delta: checks ${scoreDelta >= 0 ? "+" : ""}${scoreDelta}, duplicates ${
         duplicateDelta >= 0 ? "-" : "+"
       }${Math.abs(duplicateDelta)}`
     );
 
-    if (twoStep.failures.length > 0) {
+    if (twoStep.failedRuns > 0) {
       hasFailures = true;
     }
   }
