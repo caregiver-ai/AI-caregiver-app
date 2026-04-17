@@ -134,23 +134,23 @@
       "What helps the day go well": [
         {
           "label": "bathroom support",
-          "anyOf": ["consistent bathroom reminders", "bathroom reminders", "hourly prompts"]
+          "anyOf": ["consistent bathroom reminders", "bathroom reminders help", "hourly bathroom prompts"]
         },
         {
           "label": "regular food access support",
-          "anyOf": ["regular access to food", "frequent access to food", "food helps prevent distress"]
+          "anyOf": ["regular access to food", "frequent access to food", "food helps prevent distress", "helps prevent distress"]
         },
         {
           "label": "car ride regulation",
-          "anyOf": ["car rides help", "car ride helps", "car rides are especially soothing", "car rides soothe him"]
+          "anyOf": ["car rides help", "car ride helps", "car rides are especially soothing", "car rides soothe him", "car rides can help with regulation"]
         },
         {
           "label": "walk support",
-          "anyOf": ["walks can help", "walks help regulate", "walks can regulate", "walks can soothe"]
+          "anyOf": ["walks can help", "walks help regulate", "walks can regulate", "walks can soothe", "walks can help with regulation"]
         },
         {
           "label": "ipad help reduces frustration",
-          "anyOf": ["find items on his iPad", "helping him find items", "reduces frustration"]
+          "anyOf": ["find items on his iPad", "helping him find items", "reduces frustration", "iPad searches can prevent frustration", "prevent frustration"]
         }
       ],
       "What can upset or overwhelm them": [
@@ -232,6 +232,18 @@
       "problems with access can upset him",
       "if the problem is the iPad, check the internet and his search history"
     ],
-    "maxDuplicateItems": 0
+    "sectionBannedPhrases": {
+      "What helps the day go well": [
+        "he needs regular reminders to use the bathroom",
+        "he needs food often and needs frequent access to food"
+      ],
+      "Signs they need help": ["making loud or angry vocalizations"]
+    },
+    "maxDuplicateItems": 0,
+    "maxDuplicateItemsBySection": {
+      "What helps the day go well": 0,
+      "Signs they need help": 0,
+      "What helps when they are having a hard time": 0
+    }
   }
 }

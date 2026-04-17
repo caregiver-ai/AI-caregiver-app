@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSummaryPdf, buildSummaryEmailHtml, sanitizePdfFilename } from "@/lib/summary-pdf";
-import { normalizeStructuredSummary, summaryToPlainText } from "@/lib/summary";
+import { normalizeAuthoritativeStructuredSummary, summaryToPlainText } from "@/lib/summary";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
 import { StructuredSummary } from "@/lib/types";
 
@@ -157,7 +157,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: summaryLookupError.message }, { status: 500 });
     }
 
-    const summary = normalizeStructuredSummary(
+    const summary = normalizeAuthoritativeStructuredSummary(
       (summaryRow as SummaryRow | null)?.edited_json ??
         (summaryRow as SummaryRow | null)?.summary_json ??
         (sessionRow as SessionRow).draft_json?.editedSummary ??

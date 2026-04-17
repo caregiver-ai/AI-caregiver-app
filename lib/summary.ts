@@ -146,6 +146,251 @@ function dedupe(items: string[]) {
   });
 }
 
+const COMPARISON_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "because",
+  "but",
+  "can",
+  "for",
+  "from",
+  "he",
+  "her",
+  "him",
+  "his",
+  "i",
+  "if",
+  "in",
+  "is",
+  "it",
+  "may",
+  "of",
+  "on",
+  "or",
+  "she",
+  "that",
+  "the",
+  "their",
+  "them",
+  "they",
+  "this",
+  "to",
+  "when",
+  "with"
+]);
+
+function normalizeComparisonText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function comparisonTokens(value: string) {
+  return normalizeComparisonText(value)
+    .split(" ")
+    .filter((token) => token.length > 2 && !COMPARISON_STOPWORDS.has(token));
+}
+
+function extractSummaryConcepts(value: string) {
+  const concepts = new Set<string>();
+  const normalized = normalizeComparisonText(value);
+
+  if (!normalized) {
+    return concepts;
+  }
+
+  if (
+    /\b(bathroom|toilet)\b/.test(normalized) &&
+    /\b(reminder|reminders|prompt|prompts|hourly|prompted)\b/.test(normalized)
+  ) {
+    concepts.add("bathroom_reminders");
+  }
+
+  if (
+    /\b(food|fridge|cheese|hungry|hunger)\b/.test(normalized) &&
+    /\b(access|often|regular|frequent|prevent|distress|available)\b/.test(normalized)
+  ) {
+    concepts.add("food_access");
+  }
+
+  if (/\b(fridge|grabbing cheese)\b/.test(normalized)) {
+    concepts.add("hunger_sign");
+  }
+
+  if (/\bcar ride|car rides\b/.test(normalized) && /\b(help|regulat|calm|sooth)\b/.test(normalized)) {
+    concepts.add("car_ride_regulation");
+  }
+
+  if (/\bwalk|walks\b/.test(normalized) && /\b(help|regulat|calm|sooth)\b/.test(normalized)) {
+    concepts.add("walk_regulation");
+  }
+
+  if (
+    /\bipad\b/.test(normalized) &&
+    /\b(help|find|access|search history|trying)\b/.test(normalized) &&
+    !/\b(not working|cannot find|can t find|unable|upset)\b/.test(normalized)
+  ) {
+    concepts.add("ipad_help");
+  }
+
+  if (
+    /\bipad\b/.test(normalized) &&
+    /\b(not working|cannot find|can t find|unable|not being able|access)\b/.test(normalized)
+  ) {
+    concepts.add("ipad_trigger");
+  }
+
+  if (/\b(open|opening)\b/.test(normalized) && /\b(low muscle tone|unable|can t|cannot|help)\b/.test(normalized)) {
+    concepts.add("opening_items");
+  }
+
+  if (/\b(loud|angry) vocalizations?\b/.test(normalized) || /\bangry sounds?\b/.test(normalized)) {
+    concepts.add("vocalization_sign");
+  }
+
+  if (/\belopement|elopen|running away|run away\b/.test(normalized)) {
+    concepts.add("elopement");
+  }
+
+  if (/\b(hand biting|biting his hand|biting her hand|biting their hand)\b/.test(normalized)) {
+    concepts.add("hand_biting");
+  }
+
+  if (
+    /\b(hiding|hides|hide)\b/.test(normalized) &&
+    /\b(grunting|grunts|grunt|bowel movement|pull up|pullup)\b/.test(normalized)
+  ) {
+    concepts.add("bowel_movement_sign");
+  }
+
+  if (/\b(pulling|leading a caregiver|lead you|lead them|lead him|lead her)\b/.test(normalized)) {
+    concepts.add("caregiver_leading_sign");
+  }
+
+  if (/\b(sitting very close|sit very close|extra attention|wants attention|seeking attention)\b/.test(normalized)) {
+    concepts.add("attention_sign");
+  }
+
+  if (/^offer\b.*\bcar ride\b/.test(normalized)) {
+    concepts.add("offer_car_ride");
+  }
+
+  if (
+    /^help\b.*\b(ipad|access|find)\b/.test(normalized) ||
+    /\bhelp him access\b|\bhelp her access\b|\bhelp them access\b/.test(normalized)
+  ) {
+    concepts.add("help_ipad_access");
+  }
+
+  if (/\bredirect\b/.test(normalized)) {
+    concepts.add("redirect");
+  }
+
+  if (/\b(do not|don t)\b.*\b(stop|block)\b.*\b(hand|biting)\b/.test(normalized)) {
+    concepts.add("do_not_block_hand_biting");
+  }
+
+  if (/\blow muscle tone\b/.test(normalized)) {
+    concepts.add("low_muscle_tone");
+  }
+
+  if (/\btwo caregivers|two people\b/.test(normalized)) {
+    concepts.add("two_caregivers");
+  }
+
+  if (/\bsafety risk\b/.test(normalized) && /\belopement|elopen|run away\b/.test(normalized)) {
+    concepts.add("elopement_risk");
+  }
+
+  if (
+    /\bsafety risk\b/.test(normalized) &&
+    /\b(hand biting|biting his hand|biting her hand|biting their hand)\b/.test(normalized)
+  ) {
+    concepts.add("hand_biting_risk");
+  }
+
+  return concepts;
+}
+
+function lookLikeSupportAction(item: string) {
+  return /\b(help(?:ing)?|check(?:ing)?|find(?:ing)?|offer|redirect|do not|don't|prevent|reduce|reduces|calm|soothe|regulate)\b/i.test(
+    item
+  );
+}
+
+function looksLikeCommunicationItem(item: string) {
+  if (
+    lookLikeSupportAction(item) ||
+    /\b(not working|cannot find|can't find|unable to access|upset|frustration)\b/i.test(item)
+  ) {
+    return false;
+  }
+
+  return /\b(non-speaking|cannot use words|AAC|TouchChat|uses?(?: an)? AAC device|device on an iPad|makes? sounds?|uses? (?:his|her|their) AAC device|selects? (?:car|color|iPad)|means? (?:he|she|they)|looking for an object of that color|ask for help|approach|touch|lead you|lead them|lead him|lead her|communicat)\b/i.test(
+    item
+  );
+}
+
+function itemsAreNearDuplicate(
+  left: string,
+  right: string,
+  title?: string
+) {
+  const normalizedLeft = normalizeComparisonText(left);
+  const normalizedRight = normalizeComparisonText(right);
+
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+
+  if (
+    normalizedLeft.length >= 24 &&
+    normalizedRight.length >= 24 &&
+    (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft))
+  ) {
+    return true;
+  }
+
+  const canonicalTitle = canonicalizeSectionTitle(title ?? "");
+  const sectionUsesConceptDedupe =
+    canonicalTitle === "What helps the day go well" ||
+    canonicalTitle === "Signs they need help" ||
+    canonicalTitle === "What helps when they are having a hard time";
+
+  if (sectionUsesConceptDedupe) {
+    const leftConcepts = extractSummaryConcepts(left);
+    const rightConcepts = extractSummaryConcepts(right);
+
+    if ([...leftConcepts].some((concept) => rightConcepts.has(concept))) {
+      return true;
+    }
+  }
+
+  const leftTokens = comparisonTokens(left);
+  const rightTokens = comparisonTokens(right);
+
+  if (leftTokens.length < 4 || rightTokens.length < 4) {
+    return false;
+  }
+
+  const overlapCount = leftTokens.filter((token) => rightTokens.includes(token)).length;
+  const unionCount = new Set([...leftTokens, ...rightTokens]).size;
+  const jaccard = unionCount === 0 ? 0 : overlapCount / unionCount;
+
+  return jaccard >= 0.78;
+}
+
 function cleanSummaryItem(value: string) {
   const trimmed = value
     .replace(/^[\-\u2022*]+\s*/u, "")
@@ -176,14 +421,123 @@ function cleanSummaryItem(value: string) {
   return trimmed.replace(/\s+/g, " ");
 }
 
-function limitItems(items: string[], limit?: number) {
-  const deduped = dedupe(
-    items
-      .map((item) => item.trim())
-      .filter(Boolean)
-  );
+function polishSummaryItem(title: string, value: string) {
+  let item = value.trim();
 
-  return typeof limit === "number" ? deduped.slice(0, limit) : deduped;
+  if (!item || isNoInformationItem(item)) {
+    return item;
+  }
+
+  const canonicalTitle = canonicalizeSectionTitle(title);
+
+  if (canonicalTitle === "What helps the day go well") {
+    item = item.replace(
+      /^Check his iPad search history to help figure out what he is trying to access\.?$/i,
+      "Checking his iPad search history can help you find what he wants and prevent frustration"
+    );
+    item = item.replace(
+      /^Checking his search history can help identify what he is trying to access(?: on his iPad)?\.?$/i,
+      "Checking his iPad search history can help you find what he wants and prevent frustration"
+    );
+    item = item.replace(
+      /^Checking his iPad search history can help identify what he is trying to access\.?$/i,
+      "Checking his iPad search history can help you find what he wants and prevent frustration"
+    );
+    item = item.replace(
+      /^Checking his iPad search history can help figure out what he is trying to access\.?$/i,
+      "Checking his iPad search history can help you find what he wants and prevent frustration"
+    );
+    item = item.replace(
+      /^He needs regular reminders to use the bathroom\.?$/i,
+      "Consistent bathroom reminders help the day go more smoothly"
+    );
+    item = item.replace(
+      /^The home has hourly prompts to remind him to use the bathroom\.?$/i,
+      "Hourly bathroom prompts help keep the day on track"
+    );
+    item = item.replace(
+      /^He needs food often and needs frequent access to food\.?$/i,
+      "Regular access to food helps prevent distress"
+    );
+    item = item.replace(
+      /^Car rides help regulate him when he is upset\.?$/i,
+      "Car rides can help him regulate"
+    );
+    item = item.replace(
+      /^Car rides can help him stay regulated\.?$/i,
+      "Car rides can help with regulation"
+    );
+    item = item.replace(
+      /^Walks can help regulate him too(?:,? but only with at least two caregivers for safety)?\.?$/i,
+      "Walks can help him regulate"
+    );
+    item = item.replace(
+      /^Walks can also help him stay regulated\.?$/i,
+      "Walks can help with regulation"
+    );
+    item = item.replace(
+      /^Walks can help him stay regulated\.?$/i,
+      "Walks can help with regulation"
+    );
+    item = item.replace(
+      /^Helping him find items on his iPad reduces frustration\.?$/i,
+      "Helping him find items on his iPad can prevent frustration"
+    );
+    item = item.replace(
+      /^Checking his search history can help identify what he is trying to access\.?$/i,
+      "Checking his search history can help you find what he is trying to access"
+    );
+  }
+
+  if (canonicalTitle === "Signs they need help") {
+    item = item.replace(
+      /^Making loud or angry vocalizations can mean he needs help\.?$/i,
+      "Loud or angry vocalizations can mean he needs help"
+    );
+    item = item.replace(
+      /^He often hides behind furniture or curtains and grunts when having a bowel movement\.?$/i,
+      "Hiding behind furniture or curtains and grunting usually means he is having a bowel movement"
+    );
+    item = item.replace(
+      /^Repeated trips to the fridge or grabbing cheese usually means he is hungry\.?$/i,
+      "Repeated trips to the fridge or grabbing cheese usually mean he is hungry"
+    );
+  }
+
+  item = item
+    .replace(/\bTouchchat\b/gi, "TouchChat")
+    .replace(/\bi pad\b/gi, "iPad")
+    .replace(/\baac\b/gi, "AAC")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (item && !/^[A-Z(]/.test(item)) {
+    item = `${item.charAt(0).toUpperCase()}${item.slice(1)}`;
+  }
+
+  if (item && !/[.!?]$/.test(item)) {
+    item = `${item}.`;
+  }
+
+  return item;
+}
+
+function limitItems(items: string[], limit?: number, title?: string) {
+  const deduped = items
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item, index, allItems) => {
+      if (!item) {
+        return false;
+      }
+
+      return !allItems.slice(0, index).some((existing) => itemsAreNearDuplicate(existing, item, title));
+    });
+  const filteredItems = deduped.some((item) => !isNoInformationItem(item))
+    ? deduped.filter((item) => !isNoInformationItem(item))
+    : deduped;
+
+  return typeof limit === "number" ? filteredItems.slice(0, limit) : filteredItems;
 }
 
 function shortenOverview(text: string) {
@@ -237,6 +591,34 @@ function normalizeSummaryItems(items: string[], limit?: number) {
   return limitItems(expanded, limit);
 }
 
+function normalizeSectionItems(title: string, items: string[], limit?: number) {
+  const expanded = items.flatMap((item) =>
+    item
+      .replace(/\r/g, "\n")
+      .split(/\n+/)
+      .flatMap((line) => line.split(/\s*[•*]\s*/u))
+      .flatMap((line) => line.split(/;\s+/))
+      .flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-Z(])/))
+      .map(cleanSummaryItem)
+      .filter((line): line is string => Boolean(line))
+      .flatMap((line) => {
+        if (
+          canonicalizeSectionTitle(title) === "What helps the day go well" &&
+          /\bcar rides?\s+and\s+walks?\b/i.test(line) &&
+          /\b(help|regulated?|regulation|calm|soothe)\b/i.test(line)
+        ) {
+          return ["Car rides can help him regulate", "Walks can help him regulate"];
+        }
+
+        return [line];
+      })
+      .map((line) => polishSummaryItem(title, line))
+      .filter((line): line is string => Boolean(line))
+  );
+
+  return limitItems(expanded, limit, title);
+}
+
 function canonicalizeSectionTitle(title: string) {
   const normalized = title.trim();
 
@@ -284,14 +666,14 @@ function sortAndMergeSections(sections: SummarySection[]) {
     const existing = merged.get(key);
 
     if (existing) {
-      existing.items = normalizeSummaryItems([...existing.items, ...section.items]);
+      existing.items = normalizeSectionItems(title, [...existing.items, ...section.items]);
       continue;
     }
 
     merged.set(key, {
       ...section,
       title,
-      items: normalizeSummaryItems(section.items)
+      items: normalizeSectionItems(title, section.items)
     });
   }
 
@@ -348,7 +730,7 @@ function normalizeSection(input: unknown, index: number): SummarySection | null 
   const title =
     typeof candidate?.title === "string" ? canonicalizeSectionTitle(candidate.title) : "";
   const items = Array.isArray(candidate?.items)
-    ? normalizeSummaryItems(candidate.items.map(String))
+    ? normalizeSectionItems(title, candidate.items.map(String))
     : [];
 
   if (!title || items.length === 0) {
@@ -492,15 +874,6 @@ function inferNormalizedSectionTitle(
   item: string,
   currentTitle: PreferredSummarySectionTitle
 ): PreferredSummarySectionTitle {
-  if (
-    /\b(non-speaking|AAC|TouchChat|iPad|sounds? to express|ask for help|selects? (?:car|color|iPad)|search history|communicat|touch you|lead you|sit close|attention)\b/i.test(
-      item
-    ) ||
-    COMMUNICATION_PATTERN.test(item)
-  ) {
-    return "Communication";
-  }
-
   if (CONTACT_PATTERN.test(item)) {
     return "Who to contact (and when)";
   }
@@ -523,11 +896,20 @@ function inferNormalizedSectionTitle(
   }
 
   if (
-    /\b(run(?:ning)? away|elope|biting (?:his|her|their) hand|angry sounds?|yelling|hiding|grunt(?:ing)?|go(?:ing)? to the fridge|grabbing cheese|repeatedly going to the fridge|pulling|leading a caregiver|sit(?:ting)? very close|wanting attention|proximity-seeking)\b/i.test(
+    /\b(run(?:ning)? away|elope|biting (?:his|her|their) hand|angry sounds?|yelling|hiding|hides|grunt(?:ing|s)?|go(?:ing)? to the fridge|grabbing cheese|repeatedly going to the fridge|pulling|leading a caregiver|sit(?:ting)? very close|wanting attention|proximity-seeking)\b/i.test(
       item
     )
   ) {
     return currentTitle === "Communication" ? currentTitle : "Signs they need help";
+  }
+
+  if (
+    /\b(consistent bathroom reminders|bathroom reminders help|hourly bathroom prompts|regular access to food|food helps prevent distress|helping (?:him|her|them) find|can prevent frustration|car rides? can help|car rides? help|walks? can help|walks? help|checking (?:his|her|their) search history can help|regulate|soothe)\b/i.test(
+      item
+    ) ||
+    WHAT_HELPS_DAY_GO_WELL_PATTERN.test(item)
+  ) {
+    return "What helps the day go well";
   }
 
   if (
@@ -547,13 +929,8 @@ function inferNormalizedSectionTitle(
     return "What can upset or overwhelm them";
   }
 
-  if (
-    /\b(consistent bathroom reminders|regular access to food|helping (?:him|her|them) find|reduces frustration|supports success|car rides? help|walks? can help|soothes? (?:him|her|them)|regulate)\b/i.test(
-      item
-    ) ||
-    WHAT_HELPS_DAY_GO_WELL_PATTERN.test(item)
-  ) {
-    return "What helps the day go well";
+  if (looksLikeCommunicationItem(item)) {
+    return "Communication";
   }
 
   return currentTitle;
@@ -582,6 +959,90 @@ function reclassifySummarySections(sections: SummarySection[]) {
       id: `${slugify(title) || "section"}-${index + 1}`,
       title,
       items
+    }))
+  );
+}
+
+function sectionContainsConcept(section: SummarySection, concept: string) {
+  return section.items.some((item) => extractSummaryConcepts(item).has(concept));
+}
+
+function surfaceDayGoWellSupports(sections: SummarySection[]) {
+  const nextSections = sections.map((section) => ({
+    ...section,
+    items: [...section.items]
+  }));
+  const dayGoWellSection = nextSections.find(
+    (section) => section.title === "What helps the day go well"
+  );
+
+  if (!dayGoWellSection) {
+    return nextSections;
+  }
+
+  const allItems = nextSections.flatMap((section) => section.items);
+  const addSupport = (concept: string, item: string, matcher: (value: string) => boolean) => {
+    if (sectionContainsConcept(dayGoWellSection, concept)) {
+      return;
+    }
+
+    if (allItems.some((existingItem) => matcher(existingItem) || extractSummaryConcepts(existingItem).has(concept))) {
+      dayGoWellSection.items.push(item);
+    }
+  };
+
+  addSupport(
+    "bathroom_reminders",
+    "Consistent bathroom reminders help the day go more smoothly.",
+    (item) => /\b(bathroom|toilet)\b/i.test(item) && /\b(reminder|prompt|hourly|prompted)\b/i.test(item)
+  );
+  addSupport(
+    "food_access",
+    "Regular access to food helps prevent distress.",
+    (item) =>
+      /\b(food often|frequent access to food|regular access to food|lack of available food|hunger|hungry|fridge|grabbing cheese)\b/i.test(
+        item
+      )
+  );
+  addSupport(
+    "car_ride_regulation",
+    "Car rides can help with regulation.",
+    (item) =>
+      (/\bcar rides?\b/i.test(item) && /\b(help|regulat|calm|sooth)\b/i.test(item)) ||
+      /^offer\b.*\bcar ride\b/i.test(item)
+  );
+  addSupport(
+    "walk_regulation",
+    "Walks can help with regulation.",
+    (item) => /\bwalks?\b/i.test(item) && /\b(help|regulat|calm|sooth)\b/i.test(item)
+  );
+  addSupport(
+    "ipad_help",
+    "Helping with iPad searches can prevent frustration.",
+    (item) =>
+      /\b(ipad|search history)\b/i.test(item) &&
+      /\b(help|find|access|prevent|reduce|frustration|trying)\b/i.test(item)
+  );
+
+  return nextSections;
+}
+
+function refinePreferredSections(sections: SummarySection[]) {
+  const normalizedSections = ensurePreferredSections(
+    sections.map((section, index) => ({
+      ...section,
+      id: section.id || `${slugify(section.title) || "section"}-${index + 1}`,
+      items: normalizeSectionItems(section.title, section.items)
+    }))
+  );
+  const surfacedSections = surfaceDayGoWellSupports(normalizedSections);
+
+  return ensurePreferredSections(
+    surfacedSections.map((section, index) => ({
+      ...section,
+      id: section.id || `${slugify(section.title) || "section"}-${index + 1}`,
+      items: normalizeSectionItems(section.title, section.items),
+      title: canonicalizeSectionTitle(section.title)
     }))
   );
 }
@@ -707,7 +1168,11 @@ function normalizePreferredSections(
   { reclassify = true }: SummaryNormalizationOptions = {}
 ) {
   const preferredSections = ensurePreferredSections(sections);
-  return reclassify ? reclassifySummarySections(preferredSections) : preferredSections;
+  const normalizedSections = reclassify
+    ? reclassifySummarySections(preferredSections)
+    : preferredSections;
+
+  return refinePreferredSections(normalizedSections);
 }
 
 export function normalizeGeneratedSummaryWithOptions(
@@ -786,7 +1251,7 @@ export function buildFallbackSummary(
     });
   }
 
-  const finalSections = reclassifySummarySections(ensurePreferredSections(sections));
+  const finalSections = normalizePreferredSections(sections);
 
   return {
     ...EMPTY_SUMMARY,

@@ -19,6 +19,8 @@ type BenchmarkFixture = {
     sectionChecks?: Partial<Record<(typeof PREFERRED_SUMMARY_SECTION_ORDER)[number], PhraseCheck[]>>;
     bannedPhrases?: string[];
     maxDuplicateItems?: number;
+    sectionBannedPhrases?: Partial<Record<(typeof PREFERRED_SUMMARY_SECTION_ORDER)[number], string[]>>;
+    maxDuplicateItemsBySection?: Partial<Record<(typeof PREFERRED_SUMMARY_SECTION_ORDER)[number], number>>;
   };
 };
 
@@ -101,6 +103,27 @@ function duplicateItemCount(summary: StructuredSummary) {
   return duplicates;
 }
 
+function duplicateCountForItems(items: string[]) {
+  const seen: string[] = [];
+  let duplicates = 0;
+
+  for (const item of items) {
+    const normalizedItem = normalizeText(item);
+    if (!normalizedItem || normalizedItem === normalizeText("(No information provided)")) {
+      continue;
+    }
+
+    if (seen.some((existing) => itemsAreNearDuplicate(item, existing))) {
+      duplicates += 1;
+      continue;
+    }
+
+    seen.push(item);
+  }
+
+  return duplicates;
+}
+
 function evaluateSummary(
   summary: StructuredSummary,
   fixture: BenchmarkFixture,
@@ -155,6 +178,20 @@ function evaluateSummary(
     }
   }
 
+  for (const title of PREFERRED_SUMMARY_SECTION_ORDER) {
+    const section = summary.sections.find((entry) => entry.title === title);
+    const text = section?.items.join(" \n ") ?? "";
+
+    for (const phrase of fixture.expectations.sectionBannedPhrases?.[title] ?? []) {
+      totalChecks += 1;
+      if (!containsAny(text, [phrase])) {
+        passedChecks += 1;
+      } else {
+        failures.push(`${title}: contains banned phrase ${phrase}`);
+      }
+    }
+  }
+
   const duplicates = duplicateItemCount(summary);
   if (typeof fixture.expectations.maxDuplicateItems === "number") {
     totalChecks += 1;
@@ -164,6 +201,23 @@ function evaluateSummary(
       failures.push(
         `Duplicate items: ${duplicates} exceeds max ${fixture.expectations.maxDuplicateItems}`
       );
+    }
+  }
+
+  for (const title of PREFERRED_SUMMARY_SECTION_ORDER) {
+    const maxDuplicates = fixture.expectations.maxDuplicateItemsBySection?.[title];
+    if (typeof maxDuplicates !== "number") {
+      continue;
+    }
+
+    totalChecks += 1;
+    const section = summary.sections.find((entry) => entry.title === title);
+    const duplicateCount = duplicateCountForItems(section?.items ?? []);
+
+    if (duplicateCount <= maxDuplicates) {
+      passedChecks += 1;
+    } else {
+      failures.push(`${title}: duplicate items ${duplicateCount} exceeds max ${maxDuplicates}`);
     }
   }
 

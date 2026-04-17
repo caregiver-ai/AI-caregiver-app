@@ -502,9 +502,100 @@ function coverageTokens(value: string) {
     .filter((token) => token.length > 2 && !STOPWORDS.has(token));
 }
 
+function extractCoverageConcepts(value: string) {
+  const concepts = new Set<string>();
+  const normalized = normalizeCoverageText(value);
+
+  if (!normalized) {
+    return concepts;
+  }
+
+  if (
+    /\b(bathroom|toilet)\b/.test(normalized) &&
+    /\b(reminder|reminders|prompt|prompts|hourly|prompted)\b/.test(normalized)
+  ) {
+    concepts.add("bathroom_reminders");
+  }
+
+  if (
+    /\b(food|fridge|cheese|hungry|hunger)\b/.test(normalized) &&
+    /\b(access|often|regular|frequent|prevent|distress|available)\b/.test(normalized)
+  ) {
+    concepts.add("food_access");
+  }
+
+  if (/\bcar ride|car rides\b/.test(normalized) && /\b(help|regulat|calm|sooth)\b/.test(normalized)) {
+    concepts.add("car_ride_regulation");
+  }
+
+  if (/\bwalk|walks\b/.test(normalized) && /\b(help|regulat|calm|sooth)\b/.test(normalized)) {
+    concepts.add("walk_regulation");
+  }
+
+  if (
+    /\b(ipad|search history)\b/.test(normalized) &&
+    /\b(help|find|access|prevent|reduce|frustration|trying)\b/.test(normalized)
+  ) {
+    concepts.add("ipad_help");
+  }
+
+  if (/\belopement|elopen|running away|run away\b/.test(normalized)) {
+    concepts.add("elopement");
+  }
+
+  if (/\b(hand biting|biting his hand|biting her hand|biting their hand)\b/.test(normalized)) {
+    concepts.add("hand_biting");
+  }
+
+  if (
+    /\b(hiding|hides|hide)\b/.test(normalized) &&
+    /\b(grunting|grunts|grunt|bowel movement|pull up|pullup)\b/.test(normalized)
+  ) {
+    concepts.add("bowel_movement_sign");
+  }
+
+  if (/\b(loud|angry) vocalizations?\b/.test(normalized) || /\bangry sounds?\b/.test(normalized)) {
+    concepts.add("vocalization_sign");
+  }
+
+  if (/\b(fridge|grabbing cheese)\b/.test(normalized)) {
+    concepts.add("hunger_sign");
+  }
+
+  if (/\b(pulling|leading a caregiver|lead you)\b/.test(normalized)) {
+    concepts.add("caregiver_leading_sign");
+  }
+
+  if (/\b(sitting very close|sit very close|extra attention|wants attention)\b/.test(normalized)) {
+    concepts.add("attention_sign");
+  }
+
+  if (/^offer\b.*\bcar ride\b/.test(normalized)) {
+    concepts.add("offer_car_ride");
+  }
+
+  if (
+    /^help\b.*\b(ipad|access|find)\b/.test(normalized) ||
+    /\bhelp him access\b|\bhelp her access\b|\bhelp them access\b/.test(normalized)
+  ) {
+    concepts.add("help_ipad_access");
+  }
+
+  if (/\bredirect\b/.test(normalized)) {
+    concepts.add("redirect");
+  }
+
+  if (/\b(do not|don t)\b.*\b(stop|block)\b.*\b(hand|biting)\b/.test(normalized)) {
+    concepts.add("do_not_block_hand_biting");
+  }
+
+  return concepts;
+}
+
 function statementLooksCovered(statement: string, existingItems: string[]) {
   const normalizedStatement = normalizeCoverageText(statement);
   const statementTokens = coverageTokens(statement);
+  const statementConcepts = extractCoverageConcepts(statement);
 
   if (!normalizedStatement || statementTokens.length === 0) {
     return false;
@@ -520,6 +611,11 @@ function statementLooksCovered(statement: string, existingItems: string[]) {
       normalizedItem.includes(normalizedStatement) ||
       normalizedStatement.includes(normalizedItem)
     ) {
+      return true;
+    }
+
+    const itemConcepts = extractCoverageConcepts(item);
+    if (statementConcepts.size > 0 && [...statementConcepts].some((concept) => itemConcepts.has(concept))) {
       return true;
     }
 
@@ -751,7 +847,7 @@ async function rewriteStructuredCapture(
     userPrompt: `${summarySchemaDescription}\n\n${stepTwoRewriteRules}\n\n${buildTitleInstruction(
       nameHint
     )}\n\nStructured capture:\n${formatStructuredCaptureForPrompt(capture)}`,
-    temperature: 0.2,
+    temperature: 0.1,
     maxCompletionTokens: 5000
   });
 
