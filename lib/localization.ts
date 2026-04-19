@@ -178,6 +178,8 @@ type CompletionCopy = {
   regenerateHint: string;
   overviewLabel: string;
   downloadPdfButton: string;
+  preparingPdfButton: string;
+  downloadPdfFailed: string;
   emailPdfTitle: string;
   emailPdfSubtitle: string;
   recipientEmailLabel: string;
@@ -693,12 +695,14 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     emptyMessage: "No saved summary is available yet.",
     title: "Summary saved",
     subtitle:
-      "This view shows the final edited summary, allows a browser PDF export, and collects lightweight feedback.",
+      "This view shows the final edited summary, allows a PDF download, and collects lightweight feedback.",
     generatedAtLabel: "Summary created",
     backToQuestionsButton: "Back to questions",
     regenerateHint: "If you remember more details later, go back to the questions, add them, and complete again to regenerate the summary.",
     overviewLabel: "Overview",
     downloadPdfButton: "Download as PDF",
+    preparingPdfButton: "Preparing PDF...",
+    downloadPdfFailed: "Unable to download the PDF right now.",
     emailPdfTitle: "Send PDF by email",
     emailPdfSubtitle: "We’ll attach this summary as a PDF. You can keep your email here or type another one.",
     recipientEmailLabel: "Recipient email",
@@ -720,13 +724,15 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     emptyMessage: "Todavía no hay un resumen guardado.",
     title: "Resumen guardado",
     subtitle:
-      "Aquí verá el resumen final editado, podrá exportarlo como PDF desde el navegador y dejar comentarios breves.",
+      "Aquí verá el resumen final editado, podrá descargarlo como PDF y dejar comentarios breves.",
     generatedAtLabel: "Resumen creado",
     backToQuestionsButton: "Volver a las preguntas",
     regenerateHint:
       "Si luego recuerda más detalles, vuelva a las preguntas, agréguelos y complete de nuevo para regenerar el resumen.",
     overviewLabel: "Resumen general",
     downloadPdfButton: "Descargar como PDF",
+    preparingPdfButton: "Preparando PDF...",
+    downloadPdfFailed: "No fue posible descargar el PDF en este momento.",
     emailPdfTitle: "Enviar PDF por correo",
     emailPdfSubtitle:
       "Adjuntaremos este resumen como PDF. Puede dejar su correo o escribir otro.",
@@ -748,12 +754,14 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     emptySubtitle: "确认后，已保存的摘要会显示在这里。",
     emptyMessage: "目前还没有已保存的摘要。",
     title: "摘要已保存",
-    subtitle: "这里会显示最终编辑后的摘要，您也可以导出 PDF，并留下简短反馈。",
+    subtitle: "这里会显示最终编辑后的摘要，您也可以下载 PDF，并留下简短反馈。",
     generatedAtLabel: "摘要创建时间",
     backToQuestionsButton: "返回问题页",
     regenerateHint: "如果之后想起更多细节，可以返回问题页补充内容，然后再次完成以重新生成摘要。",
     overviewLabel: "概览",
     downloadPdfButton: "下载 PDF",
+    preparingPdfButton: "正在准备 PDF...",
+    downloadPdfFailed: "暂时无法下载 PDF。",
     emailPdfTitle: "通过邮件发送 PDF",
     emailPdfSubtitle: "我们会把这份摘要作为 PDF 附件发送。您可以保留当前邮箱，或改填其他邮箱。",
     recipientEmailLabel: "收件邮箱",

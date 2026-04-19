@@ -47,6 +47,8 @@ export function CompletionView() {
   const [emailSending, setEmailSending] = useState(false);
   const [emailStatus, setEmailStatus] = useState("");
   const [emailStatusTone, setEmailStatusTone] = useState<"success" | "error">("success");
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [pdfStatus, setPdfStatus] = useState("");
   const [returningToQuestions, setReturningToQuestions] = useState(false);
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
   const copy = useMemo(() => getCompletionCopy(uiLanguage), [uiLanguage]);
@@ -181,6 +183,35 @@ export function CompletionView() {
     }
   }
 
+  async function handlePdfDownload() {
+    if (!summary || pdfDownloading) {
+      return;
+    }
+
+    setPdfDownloading(true);
+    setPdfStatus("");
+
+    try {
+      const { createSummaryPdf, sanitizePdfFilename } = await import("@/lib/summary-pdf");
+      const pdfBytes = await createSummaryPdf(summary);
+      const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength);
+      new Uint8Array(pdfBuffer).set(pdfBytes);
+      const blob = new Blob([pdfBuffer], { type: "application/pdf" });
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `${sanitizePdfFilename(summary.title)}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(objectUrl);
+    } catch {
+      setPdfStatus(copy.downloadPdfFailed);
+    } finally {
+      setPdfDownloading(false);
+    }
+  }
+
   async function handleBackToQuestions() {
     setReturningToQuestions(true);
 
@@ -243,11 +274,13 @@ export function CompletionView() {
 
         <button
           className="print-hidden w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white"
+          disabled={pdfDownloading}
           type="button"
-          onClick={() => window.print()}
+          onClick={handlePdfDownload}
         >
-          {copy.downloadPdfButton}
+          {pdfDownloading ? copy.preparingPdfButton : copy.downloadPdfButton}
         </button>
+        {pdfStatus ? <StatusBanner tone="error">{pdfStatus}</StatusBanner> : null}
 
         <div className="space-y-3 rounded-3xl border border-border bg-canvas px-5 py-5">
           <div className="space-y-1">

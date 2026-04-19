@@ -620,8 +620,24 @@ function polishSummaryItem(title: string, value: string) {
 
   if (canonicalTitle === "Communication") {
     item = item.replace(
+      /^He uses an AAC device on an iPad with TouchChat\.?$/i,
+      "He uses an AAC device on an iPad with TouchChat to communicate"
+    );
+    item = item.replace(
+      /^He is non-speaking as part of his disability\.?$/i,
+      "He is non-speaking and does not use words"
+    );
+    item = item.replace(
       /^His AAC device helps him communicate what he needs\.?$/i,
       "He uses an AAC device on an iPad with TouchChat to communicate"
+    );
+    item = item.replace(
+      /^He may touch you, lead you to what he wants or needs help with, or sit very close when he wants attention\.?$/i,
+      "He may touch you, lead you, or sit very close to show he wants something or needs help"
+    );
+    item = item.replace(
+      /^He may touch you, lead you to show what he needs, or sit very close when he wants attention\.?$/i,
+      "He may touch you, lead you, or sit very close to show he wants something or needs help"
     );
     item = item.replace(
       /^He makes sounds to express himself\.?$/i,
@@ -727,6 +743,10 @@ function polishSummaryItem(title: string, value: string) {
       "Treating his AAC choices as meaningful helps the day go more smoothly"
     );
     item = item.replace(
+      /^Treat his AAC communication as meaningful and respond to what he is telling you\.?$/i,
+      "Treating his AAC choices as meaningful helps the day go more smoothly"
+    );
+    item = item.replace(
       /^Follow where he leads you because this often shows what he wants or needs\.?$/i,
       "Following where he leads you can help you understand what he wants or needs"
     );
@@ -783,6 +803,10 @@ function polishSummaryItem(title: string, value: string) {
       "Car rides can help with regulation"
     );
     item = item.replace(
+      /^Car rides seem especially soothing for him\.?$/i,
+      "Car rides can help with regulation"
+    );
+    item = item.replace(
       /^Going for a car ride helps soothe him\.?$/i,
       "Car rides can help with regulation"
     );
@@ -792,6 +816,10 @@ function polishSummaryItem(title: string, value: string) {
     );
     item = item.replace(
       /^Walks can also soothe him if there are enough people for safety\.?$/i,
+      "Walks can help with regulation"
+    );
+    item = item.replace(
+      /^Walks can help too\.?$/i,
       "Walks can help with regulation"
     );
     item = item.replace(
@@ -845,8 +873,16 @@ function polishSummaryItem(title: string, value: string) {
       "Loud or angry vocalizations can mean he needs help"
     );
     item = item.replace(
+      /^When upset, he may make angry or yelling sounds\.?$/i,
+      "Loud or angry vocalizations can mean he needs help"
+    );
+    item = item.replace(
       /^He often hides behind furniture or curtains and grunts when having a bowel movement\.?$/i,
       "Hiding behind furniture or curtains and grunting usually means he is having a bowel movement"
+    );
+    item = item.replace(
+      /^He may hide behind furniture or a curtain, or grunt, when he needs to have a bowel movement\.?$/i,
+      "Hiding behind furniture or a curtain and grunting usually means he is having a bowel movement"
     );
     item = item.replace(
       /^Grunting can mean he is having a bowel movement\.?$/i,
@@ -865,6 +901,14 @@ function polishSummaryItem(title: string, value: string) {
       "Running away or eloping is a sign he needs help"
     );
     item = item.replace(
+      /^When upset, he may run away or elope\.?$/i,
+      "Running away or eloping is a sign he needs help"
+    );
+    item = item.replace(
+      /^When very dysregulated, he may bite his hand\.?$/i,
+      "Biting his hand when very dysregulated is a sign he needs help"
+    );
+    item = item.replace(
       /^When hungry, he may go to the fridge repeatedly or grab cheese\.?$/i,
       "Repeated trips to the fridge or grabbing cheese usually mean he is hungry"
     );
@@ -879,6 +923,18 @@ function polishSummaryItem(title: string, value: string) {
   }
 
   if (canonicalTitle === "What helps when they are having a hard time") {
+    item = item.replace(
+      /^Follow what he leads you to and first check whether he needs help with something specific\.?$/i,
+      "Follow where he leads you to see what he wants or needs help with"
+    );
+    item = item.replace(
+      /^Check whether he needs something opened, whether the iPad or internet is not working, or whether he is trying to find a specific item, toy, or video\.?$/i,
+      "Check whether he needs help opening something"
+    );
+    item = item.replace(
+      /^Offer a car ride, and consider a walk if enough people are available for safety\.?$/i,
+      "Offer a car ride to help him calm down"
+    );
     item = item.replace(
       /^First check whether the iPad is not working\.?$/i,
       "Help him find what he wants on the iPad"
@@ -908,7 +964,15 @@ function polishSummaryItem(title: string, value: string) {
       "Help him find what he wants on the iPad"
     );
     item = item.replace(
+      /^Check whether the iPad or internet is not working\.?$/i,
+      "Help him find what he wants on the iPad"
+    );
+    item = item.replace(
       /^First check whether he is trying to find a specific item(?: or toy|, toy, or video|,? toy,? or video)?\.?$/i,
+      "Check whether he is trying to find a specific item, toy, or video"
+    );
+    item = item.replace(
+      /^Whether he is trying to find a specific item, toy, or video\.?$/i,
       "Check whether he is trying to find a specific item, toy, or video"
     );
     item = item.replace(
@@ -968,6 +1032,10 @@ function polishSummaryItem(title: string, value: string) {
     );
     item = item.replace(
       /^Walks should only be done with at least two people(?: present)? for safety\.?$/i,
+      "Outings such as walks or car rides require at least two caregivers for safety"
+    );
+    item = item.replace(
+      /^Walks should only happen with at least two people for safety\.?$/i,
       "Outings such as walks or car rides require at least two caregivers for safety"
     );
     item = item.replace(
@@ -1079,6 +1147,31 @@ function normalizeSectionItems(title: string, items: string[], limit?: number) {
       .filter((line): line is string => Boolean(line))
       .flatMap((line) => {
         if (
+          canonicalizeSectionTitle(title) === "What helps when they are having a hard time" &&
+          /^Check whether he needs something opened, whether the iPad or internet is not working, or whether he is trying to find a specific item, toy, or video\.?$/i.test(
+            line
+          )
+        ) {
+          return [
+            "Check whether he needs help opening something",
+            "Help him find what he wants on the iPad",
+            "Check whether he is trying to find a specific item, toy, or video"
+          ];
+        }
+
+        if (
+          canonicalizeSectionTitle(title) === "What helps when they are having a hard time" &&
+          /^Offer a car ride, and consider a walk if enough people are available for safety\.?$/i.test(
+            line
+          )
+        ) {
+          return [
+            "Offer a car ride to help him calm down",
+            "A walk may help too if at least two people are available for safety"
+          ];
+        }
+
+        if (
           canonicalizeSectionTitle(title) === "What helps the day go well" &&
           /\b(?:car rides?\s+and\s+walks?|walks?\s+and\s+car rides?)\b/i.test(line) &&
           /\b(help|regulated?|regulation|calm|soothe)\b/i.test(line)
@@ -1137,6 +1230,36 @@ function refineSectionItems(title: string, items: string[], limit?: number) {
           : "Give regular bathroom reminders, because he does not independently communicate toileting needs."
       );
     }
+
+    const extraReminderItems = refinedItems.filter((item) =>
+      /\bextra reminders?\b/i.test(item) &&
+      /\b(transition|doing another activity|doing something else|keep doing|preferred activity)\b/i.test(
+        item
+      )
+    );
+
+    if (extraReminderItems.length > 0) {
+      refinedItems = refinedItems.filter((item) => !extraReminderItems.includes(item));
+      refinedItems.push("He may need extra reminders when a transition interrupts a preferred activity.");
+    }
+  }
+
+  if (canonicalTitle === "Communication") {
+    const hasCombinedCueItem = refinedItems.some(
+      (item) =>
+        /\btouch\b/i.test(item) &&
+        /\blead\b/i.test(item) &&
+        /\b(sit very close|attention|needs help|wants something)\b/i.test(item)
+    );
+
+    if (hasCombinedCueItem) {
+      refinedItems = refinedItems.filter(
+        (item) =>
+          !/^He may touch you to communicate\.?$/i.test(item) &&
+          !/^Leading you usually means he wants something or needs help\.?$/i.test(item) &&
+          !/^Sitting very close usually means he wants attention\.?$/i.test(item)
+      );
+    }
   }
 
   if (canonicalTitle === "What helps the day go well") {
@@ -1166,6 +1289,34 @@ function refineSectionItems(title: string, items: string[], limit?: number) {
   }
 
   if (canonicalTitle === "What helps when they are having a hard time") {
+    const troubleshootingItems = refinedItems.filter((item) =>
+      /\b(needs help opening something|find what he wants on the ipad|specific item, toy, or video)\b/i.test(
+        item
+      )
+    );
+
+    if (troubleshootingItems.length > 0) {
+      const needsOpeningCheck = troubleshootingItems.some((item) => /\bopening something\b/i.test(item));
+      const needsIpadCheck = troubleshootingItems.some((item) => /\bfind what he wants on the ipad\b/i.test(item));
+      const needsFindItemCheck = troubleshootingItems.some(
+        (item) => /\bspecific item, toy, or video\b/i.test(item)
+      );
+
+      refinedItems = refinedItems.filter((item) => !troubleshootingItems.includes(item));
+
+      if (needsOpeningCheck) {
+        refinedItems.push("Check whether he needs help opening something.");
+      }
+
+      if (needsIpadCheck) {
+        refinedItems.push("Help him find what he wants on the iPad.");
+      }
+
+      if (needsFindItemCheck) {
+        refinedItems.push("Check whether he is trying to find a specific item, toy, or video.");
+      }
+    }
+
     const handBitingResponseItems = refinedItems.filter((item) =>
       /\b(hand biting|biting his hand|biting her hand|biting their hand|do not physically stop|do not block|may bite you|redirect)\b/i.test(
         item
@@ -1760,6 +1911,36 @@ function rehomeObviousDailyNeedsItems(sections: SummarySection[]) {
   return nextSections;
 }
 
+function rehomeHealthSafetyCommunicationItems(sections: SummarySection[]) {
+  const nextSections = sections.map((section) => ({
+    ...section,
+    items: [...section.items]
+  }));
+  const communicationSection = nextSections.find((section) => section.title === "Communication");
+  const healthSafetySection = nextSections.find((section) => section.title === "Health & Safety");
+
+  if (!communicationSection || !healthSafetySection) {
+    return nextSections;
+  }
+
+  const movedItems = healthSafetySection.items.filter(
+    (item) =>
+      looksLikeCommunicationItem(item) &&
+      !/\b(two caregivers?|two people|close supervision|supervision|safety risk|low muscle tone|bite you|hand biting|elopement|elope|run away|for safety)\b/i.test(
+        item
+      )
+  );
+
+  if (movedItems.length === 0) {
+    return nextSections;
+  }
+
+  healthSafetySection.items = healthSafetySection.items.filter((item) => !movedItems.includes(item));
+  communicationSection.items.push(...movedItems);
+
+  return nextSections;
+}
+
 function refinePreferredSections(sections: SummarySection[]) {
   const normalizedSections = ensurePreferredSections(
     sections.map((section, index) => ({
@@ -1770,7 +1951,10 @@ function refinePreferredSections(sections: SummarySection[]) {
   );
   const rehomedSections = rehomeObviousCommunicationItems(normalizedSections);
   const dailyNeedsRehomedSections = rehomeObviousDailyNeedsItems(rehomedSections);
-  const surfacedSupportSections = surfaceDayGoWellSupports(dailyNeedsRehomedSections);
+  const healthSafetyRehomedSections = rehomeHealthSafetyCommunicationItems(
+    dailyNeedsRehomedSections
+  );
+  const surfacedSupportSections = surfaceDayGoWellSupports(healthSafetyRehomedSections);
   const hardTimeSurfacedSections = surfaceHardTimeSupports(surfacedSupportSections);
   const surfacedSections = surfaceUpsetTriggers(hardTimeSurfacedSections);
 
