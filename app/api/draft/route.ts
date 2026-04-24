@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
+import { getSummaryFreshness } from "@/lib/summary-structured";
 import { SessionDraft, SessionIntakeDetails } from "@/lib/types";
 
 type SessionRow = {
@@ -255,9 +256,13 @@ export async function GET(request: Request) {
   try {
     const { publicUserId, email } = await resolvePublicUser(user);
     const session = await getLatestDraftSession(publicUserId);
+    const draft = session ? buildDraftFromSessionRow(session, email) : null;
 
     return NextResponse.json({
-      draft: session ? buildDraftFromSessionRow(session, email) : null
+      draft,
+      summaryFreshness: draft
+        ? getSummaryFreshness(draft.turns, draft.structuredSummary, draft.editedSummary)
+        : null
     });
   } catch (error) {
     return NextResponse.json(
@@ -317,6 +322,7 @@ export async function POST(request: Request) {
       structuredSummary:
         body.draft.structuredSummary ?? existingSession?.draft_json?.structuredSummary,
       editedSummary: body.draft.editedSummary ?? existingSession?.draft_json?.editedSummary,
+      summaryArchives: body.draft.summaryArchives ?? existingSession?.draft_json?.summaryArchives,
       feedback: body.draft.feedback ?? existingSession?.draft_json?.feedback
     };
 
@@ -332,7 +338,14 @@ export async function POST(request: Request) {
       throw new Error(error.message);
     }
 
-    return NextResponse.json({ draft: normalizedDraft });
+    return NextResponse.json({
+      draft: normalizedDraft,
+      summaryFreshness: getSummaryFreshness(
+        normalizedDraft.turns,
+        normalizedDraft.structuredSummary,
+        normalizedDraft.editedSummary
+      )
+    });
   } catch (error) {
     return NextResponse.json(
       {

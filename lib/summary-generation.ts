@@ -5,11 +5,19 @@ import {
   normalizeGeneratedSummaryWithOptions,
   normalizeStructuredSummaryWithOptions
 } from "./summary";
+import {
+  SUMMARY_LAYOUT_VERSION,
+  SUMMARY_PIPELINE_VERSION,
+  computeTurnsHash
+} from "./summary-structured";
 import { ConversationTurn, StructuredSummary } from "./types";
 
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_SUMMARY_MODEL = "gpt-5.4";
+const DEFAULT_OPENAI_TIMEOUT_MS = 75_000;
+const CAPTURE_ENTRY_TARGET_CHARS = 2_400;
+const CAPTURE_PROMPT_TARGET_CHARS = 7_200;
 
 const SUMMARY_SECTION_TITLES = [...PREFERRED_SUMMARY_SECTION_ORDER];
 
@@ -30,6 +38,11 @@ type StructuredCaptureFact = {
 
 type StructuredCapture = {
   facts: StructuredCaptureFact[];
+};
+
+type SummarySourceEntry = {
+  entryId: string;
+  text: string;
 };
 
 type GeneratedSummarySectionField = {
@@ -67,6 +80,10 @@ const NON_ANSWER_PATTERN =
   /^(?:use skip|skip|n\/a|na|none|unknown|not sure|not clearly stated(?: in the raw input)?|not stated|not provided|no information)$/i;
 const TRANSCRIPTION_NOISE_PATTERN =
   /^(?:um+|uh+|hmm+|mm+|eh+|ah+|ha+|heh+|eheh+|haha+|huh+|mmm+|uh-huh|mm-hmm)$/i;
+const TRANSCRIPT_ACKNOWLEDGEMENT_PATTERN =
+  /^(?:(?:um+|uh+|mm-hmm|uh-huh|yeah|yes|yep|ok(?:ay)?|right|sure|you know|well|so|i mean|basically|got it)[,\s.-]*)+$/i;
+const LEADING_FILLER_PATTERN =
+  /^(?:(?:um+|uh+|mm-hmm|uh-huh|yeah|yes|yep|ok(?:ay)?|right|sure|you know|well|so|i mean|basically|first of all)\s*[,.-]?\s*)+/i;
 const STOPWORDS = new Set([
   "a",
   "an",
@@ -392,6 +409,9 @@ Output rules:
 - Keep bathroom reminders and regular food access in What helps the day go well when they are presented as proactive supports.
 - Keep repeated trips to the fridge, grabbing cheese, hiding, grunting, angry vocalizations, elopement, and hand biting in Signs they need help.
 - Keep inability to open items, inability to access iPad content, hunger, and missing preferred items in What can upset or overwhelm them.
+- Keep bullets atomic and concise so they can be reorganized into a richer final handoff layout after rewriting.
+- Prefer short fact statements such as "Uses AAC to ask for help", "Leads you to what he needs", "Give space immediately", or "Abilify at 3pm daily" over long transcript-style sentences.
+- Keep medications, equipment, contacts, and health conditions as separate bullets so they can be split into dedicated sections later.
 - In What helps the day go well, collapse preferred activities into 1-2 concise bullets. Do not repeat the same preference in separate "likes" or "enjoys" bullets.
 - In Communication, do not repeat the same cue twice in different wording.
 - In What can upset or overwhelm them, collapse repeated transition or stop-activity triggers into one bullet.
@@ -429,8 +449,149 @@ function normalizeSummarySourceText(value: string) {
     .trim();
 }
 
+function buildSummaryEntryText(turn: ConversationTurn, entryId: string, content: string) {
+  const lines = [
+    entryId,
+    turn.sectionTitle ? `Original main category: ${compactWhitespace(turn.sectionTitle)}` : "",
+    turn.stepTitle && turn.stepTitle !== turn.sectionTitle
+      ? `Original subsection: ${compactWhitespace(turn.stepTitle)}`
+      : "",
+    turn.promptLabel ? `Question asked: ${compactWhitespace(turn.promptLabel)}` : "",
+    `Caregiver input:\n${content}`
+  ].filter(Boolean);
+
+  return lines.join("\n");
+}
+
+function splitSummaryEntryContent(content: string, maxChars: number) {
+  if (content.length <= maxChars) {
+    return [content];
+  }
+
+  const paragraphs = content
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const chunks: string[] = [];
+  let current = "";
+
+  const pushChunk = () => {
+    if (current.trim()) {
+      chunks.push(current.trim());
+      current = "";
+    }
+  };
+
+  const appendPiece = (piece: string) => {
+    if (!piece.trim()) {
+      return;
+    }
+
+    const separator = current ? "\n\n" : "";
+    if ((current + separator + piece).length <= maxChars) {
+      current = `${current}${separator}${piece}`;
+      return;
+    }
+
+    pushChunk();
+
+    if (piece.length <= maxChars) {
+      current = piece;
+      return;
+    }
+
+    const sentences = piece
+      .split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
+
+    if (sentences.length <= 1) {
+      for (let index = 0; index < piece.length; index += maxChars) {
+        chunks.push(piece.slice(index, index + maxChars).trim());
+      }
+      current = "";
+      return;
+    }
+
+    let sentenceChunk = "";
+    for (const sentence of sentences) {
+      const sentenceSeparator = sentenceChunk ? " " : "";
+      if ((sentenceChunk + sentenceSeparator + sentence).length <= maxChars) {
+        sentenceChunk = `${sentenceChunk}${sentenceSeparator}${sentence}`;
+        continue;
+      }
+
+      if (sentenceChunk) {
+        chunks.push(sentenceChunk.trim());
+      }
+      sentenceChunk = sentence;
+    }
+
+    if (sentenceChunk.trim()) {
+      current = sentenceChunk.trim();
+    }
+  };
+
+  for (const paragraph of paragraphs) {
+    appendPiece(paragraph);
+  }
+
+  pushChunk();
+
+  return chunks.filter(Boolean);
+}
+
+function buildSummaryEntries(turns: ConversationTurn[], options?: { chunkLongEntries?: boolean }) {
+  return turns
+    .filter((turn) => turn.role === "user" && !turn.skipped)
+    .flatMap((turn, index) => {
+      const entryId = `Entry ${index + 1}`;
+      const content = normalizeSummarySourceText(turn.content);
+      const parts = options?.chunkLongEntries
+        ? splitSummaryEntryContent(content, CAPTURE_ENTRY_TARGET_CHARS)
+        : [content];
+
+      return parts.map((part) => ({
+        entryId,
+        text: buildSummaryEntryText(turn, entryId, part)
+      }));
+    });
+}
+
+function buildSummaryEntryChunks(entries: SummarySourceEntry[], targetChars: number) {
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let currentLength = 0;
+
+  const flush = () => {
+    if (current.length > 0) {
+      chunks.push(current.join("\n\n"));
+      current = [];
+      currentLength = 0;
+    }
+  };
+
+  for (const entry of entries) {
+    const nextLength = currentLength + (current.length > 0 ? 2 : 0) + entry.text.length;
+    if (current.length > 0 && nextLength > targetChars) {
+      flush();
+    }
+
+    current.push(entry.text);
+    currentLength += (current.length > 1 ? 2 : 0) + entry.text.length;
+  }
+
+  flush();
+  return chunks;
+}
+
 function defaultModel() {
   return process.env.OPENAI_MODEL ?? DEFAULT_SUMMARY_MODEL;
+}
+
+function summaryRequestTimeoutMs() {
+  const raw = Number.parseInt(process.env.OPENAI_SUMMARY_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_OPENAI_TIMEOUT_MS;
 }
 
 function buildTitleInstruction(nameHint?: string) {
@@ -439,7 +600,7 @@ function buildTitleInstruction(nameHint?: string) {
     : 'The product already displays the overall heading "Caregiver Handoff". For the JSON "title" field, use "Caring for <Name>" if the name is clear and reliable in the transcript. Otherwise use "Caregiver Handoff Summary".';
 }
 
-function cleanCaptureStatement(value: string) {
+function sanitizeTranscriptFragment(value: string) {
   const trimmed = value
     .replace(/^[\-\u2022*]+\s*/u, "")
     .replace(/^["'“”]+|["'“”]+$/gu, "")
@@ -449,20 +610,36 @@ function cleanCaptureStatement(value: string) {
     return null;
   }
 
-  if (NON_ANSWER_PATTERN.test(trimmed) || QUESTION_ECHO_PATTERN.test(trimmed)) {
+  const withoutLeadingFiller = trimmed.replace(LEADING_FILLER_PATTERN, "").trim();
+  const candidate = withoutLeadingFiller || trimmed;
+
+  if (
+    !candidate ||
+    TRANSCRIPT_ACKNOWLEDGEMENT_PATTERN.test(candidate) ||
+    TRANSCRIPTION_NOISE_PATTERN.test(candidate)
+  ) {
     return null;
   }
 
-  if (TRANSCRIPTION_NOISE_PATTERN.test(trimmed)) {
-    return null;
-  }
-
-  const alphanumericCount = (trimmed.match(/[A-Za-z0-9]/g) ?? []).length;
+  const alphanumericCount = (candidate.match(/[A-Za-z0-9]/g) ?? []).length;
   if (alphanumericCount < 3) {
     return null;
   }
 
-  return trimmed.replace(/\s+/g, " ");
+  return candidate.replace(/\s+/g, " ");
+}
+
+function cleanCaptureStatement(value: string) {
+  const trimmed = sanitizeTranscriptFragment(value);
+  if (!trimmed) {
+    return null;
+  }
+
+  if (NON_ANSWER_PATTERN.test(trimmed) || QUESTION_ECHO_PATTERN.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
 }
 
 function normalizeCapture(input: unknown) {
@@ -491,6 +668,32 @@ function normalizeCapture(input: unknown) {
       })
       .filter((fact): fact is StructuredCaptureFact => Boolean(fact))
   } satisfies StructuredCapture;
+}
+
+function dedupeCaptureFacts(facts: StructuredCaptureFact[]) {
+  const deduped = new Map<string, StructuredCaptureFact>();
+
+  for (const fact of facts) {
+    const key = `${fact.section}::${normalizeCoverageText(fact.statement)}`;
+    const existing = deduped.get(key);
+
+    if (!existing) {
+      deduped.set(key, fact);
+      continue;
+    }
+
+    deduped.set(key, {
+      ...existing,
+      entryId: existing.entryId || fact.entryId,
+      subcategory:
+        existing.subcategory === "General" && fact.subcategory !== "General"
+          ? fact.subcategory
+          : existing.subcategory,
+      safetyRelevant: existing.safetyRelevant || fact.safetyRelevant
+    });
+  }
+
+  return [...deduped.values()];
 }
 
 function normalizeCoverageText(value: string) {
@@ -737,37 +940,50 @@ async function requestStructuredCompletion<T>({
   temperature,
   maxCompletionTokens
 }: StructuredCompletionRequest) {
-  const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      store: false,
-      temperature,
-      max_completion_tokens: maxCompletionTokens,
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt
-        },
-        {
-          role: "user",
-          content: userPrompt
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), summaryRequestTimeoutMs());
+
+  let response: Response;
+
+  try {
+    response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        store: false,
+        temperature,
+        max_completion_tokens: maxCompletionTokens,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt
+          },
+          {
+            role: "user",
+            content: userPrompt
+          }
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: schemaName,
+            strict: true,
+            schema
+          }
         }
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: schemaName,
-          strict: true,
-          schema
-        }
-      }
-    })
-  });
+      }),
+      signal: controller.signal
+    });
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     return null;
@@ -821,19 +1037,31 @@ async function captureSummaryFacts(
   model: string,
   turns: ConversationTurn[]
 ) {
-  const rawCapture = await requestStructuredCompletion<StructuredCapture>({
-    apiKey,
-    model,
-    schemaName: "caregiver_handoff_structured_capture",
-    schema: captureSchema,
-    systemPrompt:
-      "You are a structured capture step for caregiver handoff notes. Preserve facts, split them into atomic statements, assign each one to the best section, and never drop meaningful care information.",
-    userPrompt: `${stepOneCaptureRules}\n\nCaregiver input:\n${buildSummarySource(turns)}`,
-    temperature: 0.1,
-    maxCompletionTokens: 6000
-  });
+  const entryChunks = buildSummaryEntryChunks(
+    buildSummaryEntries(turns, { chunkLongEntries: true }),
+    CAPTURE_PROMPT_TARGET_CHARS
+  );
+  const captures: StructuredCaptureFact[] = [];
 
-  return normalizeCapture(rawCapture);
+  for (const chunk of entryChunks) {
+    const rawCapture = await requestStructuredCompletion<StructuredCapture>({
+      apiKey,
+      model,
+      schemaName: "caregiver_handoff_structured_capture",
+      schema: captureSchema,
+      systemPrompt:
+        "You are a structured capture step for caregiver handoff notes. Preserve facts, split them into atomic statements, assign each one to the best section, and never drop meaningful care information.",
+      userPrompt: `${stepOneCaptureRules}\n\nCaregiver input:\n${chunk}`,
+      temperature: 0.1,
+      maxCompletionTokens: 6000
+    });
+
+    captures.push(...normalizeCapture(rawCapture).facts);
+  }
+
+  return {
+    facts: dedupeCaptureFacts(captures)
+  } satisfies StructuredCapture;
 }
 
 async function rewriteStructuredCapture(
@@ -883,23 +1111,22 @@ async function generateSummaryTwoStep(
 }
 
 export function buildSummarySource(turns: ConversationTurn[]) {
-  const entries = turns
-    .filter((turn) => turn.role === "user" && !turn.skipped)
-    .map((turn, index) => {
-      const lines = [
-        `Entry ${index + 1}`,
-        turn.sectionTitle ? `Original main category: ${compactWhitespace(turn.sectionTitle)}` : "",
-        turn.stepTitle && turn.stepTitle !== turn.sectionTitle
-          ? `Original subsection: ${compactWhitespace(turn.stepTitle)}`
-          : "",
-        turn.promptLabel ? `Question asked: ${compactWhitespace(turn.promptLabel)}` : "",
-        `Caregiver input:\n${normalizeSummarySourceText(turn.content)}`
-      ].filter(Boolean);
+  return buildSummaryEntries(turns).map((entry) => entry.text).join("\n\n");
+}
 
-      return lines.join("\n");
-    });
+function finalizeGeneratedSummary(
+  summary: StructuredSummary,
+  turns: ConversationTurn[],
+  nameHint?: string
+) {
+  const normalized = normalizeStructuredSummaryWithOptions(summary, nameHint);
 
-  return entries.join("\n\n");
+  return {
+    ...normalized,
+    pipelineVersion: SUMMARY_PIPELINE_VERSION,
+    layoutVersion: SUMMARY_LAYOUT_VERSION,
+    sourceTurnsHash: computeTurnsHash(turns)
+  } satisfies StructuredSummary;
 }
 
 export async function generateCaregiverSummary(
@@ -909,21 +1136,24 @@ export async function generateCaregiverSummary(
 ) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return buildFallbackSummary(turns, nameHint);
+    return finalizeGeneratedSummary(buildFallbackSummary(turns, nameHint), turns, nameHint);
   }
 
   const model = defaultModel();
 
   try {
     if (mode === "one-step") {
-      return (await generateSummaryOneStep(apiKey, model, turns, nameHint)) ?? buildFallbackSummary(turns, nameHint);
+      const summary =
+        (await generateSummaryOneStep(apiKey, model, turns, nameHint)) ??
+        buildFallbackSummary(turns, nameHint);
+      return finalizeGeneratedSummary(summary, turns, nameHint);
     }
 
-    return (
+    const summary =
       (await generateSummaryTwoStep(apiKey, model, turns, nameHint)) ??
-      buildFallbackSummary(turns, nameHint)
-    );
+      buildFallbackSummary(turns, nameHint);
+    return finalizeGeneratedSummary(summary, turns, nameHint);
   } catch {
-    return buildFallbackSummary(turns, nameHint);
+    return finalizeGeneratedSummary(buildFallbackSummary(turns, nameHint), turns, nameHint);
   }
 }

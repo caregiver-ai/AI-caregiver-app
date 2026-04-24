@@ -1,272 +1,200 @@
 {
-  "id": "gavin",
+  "id": "gavin-clean",
   "nameHint": "Gavin",
   "turns": [
     {
-      "id": "gavin-1",
+      "id": "gavin-clean-1",
       "role": "user",
       "promptType": "section_prompt",
-      "content": "Gavin is non-speaking and cannot use words.\nHe makes sounds to express himself, including happy sounds, angry sounds, and singing-like sounds.\nHe uses an AAC device on an iPad with TouchChat.\nHe uses his AAC device to ask for help, for example when he cannot open his water bottle.\nIf he selects car, it means he wants to go for a ride.\nIf he selects iPad, it may mean the device is not working or he cannot find what he wants.\nChecking his search history can help identify what he is trying to access.\nIf he selects a color, he is looking for an object of that color, and at home it usually means a mini bus toy.\nHe may approach, touch, or lead you to what he needs.\nHe may sit very close to show he wants attention.",
+      "content": "Gavin is non-speaking and uses an AAC device on an iPad with TouchChat. He uses it to ask for help, request car rides, and tell us when he wants his iPad. He may also lead you to what he needs or sit close when he wants attention. He does not tell you if he is hurt or needs the bathroom.",
       "createdAt": "2026-04-16T00:00:00.000Z",
-      "sectionId": "what_helps_the_day_go_well",
-      "sectionTitle": "What helps the day go well",
       "stepId": "communication",
       "stepTitle": "Communication",
-      "promptLabel": "Communication details"
+      "promptLabel": "Communication"
     },
     {
-      "id": "gavin-2",
+      "id": "gavin-clean-2",
       "role": "user",
       "promptType": "section_prompt",
-      "content": "He needs regular reminders to use the bathroom.\nHe does not independently communicate when he needs the bathroom.\nThe home has hourly prompts to remind him to use the bathroom.\nHe will usually go when prompted but may need additional reminders.\nHe urinates in the toilet but has bowel movements in a pull-up.\nHe often hides behind furniture or curtains and grunts when having a bowel movement.\nHe needs food often and needs frequent access to food.\nRepeated trips to the fridge or grabbing cheese usually means he is hungry.",
+      "content": "Visual choices, two-step directions, quiet low-light environments, and a structured routine help the day go well. Food needs to stay available because he is always hungry. He likes iPad time, music, walking, movement, and car rides.",
       "createdAt": "2026-04-16T00:01:00.000Z",
-      "sectionId": "what_helps_the_day_go_well",
-      "sectionTitle": "What helps the day go well",
-      "stepId": "daily_schedule",
-      "stepTitle": "Daily Schedule",
-      "promptLabel": "Daily routine details"
-    },
-    {
-      "id": "gavin-3",
-      "role": "user",
-      "promptType": "section_prompt",
-      "content": "He enjoys iPad time, videos, mini bus toys, walks, and car rides.\nHe also likes going to IKEA and Bass Pro Shops in Foxborough.\nCar rides help regulate him when he is upset.\nWalks can help regulate him too, but only with at least two caregivers for safety.\nHelping him find items on his iPad reduces frustration.",
-      "createdAt": "2026-04-16T00:02:00.000Z",
-      "sectionId": "what_helps_the_day_go_well",
-      "sectionTitle": "What helps the day go well",
       "stepId": "activities_preferences",
       "stepTitle": "Activities & Preferences",
-      "promptLabel": "Activities and preferences details"
+      "promptLabel": "What helps the day go well"
     },
     {
-      "id": "gavin-4",
+      "id": "gavin-clean-3",
       "role": "user",
       "promptType": "section_prompt",
-      "content": "Not being able to access desired content on his iPad can upset him.\nBeing unable to open items because of low muscle tone can upset him.\nHunger or lack of available food can upset him.\nDifficulty finding preferred items such as toys can upset him.",
-      "createdAt": "2026-04-16T00:03:00.000Z",
-      "sectionId": "what_can_upset_or_overwhelm_them",
-      "sectionTitle": "What can upset or overwhelm them",
+      "content": "Loud noise, crowds, bright lighting, moved items, and hunger can upset him. Hard transitions or too many demands at once can also overwhelm him.",
+      "createdAt": "2026-04-16T00:02:00.000Z",
       "stepId": "upset_overwhelm",
       "stepTitle": "What can upset or overwhelm them",
       "promptLabel": "Triggers"
     },
     {
-      "id": "gavin-5",
+      "id": "gavin-clean-4",
       "role": "user",
       "promptType": "section_prompt",
-      "content": "Making loud or angry vocalizations can mean he needs help.\nRunning away or eloping is a sign he needs help.\nBiting his hand when very dysregulated is a sign he needs help.\nHiding and grunting can mean he is having a bowel movement.\nPulling or leading a caregiver to something can mean he needs help.\nSitting very close or seeking extra attention can mean he needs help.",
-      "createdAt": "2026-04-16T00:04:00.000Z",
-      "sectionId": "signs_they_may_need_help",
-      "sectionTitle": "Signs they may need help",
+      "content": "Signs he needs help include limping, not eating or drinking, low energy, eloping, hand biting, angry vocalizations, hiding when he may be having a bowel movement, and pressing help on his device.",
+      "createdAt": "2026-04-16T00:03:00.000Z",
       "stepId": "signs_need_help",
       "stepTitle": "Signs they may need help",
-      "promptLabel": "Signs they need help"
+      "promptLabel": "Signs"
     },
     {
-      "id": "gavin-6",
+      "id": "gavin-clean-5",
       "role": "user",
       "promptType": "section_prompt",
-      "content": "Offer a car ride to help calm him.\nHelp him access what he is trying to find on his iPad.\nRedirect him instead of blocking behaviors.\nDo not physically stop him from biting his hand, because he may bite you.",
-      "createdAt": "2026-04-16T00:05:00.000Z",
-      "sectionId": "what_helps_when_they_are_having_a_hard_time",
-      "sectionTitle": "What helps when they are having a hard time",
+      "content": "When he is still somewhat calm, prompt squeeze and release, deep breaths, or counting to 10. If he is escalating, give space immediately and reduce noise and stimulation. Do not block hand biting because he may bite you. Car rides, quiet environments, and time alone work best as resets.",
+      "createdAt": "2026-04-16T00:04:00.000Z",
       "stepId": "hard_time_support",
       "stepTitle": "What helps when they are having a hard time",
-      "promptLabel": "How to respond"
+      "promptLabel": "Supports"
     },
     {
-      "id": "gavin-7",
+      "id": "gavin-clean-6",
       "role": "user",
       "promptType": "section_prompt",
-      "content": "Gavin has low muscle tone and may need help opening items.\nHe requires at least two caregivers for outings such as car rides or walks.\nElopement is a safety risk.\nHand biting is a safety risk to himself and to others if someone blocks it.",
+      "content": "He needs to be prompted every hour to use the bathroom and does not initiate on his own. Bowel movements happen in a pull-up and he hides and grunts. He eats small amounts constantly, has a limited diet, and will independently get cheese if he is hungry.",
+      "createdAt": "2026-04-16T00:05:00.000Z",
+      "stepId": "daily_schedule",
+      "stepTitle": "Daily Schedule",
+      "promptLabel": "Daily needs"
+    },
+    {
+      "id": "gavin-clean-7",
+      "role": "user",
+      "promptType": "section_prompt",
+      "content": "Top safety issues are elopement, hand biting, and unsafe walking. He needs two adults for walks or outings, does not communicate pain, and can become physically unsafe when dysregulated.",
       "createdAt": "2026-04-16T00:06:00.000Z",
-      "sectionId": "what_helps_the_day_go_well",
-      "sectionTitle": "What helps the day go well",
       "stepId": "health_safety",
       "stepTitle": "Health & Safety",
-      "promptLabel": "Health and safety details"
+      "promptLabel": "Safety"
+    },
+    {
+      "id": "gavin-clean-8",
+      "role": "user",
+      "promptType": "section_prompt",
+      "content": "He enjoys iPad, music, car rides, movement, horseback riding, and exploring new places.",
+      "createdAt": "2026-04-16T00:07:00.000Z",
+      "stepId": "activities_preferences",
+      "stepTitle": "Activities & Preferences",
+      "promptLabel": "Enjoys"
     }
   ],
   "expectations": {
-    "overviewChecks": [
-      {
-        "label": "communication overview",
-        "anyOf": ["non-speaking", "communicates using", "aac device"]
-      },
-      {
-        "label": "safety overview",
-        "anyOf": ["safety risk", "close supervision", "elopement", "self-injury"]
-      }
+    "sectionTitles": [
+      "Communication",
+      "Daily Needs & Routines",
+      "What helps the day go well",
+      "What can upset or overwhelm them",
+      "Signs they need help",
+      "What helps when they are having a hard time",
+      "Health & Safety",
+      "Who to contact (and when)"
     ],
     "sectionChecks": {
       "Communication": [
         {
-          "label": "non-speaking communication",
-          "anyOf": ["non-speaking", "cannot use words"]
+          "label": "non-speaking aac communication",
+          "anyOf": [
+            "non-speaking",
+            "aac",
+            "touchchat"
+          ]
         },
         {
-          "label": "aac device",
-          "anyOf": ["aac", "touchchat", "ipad"]
-        },
-        {
-          "label": "car selection meaning",
-          "anyOf": ["selects car", "means he wants to go for a ride", "wants to go for a ride"]
-        },
-        {
-          "label": "color meaning",
-          "anyOf": ["selects a color", "looking for an object of that color", "mini bus toy"]
+          "label": "cue meanings",
+          "anyOf": [
+            "request car rides",
+            "lead you",
+            "sit close"
+          ]
         }
       ],
       "Daily Needs & Routines": [
         {
-          "label": "bathroom reminders",
-          "anyOf": ["bathroom reminders", "hourly prompts", "use the bathroom"]
+          "label": "bathroom supports",
+          "anyOf": [
+            "prompted every hour",
+            "does not initiate",
+            "pull-up"
+          ]
         },
         {
-          "label": "pull-up bowel movements",
-          "anyOf": ["pull-up", "bowel movements"]
-        },
-        {
-          "label": "food access",
-          "anyOf": ["needs food often", "frequent access to food"]
+          "label": "food routine",
+          "anyOf": [
+            "limited diet",
+            "small amounts",
+            "cheese"
+          ]
         }
       ],
       "What helps the day go well": [
         {
-          "label": "bathroom support",
-          "anyOf": ["consistent bathroom reminders", "bathroom reminders help", "hourly bathroom prompts"]
-        },
-        {
-          "label": "regular food access support",
-          "anyOf": ["regular access to food", "frequent access to food", "food helps prevent distress", "helps prevent distress"]
-        },
-        {
-          "label": "car ride regulation",
-          "anyOf": ["car rides help", "car ride helps", "car rides are especially soothing", "car rides soothe him", "car rides can help with regulation"]
-        },
-        {
-          "label": "walk support",
-          "anyOf": ["walks can help", "walks help regulate", "walks can regulate", "walks can soothe", "walks can help with regulation"]
-        },
-        {
-          "label": "ipad help reduces frustration",
-          "anyOf": ["find items on his iPad", "helping him find items", "reduces frustration", "iPad searches can prevent frustration", "prevent frustration"]
+          "label": "preventive supports",
+          "anyOf": [
+            "visual choices",
+            "two-step",
+            "food",
+            "structured routine"
+          ]
         }
       ],
       "What can upset or overwhelm them": [
         {
-          "label": "ipad access trigger",
-          "anyOf": ["not being able to access", "cannot find", "ipad"]
-        },
-        {
-          "label": "opening items trigger",
-          "anyOf": ["open items", "low muscle tone"]
-        },
-        {
-          "label": "food trigger",
-          "anyOf": ["lack of available food", "hunger", "hungry"]
+          "label": "trigger coverage",
+          "anyOf": [
+            "loud noise",
+            "bright",
+            "hunger",
+            "too many demands"
+          ]
         }
       ],
       "Signs they need help": [
         {
-          "label": "elopement sign",
-          "anyOf": ["running away", "eloping", "elopement"]
-        },
-        {
-          "label": "hand biting sign",
-          "anyOf": ["biting his hand", "hand biting"]
-        },
-        {
-          "label": "hiding and grunting sign",
-          "anyOf": ["hiding", "grunting", "bowel movement"]
-        },
-        {
-          "label": "fridge sign",
-          "anyOf": ["fridge", "grabbing cheese", "hungry"]
+          "label": "signs coverage",
+          "anyOf": [
+            "eloping",
+            "hand biting",
+            "limping",
+            "pressing help"
+          ]
         }
       ],
       "What helps when they are having a hard time": [
         {
-          "label": "offer car ride",
-          "anyOf": ["offer a car ride", "offer a car ride to help calm", "offer a car ride to help regulate"]
-        },
-        {
-          "label": "help with iPad access",
-          "anyOf": ["access what he is trying to find", "find on his iPad", "help him find what he wants on the iPad"]
-        },
-        {
-          "label": "do not physically stop biting",
-          "anyOf": ["do not physically stop", "may bite you", "do not block"]
+          "label": "response coverage",
+          "anyOf": [
+            "squeeze and release",
+            "give space",
+            "do not physically stop",
+            "car ride"
+          ]
         }
       ],
       "Health & Safety": [
         {
-          "label": "low muscle tone",
-          "anyOf": ["low muscle tone"]
-        },
-        {
-          "label": "two caregivers",
-          "anyOf": ["two caregivers", "two people"]
-        },
-        {
-          "label": "elopement safety risk",
-          "anyOf": ["elopement", "safety risk"]
-        },
-        {
-          "label": "hand biting safety risk",
-          "anyOf": ["hand biting", "bite you", "safety risk"]
-        }
-      ],
-      "Who to contact (and when)": [
-        {
-          "label": "no contact information placeholder",
-          "anyOf": ["(no information provided)"]
+          "label": "safety coverage",
+          "anyOf": [
+            "close supervision",
+            "unsafe walking",
+            "elopement",
+            "self-injury"
+          ]
         }
       ]
     },
     "bannedPhrases": [
-      "use skip",
-      "not clearly stated in the raw input",
-      "what do they mean?",
-      "eheheh",
-      "problems with access can upset him",
-      "if the problem is the iPad, check the internet and his search history"
+      "um, yeah.",
+      "what do they communicate"
     ],
-    "sectionBannedPhrases": {
-      "What helps the day go well": [
-        "he needs regular reminders to use the bathroom",
-        "he needs food often and needs frequent access to food",
-        "he likes walks.",
-        "he likes videos.",
-        "he likes ipad time.",
-        "he likes car rides.",
-        "he enjoys walks.",
-        "he enjoys videos.",
-        "he enjoys ipad time.",
-        "he enjoys car rides.",
-        "going for a car ride helps soothe him."
-      ],
-      "What can upset or overwhelm them": [
-        "car rides help soothe him when he is upset"
-      ],
-      "Signs they need help": [
-        "making loud or angry vocalizations",
-        "select \"car\"",
-        "select a color",
-        "aac device to ask for help",
-        "i want ipad",
-        "if food runs out"
-      ],
-      "What helps when they are having a hard time": [
-        "first check whether the ipad is not working",
-        "first check whether the internet is not working"
-      ]
-    },
-    "maxDuplicateItems": 0,
+    "maxDuplicateItems": 2,
     "maxDuplicateItemsBySection": {
-      "What helps the day go well": 0,
-      "Signs they need help": 0,
-      "What helps when they are having a hard time": 0
+      "Communication": 1,
+      "Health & Safety": 1
     }
   }
 }

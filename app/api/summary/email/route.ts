@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import { createSummaryPdf, buildSummaryEmailHtml, sanitizePdfFilename } from "@/lib/summary-pdf";
+import { summaryHasContent } from "@/lib/summary-display";
+import { getSummaryFreshness } from "@/lib/summary-structured";
 import { normalizeAuthoritativeStructuredSummary, summaryToPlainText } from "@/lib/summary";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
-import { StructuredSummary } from "@/lib/types";
+import { SessionDraft, StructuredSummary } from "@/lib/types";
 
 type SessionRow = {
   id: string;
   user_id: string | null;
-  draft_json?: {
-    structuredSummary?: unknown;
-    editedSummary?: unknown;
-  } | null;
+  draft_json?: SessionDraft | null;
 };
 
 type SummaryRow = {
@@ -85,10 +84,6 @@ async function resolvePublicUser(authUser: { id: string; email?: string | null }
   };
 }
 
-function isEmptySummary(summary: StructuredSummary) {
-  return !summary.overview.trim() && summary.sections.length === 0;
-}
-
 function buildEditUrl(request: Request) {
   return new URL("/review", request.url).toString();
 }
@@ -157,19 +152,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: summaryLookupError.message }, { status: 500 });
     }
 
-    const summary = normalizeAuthoritativeStructuredSummary(
+    const generatedSummary = normalizeAuthoritativeStructuredSummary(
+      (summaryRow as SummaryRow | null)?.summary_json ?? (sessionRow as SessionRow).draft_json?.structuredSummary
+    );
+    const editedSummary = normalizeAuthoritativeStructuredSummary(
       (summaryRow as SummaryRow | null)?.edited_json ??
-        (summaryRow as SummaryRow | null)?.summary_json ??
         (sessionRow as SessionRow).draft_json?.editedSummary ??
-        (sessionRow as SessionRow).draft_json?.structuredSummary
+        generatedSummary
+    );
+    const freshness = getSummaryFreshness(
+      (sessionRow as SessionRow).draft_json?.turns ?? [],
+      generatedSummary,
+      editedSummary
     );
 
-    if (isEmptySummary(summary)) {
+    if (freshness.requiresRegeneration) {
+      return NextResponse.json(
+        {
+          error: "This saved summary is out of date. Regenerate it from the saved answers before emailing it."
+        },
+        { status: 409 }
+      );
+    }
+
+    if (!summaryHasContent(editedSummary)) {
       return NextResponse.json({ error: "No saved summary is available to send." }, { status: 404 });
     }
 
-    const pdfBytes = await createSummaryPdf(summary);
-    const filename = `${sanitizePdfFilename(summary.title)}.pdf`;
+    const pdfBytes = await createSummaryPdf(editedSummary);
+    const filename = `${sanitizePdfFilename(editedSummary.title)}.pdf`;
     const editUrl = buildEditUrl(request);
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -180,9 +191,9 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         from: resendFromEmail,
         to: [recipientEmail],
-        subject: summary.title || "Caregiver Handoff Summary",
-        html: buildSummaryEmailHtml(summary, editUrl),
-        text: buildSummaryEmailText(summary, editUrl),
+        subject: editedSummary.title || "Caregiver Handoff Summary",
+        html: buildSummaryEmailHtml(editedSummary, editUrl),
+        text: buildSummaryEmailText(editedSummary, editUrl),
         attachments: [
           {
             filename,

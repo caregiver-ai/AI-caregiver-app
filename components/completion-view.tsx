@@ -4,35 +4,26 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
-import { authenticatedFetch, getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
+import { StructuredSummarySectionDisplay } from "@/components/structured-summary-sections";
+import {
+  authenticatedFetch,
+  getCurrentAuthUser,
+  loadRemoteDraftBundle,
+  saveRemoteDraft
+} from "@/lib/draft-api";
 import { getCompletionCopy } from "@/lib/localization";
+import { getVisibleSections } from "@/lib/summary-display";
+import { getSummaryFreshness } from "@/lib/summary-structured";
 import { formatSummaryGeneratedAt, normalizeAuthoritativeStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { StructuredSummary, UiLanguage } from "@/lib/types";
+import { SessionDraft, StructuredSummary, SummaryFreshness, UiLanguage } from "@/lib/types";
 
-function SummarySectionBlock({
-  title,
-  items
-}: {
-  title: string;
-  items: string[];
-}) {
-  if (items.length === 0) {
-    return null;
+function deriveFreshness(draft: SessionDraft, remoteFreshness?: SummaryFreshness | null) {
+  if (remoteFreshness) {
+    return remoteFreshness;
   }
 
-  return (
-    <div className="space-y-2">
-      <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">{title}</h2>
-      <ul className="space-y-2 text-sm leading-6 text-slate-700">
-        {items.map((item) => (
-          <li key={item} className="rounded-2xl bg-canvas px-4 py-3">
-            {item}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+  return getSummaryFreshness(draft.turns, draft.structuredSummary, draft.editedSummary);
 }
 
 export function CompletionView() {
@@ -50,58 +41,66 @@ export function CompletionView() {
   const [pdfDownloading, setPdfDownloading] = useState(false);
   const [pdfStatus, setPdfStatus] = useState("");
   const [returningToQuestions, setReturningToQuestions] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
+  const [summaryFreshness, setSummaryFreshness] = useState<SummaryFreshness | null>(null);
   const copy = useMemo(() => getCompletionCopy(uiLanguage), [uiLanguage]);
   const generatedAtText = useMemo(
     () => formatSummaryGeneratedAt(summary?.generatedAt ?? "", uiLanguage),
     [summary?.generatedAt, uiLanguage]
   );
+  const requiresRegeneration = summaryFreshness?.requiresRegeneration ?? false;
+
+  function applyDraftState(draft: SessionDraft, freshness?: SummaryFreshness | null) {
+    setSummary(normalizeAuthoritativeStructuredSummary(draft.editedSummary ?? draft.structuredSummary));
+    setSessionId(draft.sessionId);
+    setRating(draft.feedback?.usefulnessRating ?? "");
+    setComments(draft.feedback?.comments ?? "");
+    setRecipientEmail(draft.email ?? "");
+    setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
+    setSummaryFreshness(deriveFreshness(draft, freshness));
+  }
 
   useEffect(() => {
     let active = true;
 
     async function initialize() {
       const localDraft = loadDraft();
-      const normalizedLocalEmail = localDraft?.email.trim().toLowerCase();
-
       if (localDraft?.editedSummary) {
-        setSummary(normalizeAuthoritativeStructuredSummary(localDraft.editedSummary));
-        setSessionId(localDraft.sessionId);
-        setRating(localDraft.feedback?.usefulnessRating ?? "");
-        setComments(localDraft.feedback?.comments ?? "");
-        setRecipientEmail(localDraft.email ?? "");
-        setUiLanguage(localDraft.intakeDetails.preferredLanguage ?? "english");
+        applyDraftState(localDraft);
       }
 
       const user = await getCurrentAuthUser();
+      const normalizedLocalEmail = localDraft?.email.trim().toLowerCase();
       const normalizedUserEmail = user?.email?.trim().toLowerCase();
 
       if (!active) {
         return;
       }
 
-      if (localDraft?.editedSummary && (!normalizedUserEmail || normalizedLocalEmail === normalizedUserEmail)) {
+      if (user?.email) {
+        const remoteResult = await loadRemoteDraftBundle().catch(() => null);
+        if (!active) {
+          return;
+        }
+
+        if (remoteResult?.draft?.editedSummary) {
+          saveDraft(remoteResult.draft);
+          applyDraftState(remoteResult.draft, remoteResult.summaryFreshness);
+          setRecipientEmail(remoteResult.draft.email ?? user.email ?? "");
+          return;
+        }
+      }
+
+      if (
+        localDraft?.editedSummary &&
+        (!normalizedUserEmail || normalizedLocalEmail === normalizedUserEmail)
+      ) {
         if (normalizedUserEmail) {
           setRecipientEmail((current) => current || normalizedUserEmail);
         }
         return;
       }
-
-      if (!user?.email) {
-        return;
-      }
-
-      const draft = await loadRemoteDraft().catch(() => null);
-      if (!draft?.editedSummary) {
-        return;
-      }
-
-      setSummary(normalizeAuthoritativeStructuredSummary(draft.editedSummary));
-      setSessionId(draft.sessionId);
-      setRating(draft.feedback?.usefulnessRating ?? "");
-      setComments(draft.feedback?.comments ?? "");
-      setRecipientEmail(draft.email ?? user.email ?? "");
-      setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
     }
 
     void initialize();
@@ -111,7 +110,74 @@ export function CompletionView() {
     };
   }, []);
 
+  async function handleRegenerate() {
+    if (!sessionId || regenerating) {
+      return;
+    }
+
+    setRegenerating(true);
+    setStatus("");
+    setEmailStatus("");
+    setPdfStatus("");
+
+    try {
+      const response = await authenticatedFetch("/api/summary/regenerate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ sessionId })
+      });
+
+      const data = (await response.json()) as {
+        draft?: SessionDraft;
+        summary?: StructuredSummary;
+        summaryFreshness?: SummaryFreshness | null;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? copy.regenerateFailed);
+      }
+
+      const nextDraft =
+        data.draft ??
+        (() => {
+          const currentDraft = loadDraft();
+          if (!currentDraft || !data.summary) {
+            return null;
+          }
+
+          return {
+            ...currentDraft,
+            structuredSummary: data.summary,
+            editedSummary: data.summary
+          } satisfies SessionDraft;
+        })();
+
+      if (!nextDraft) {
+        throw new Error(copy.regenerateFailed);
+      }
+
+      saveDraft(nextDraft);
+      applyDraftState(nextDraft, data.summaryFreshness);
+      setStatus(copy.regenerateSuccess);
+      setStatusTone("success");
+    } catch (requestError) {
+      setStatus(requestError instanceof Error ? requestError.message : copy.regenerateFailed);
+      setStatusTone("error");
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
   async function handleFeedbackSave() {
+    if (requiresRegeneration) {
+      setStatus(copy.staleSummaryMessage);
+      setStatusTone("error");
+      return;
+    }
+
     const response = await fetch("/api/feedback", {
       method: "POST",
       headers: {
@@ -147,6 +213,12 @@ export function CompletionView() {
   }
 
   async function handleEmailSend() {
+    if (requiresRegeneration) {
+      setEmailStatus(copy.staleSummaryMessage);
+      setEmailStatusTone("error");
+      return;
+    }
+
     if (!sessionId || !recipientEmail.trim()) {
       setEmailStatus(copy.emailSendFailed);
       setEmailStatusTone("error");
@@ -185,6 +257,11 @@ export function CompletionView() {
 
   async function handlePdfDownload() {
     if (!summary || pdfDownloading) {
+      return;
+    }
+
+    if (requiresRegeneration) {
+      setPdfStatus(copy.staleSummaryMessage);
       return;
     }
 
@@ -247,7 +324,7 @@ export function CompletionView() {
               <p className="text-sm text-slate-700">{generatedAtText}</p>
             </div>
           ) : null}
-          {summary.overview ? (
+          {summary.overview.trim() ? (
             <div className="space-y-2">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 {copy.overviewLabel}
@@ -256,10 +333,24 @@ export function CompletionView() {
             </div>
           ) : null}
           <div className="space-y-3 border-t border-border pt-4">
-            <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
+            {requiresRegeneration ? (
+              <>
+                <StatusBanner tone="error">{copy.staleSummaryMessage}</StatusBanner>
+                <button
+                  className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={regenerating || returningToQuestions}
+                  type="button"
+                  onClick={handleRegenerate}
+                >
+                  {regenerating ? copy.regeneratingButton : copy.regenerateButton}
+                </button>
+              </>
+            ) : (
+              <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
+            )}
             <button
               className="w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={returningToQuestions}
+              disabled={returningToQuestions || regenerating}
               type="button"
               onClick={handleBackToQuestions}
             >
@@ -268,79 +359,89 @@ export function CompletionView() {
           </div>
         </div>
 
-        {summary.sections.map((section) => (
-          <SummarySectionBlock key={section.id} title={section.title} items={section.items} />
-        ))}
+        {!requiresRegeneration ? (
+          <>
+            {getVisibleSections(summary).map((section) => (
+              <StructuredSummarySectionDisplay key={section.id} section={section} />
+            ))}
 
-        <button
-          className="print-hidden w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white"
-          disabled={pdfDownloading}
-          type="button"
-          onClick={handlePdfDownload}
-        >
-          {pdfDownloading ? copy.preparingPdfButton : copy.downloadPdfButton}
-        </button>
-        {pdfStatus ? <StatusBanner tone="error">{pdfStatus}</StatusBanner> : null}
+            <button
+              className="print-hidden w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={pdfDownloading}
+              type="button"
+              onClick={handlePdfDownload}
+            >
+              {pdfDownloading ? copy.preparingPdfButton : copy.downloadPdfButton}
+            </button>
+            {pdfStatus ? <StatusBanner tone="error">{pdfStatus}</StatusBanner> : null}
 
-        <div className="space-y-3 rounded-3xl border border-border bg-canvas px-5 py-5">
-          <div className="space-y-1">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-              {copy.emailPdfTitle}
-            </h2>
-            <p className="text-sm leading-6 text-slate-700">{copy.emailPdfSubtitle}</p>
-          </div>
-          <label className="block space-y-2">
-            <span className="text-sm font-medium text-slate-700">{copy.recipientEmailLabel}</span>
-            <input
-              autoComplete="email"
-              className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-              placeholder={copy.recipientEmailPlaceholder}
-              type="email"
-              value={recipientEmail}
-              onChange={(event) => {
-                setRecipientEmail(event.target.value);
-                setEmailStatus("");
-              }}
-            />
-          </label>
-          <button
-            className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={!sessionId || !recipientEmail.trim() || emailSending}
-            type="button"
-            onClick={handleEmailSend}
-          >
-            {emailSending ? copy.sendingPdfButton : copy.sendPdfButton}
-          </button>
-          {emailStatus ? <StatusBanner tone={emailStatusTone}>{emailStatus}</StatusBanner> : null}
-        </div>
+            <div className="space-y-3 rounded-3xl border border-border bg-canvas px-5 py-5">
+              <div className="space-y-1">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  {copy.emailPdfTitle}
+                </h2>
+                <p className="text-sm leading-6 text-slate-700">{copy.emailPdfSubtitle}</p>
+              </div>
+              <label className="block space-y-2">
+                <span className="text-sm font-medium text-slate-700">{copy.recipientEmailLabel}</span>
+                <input
+                  autoComplete="email"
+                  className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
+                  placeholder={copy.recipientEmailPlaceholder}
+                  type="email"
+                  value={recipientEmail}
+                  onChange={(event) => {
+                    setRecipientEmail(event.target.value);
+                    setEmailStatus("");
+                  }}
+                />
+              </label>
+              <button
+                className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!sessionId || !recipientEmail.trim() || emailSending}
+                type="button"
+                onClick={handleEmailSend}
+              >
+                {emailSending ? copy.sendingPdfButton : copy.sendPdfButton}
+              </button>
+              {emailStatus ? <StatusBanner tone={emailStatusTone}>{emailStatus}</StatusBanner> : null}
+            </div>
 
-        <div className="space-y-3 border-t border-border pt-4">
-          <label className="block space-y-2">
-            <span className="text-sm font-medium text-slate-700">{copy.feedbackLabel}</span>
-            <input
-              className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-              placeholder={copy.feedbackPlaceholder}
-              value={rating}
-              onChange={(event) => setRating(event.target.value)}
-            />
-          </label>
-          <label className="block space-y-2">
-            <span className="text-sm font-medium text-slate-700">{copy.commentsLabel}</span>
-            <textarea
-              className="min-h-24 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-              value={comments}
-              onChange={(event) => setComments(event.target.value)}
-            />
-          </label>
-          <button
-            className="print-hidden w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700"
-            type="button"
-            onClick={handleFeedbackSave}
-          >
-            {copy.saveFeedbackButton}
-          </button>
-          {status ? <StatusBanner tone={statusTone}>{status}</StatusBanner> : null}
-        </div>
+            <div className="space-y-3 border-t border-border pt-4">
+              <label className="block space-y-2">
+                <span className="text-sm font-medium text-slate-700">{copy.feedbackLabel}</span>
+                <input
+                  className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
+                  placeholder={copy.feedbackPlaceholder}
+                  value={rating}
+                  onChange={(event) => setRating(event.target.value)}
+                />
+              </label>
+              <label className="block space-y-2">
+                <span className="text-sm font-medium text-slate-700">{copy.commentsLabel}</span>
+                <textarea
+                  className="min-h-24 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
+                  value={comments}
+                  onChange={(event) => setComments(event.target.value)}
+                />
+              </label>
+              <button
+                className="print-hidden w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700"
+                type="button"
+                onClick={handleFeedbackSave}
+              >
+                {copy.saveFeedbackButton}
+              </button>
+              {status ? <StatusBanner tone={statusTone}>{status}</StatusBanner> : null}
+            </div>
+          </>
+        ) : (
+          <>
+            {status ? <StatusBanner tone={statusTone}>{status}</StatusBanner> : null}
+            {emailStatus ? <StatusBanner tone={emailStatusTone}>{emailStatus}</StatusBanner> : null}
+            {pdfStatus ? <StatusBanner tone="error">{pdfStatus}</StatusBanner> : null}
+          </>
+        )}
       </div>
     </AppShell>
   );

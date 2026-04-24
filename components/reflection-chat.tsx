@@ -17,7 +17,6 @@ import {
   getFirstIncompletePromptIndex,
   getPromptSequence,
   getResponsesFromTurns,
-  getSectionOrder,
   getStepOrder
 } from "@/lib/reflection";
 import { loadDraft, saveDraft } from "@/lib/storage";
@@ -107,7 +106,6 @@ export function ReflectionChat() {
 
   const reflectionCopy = useMemo(() => getReflectionCopy(uiLanguage), [uiLanguage]);
   const prompts = useMemo(() => getPromptSequence(uiLanguage), [uiLanguage]);
-  const sectionOrder = useMemo(() => getSectionOrder(uiLanguage), [uiLanguage]);
   const stepOrder = useMemo(() => getStepOrder(uiLanguage), [uiLanguage]);
   const stepPrompts = useMemo(
     () => prompts.filter((prompt) => prompt.stepId === currentStepId),
@@ -122,24 +120,18 @@ export function ReflectionChat() {
     [currentStepId, stepOrder]
   );
   const currentStepMeta = stepPrompts[0] ?? null;
-  const showSubtitleStepTitle =
-    Boolean(currentStepMeta?.stepTitle) && currentStepMeta?.stepTitle !== currentStepMeta?.sectionTitle;
-  const currentSectionIndex = useMemo(
-    () => Math.max(0, sectionOrder.findIndex((sectionId) => sectionId === currentStepMeta?.sectionId)),
-    [currentStepMeta?.sectionId, sectionOrder]
-  );
   const nextSectionIndex = useMemo(() => {
     if (!pendingStepAdvance) {
       return -1;
     }
 
-    const nextSectionId = prompts.find((prompt) => prompt.stepId === pendingStepAdvance.nextStepId)?.sectionId;
-    if (!nextSectionId) {
+    const nextStepIndex = stepOrder.findIndex((stepId) => stepId === pendingStepAdvance.nextStepId);
+    if (nextStepIndex < 0) {
       return -1;
     }
 
-    return Math.max(0, sectionOrder.findIndex((sectionId) => sectionId === nextSectionId));
-  }, [pendingStepAdvance, prompts, sectionOrder]);
+    return nextStepIndex;
+  }, [pendingStepAdvance, stepOrder]);
   const hasAnyResponse = useMemo(
     () => Object.values(sanitizeResponses(responses)).length > 0,
     [responses]
@@ -705,14 +697,11 @@ export function ReflectionChat() {
   return (
     <>
       <AppShell
-        title={currentStepMeta?.sectionTitle ?? reflectionCopy.title}
+        title={currentStepMeta?.stepTitle ?? currentStepMeta?.sectionTitle ?? reflectionCopy.title}
         subtitle={
           currentStepMeta
             ? (
                 <>
-                  {showSubtitleStepTitle ? (
-                    <div className="font-semibold text-ink">{currentStepMeta.stepTitle}</div>
-                  ) : null}
                   <div className="italic">{currentStepMeta.stepSubtitle}</div>
                 </>
               )
@@ -721,7 +710,7 @@ export function ReflectionChat() {
       >
         <div className="space-y-5">
           <div className="rounded-2xl border border-border bg-canvas px-4 py-3 text-sm text-slate-700">
-            {reflectionCopy.sectionCounter(currentSectionIndex + 1, sectionOrder.length)}
+            {reflectionCopy.sectionCounter(currentStepIndex + 1, stepOrder.length)}
           </div>
 
           {stepPrompts.map((prompt) => {
@@ -852,7 +841,7 @@ export function ReflectionChat() {
               </h2>
               <p className="text-sm leading-6 text-slate-600">
                 {pendingStepAdvance && nextSectionIndex >= 0
-                  ? reflectionCopy.sectionCounter(nextSectionIndex + 1, sectionOrder.length)
+                  ? reflectionCopy.sectionCounter(nextSectionIndex + 1, stepOrder.length)
                   : ""}
               </p>
             </div>

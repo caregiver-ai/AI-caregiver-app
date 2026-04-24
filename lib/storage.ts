@@ -41,6 +41,6 @@ export function updateStoredSummary(summary: StructuredSummary) {
   }
 
   draft.structuredSummary = summary;
-  draft.editedSummary = summary;
+  draft.editedSummary = draft.editedSummary ?? summary;
   saveDraft(draft);
 }

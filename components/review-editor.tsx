@@ -4,21 +4,27 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
+import { StructuredSummarySectionEditor } from "@/components/structured-summary-sections";
 import { EMPTY_SUMMARY } from "@/lib/constants";
-import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
+import {
+  authenticatedFetch,
+  getCurrentAuthUser,
+  loadRemoteDraftBundle,
+  saveRemoteDraft
+} from "@/lib/draft-api";
 import { getReviewCopy } from "@/lib/localization";
+import { getVisibleSections } from "@/lib/summary-display";
+import { getSummaryFreshness } from "@/lib/summary-structured";
 import { formatSummaryGeneratedAt, normalizeAuthoritativeStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { StructuredSummary, SummarySection, UiLanguage } from "@/lib/types";
+import { SessionDraft, StructuredSummary, SummaryFreshness, SummarySection, UiLanguage } from "@/lib/types";
 
-function itemsToTextarea(items: string[]) {
-  return items.join("\n");
-}
+function deriveFreshness(draft: SessionDraft, remoteFreshness?: SummaryFreshness | null) {
+  if (remoteFreshness) {
+    return remoteFreshness;
+  }
 
-function textareaToItems(value: string) {
-  return value
-    .split("\n")
-    .filter((item) => item.trim().length > 0);
+  return getSummaryFreshness(draft.turns, draft.structuredSummary, draft.editedSummary);
 }
 
 export function ReviewEditor() {
@@ -26,33 +32,53 @@ export function ReviewEditor() {
   const [summary, setSummary] = useState<StructuredSummary>(EMPTY_SUMMARY);
   const [sessionId, setSessionId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [returningToQuestions, setReturningToQuestions] = useState(false);
   const [error, setError] = useState("");
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
+  const [summaryFreshness, setSummaryFreshness] = useState<SummaryFreshness | null>(null);
   const copy = useMemo(() => getReviewCopy(uiLanguage), [uiLanguage]);
   const generatedAtText = useMemo(
     () => formatSummaryGeneratedAt(summary.generatedAt, uiLanguage),
     [summary.generatedAt, uiLanguage]
   );
+  const requiresRegeneration = summaryFreshness?.requiresRegeneration ?? false;
+
+  function applyDraftState(draft: SessionDraft, freshness?: SummaryFreshness | null) {
+    setSummary(normalizeAuthoritativeStructuredSummary(draft.editedSummary ?? draft.structuredSummary));
+    setSessionId(draft.sessionId);
+    setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
+    setSummaryFreshness(deriveFreshness(draft, freshness));
+  }
 
   useEffect(() => {
     let active = true;
 
     async function initialize() {
       const localDraft = loadDraft();
-      const normalizedLocalEmail = localDraft?.email.trim().toLowerCase();
-
       if (localDraft?.structuredSummary && localDraft.sessionId) {
-        setSummary(normalizeAuthoritativeStructuredSummary(localDraft.editedSummary ?? localDraft.structuredSummary));
-        setSessionId(localDraft.sessionId);
-        setUiLanguage(localDraft.intakeDetails.preferredLanguage ?? "english");
+        applyDraftState(localDraft);
       }
 
       const user = await getCurrentAuthUser();
+      const normalizedLocalEmail = localDraft?.email.trim().toLowerCase();
       const normalizedUserEmail = user?.email?.trim().toLowerCase();
 
       if (!active) {
         return;
+      }
+
+      if (user?.email) {
+        const remoteResult = await loadRemoteDraftBundle().catch(() => null);
+        if (!active) {
+          return;
+        }
+
+        if (remoteResult?.draft?.structuredSummary && remoteResult.draft.sessionId) {
+          saveDraft(remoteResult.draft);
+          applyDraftState(remoteResult.draft, remoteResult.summaryFreshness);
+          return;
+        }
       }
 
       if (
@@ -63,22 +89,7 @@ export function ReviewEditor() {
         return;
       }
 
-      if (!user?.email) {
-        router.replace("/");
-        return;
-      }
-
-      const draft = await loadRemoteDraft().catch(() => null);
-
-      if (!active || !draft?.structuredSummary || !draft.sessionId) {
-        router.replace("/");
-        return;
-      }
-
-      saveDraft(draft);
-      setSummary(normalizeAuthoritativeStructuredSummary(draft.editedSummary ?? draft.structuredSummary));
-      setSessionId(draft.sessionId);
-      setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
+      router.replace("/");
     }
 
     void initialize();
@@ -89,7 +100,7 @@ export function ReviewEditor() {
   }, [router]);
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!sessionId || requiresRegeneration) {
       return;
     }
 
@@ -113,18 +124,77 @@ export function ReviewEditor() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [sessionId, summary]);
+  }, [requiresRegeneration, sessionId, summary]);
 
-  function updateSection(sectionId: string, changes: Partial<SummarySection>) {
+  function updateSection(nextSection: SummarySection) {
     setSummary((current) => ({
       ...current,
-      sections: current.sections.map((section) =>
-        section.id === sectionId ? { ...section, ...changes } : section
-      )
+      sections: current.sections.map((section) => (section.id === nextSection.id ? nextSection : section))
     }));
   }
 
+  async function handleRegenerate() {
+    if (!sessionId || regenerating) {
+      return;
+    }
+
+    setRegenerating(true);
+    setError("");
+
+    try {
+      const response = await authenticatedFetch("/api/summary/regenerate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ sessionId })
+      });
+
+      const data = (await response.json()) as {
+        draft?: SessionDraft;
+        summary?: StructuredSummary;
+        summaryFreshness?: SummaryFreshness | null;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? copy.regenerateFailed);
+      }
+
+      const nextDraft =
+        data.draft ??
+        (() => {
+          const currentDraft = loadDraft();
+          if (!currentDraft || !data.summary) {
+            return null;
+          }
+
+          return {
+            ...currentDraft,
+            structuredSummary: data.summary,
+            editedSummary: data.summary
+          } satisfies SessionDraft;
+        })();
+
+      if (!nextDraft) {
+        throw new Error(copy.regenerateFailed);
+      }
+
+      saveDraft(nextDraft);
+      applyDraftState(nextDraft, data.summaryFreshness);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : copy.regenerateFailed);
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
   async function handleConfirm() {
+    if (requiresRegeneration) {
+      setError(copy.staleSummaryMessage);
+      return;
+    }
+
     setSaving(true);
     setError("");
 
@@ -191,10 +261,24 @@ export function ReviewEditor() {
               <div className="text-sm text-slate-700">{generatedAtText}</div>
             </div>
           ) : null}
-          <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
+          {requiresRegeneration ? (
+            <div className="space-y-3">
+              <StatusBanner tone="error">{copy.staleSummaryMessage}</StatusBanner>
+              <button
+                className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={regenerating || returningToQuestions}
+                type="button"
+                onClick={handleRegenerate}
+              >
+                {regenerating ? copy.regeneratingButton : copy.regenerateButton}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
+          )}
           <button
             className="w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={saving || returningToQuestions}
+            disabled={saving || regenerating || returningToQuestions}
             type="button"
             onClick={handleBackToQuestions}
           >
@@ -202,70 +286,63 @@ export function ReviewEditor() {
           </button>
         </div>
 
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-700">{copy.summaryTitleLabel}</span>
-          <input
-            className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-            value={summary.title}
-            onChange={(event) =>
-              setSummary((current) => ({
-                ...current,
-                title: event.target.value
-              }))
-            }
-          />
-        </label>
+        {requiresRegeneration ? null : (
+          <>
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-slate-700">{copy.summaryTitleLabel}</span>
+              <input
+                className="w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
+                value={summary.title}
+                onChange={(event) =>
+                  setSummary((current) => ({
+                    ...current,
+                    title: event.target.value
+                  }))
+                }
+              />
+            </label>
 
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-700">{copy.overviewLabel}</span>
-          <textarea
-            className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
-            value={summary.overview}
-            onChange={(event) =>
-              setSummary((current) => ({
-                ...current,
-                overview: event.target.value
-              }))
-            }
-          />
-        </label>
-
-        <div className="space-y-3">
-          <h2 className="text-sm font-medium text-slate-700">{copy.sectionsLabel}</h2>
-
-          {summary.sections.map((section) => (
-            <div key={section.id} className="space-y-3 rounded-3xl border border-border bg-canvas px-4 py-4">
-              <div className="space-y-1">
-                <span className="text-sm font-medium text-slate-700">{copy.sectionTitleLabel}</span>
-                <div className="rounded-2xl border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700">
-                  {section.title}
-                </div>
-              </div>
+            {summary.overview ? (
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-700">{copy.sectionItemsLabel}</span>
+                <span className="text-sm font-medium text-slate-700">{copy.overviewLabel}</span>
                 <textarea
-                  className="min-h-28 w-full rounded-2xl border border-border bg-white px-4 py-3 outline-none transition focus:border-accent"
-                  placeholder={copy.sectionItemsPlaceholder}
-                  value={itemsToTextarea(section.items)}
+                  className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent"
+                  value={summary.overview}
                   onChange={(event) =>
-                    updateSection(section.id, { items: textareaToItems(event.target.value) })
+                    setSummary((current) => ({
+                      ...current,
+                      overview: event.target.value
+                    }))
                   }
                 />
               </label>
+            ) : null}
+
+            <div className="space-y-3">
+              <h2 className="text-sm font-medium text-slate-700">{copy.sectionsLabel}</h2>
+              {getVisibleSections(summary).map((section) => (
+                <StructuredSummarySectionEditor
+                  key={section.id}
+                  section={section}
+                  onChange={updateSection}
+                />
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
 
         {error ? <StatusBanner tone="error">{error}</StatusBanner> : null}
 
-        <button
-          className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={saving || returningToQuestions}
-          type="button"
-          onClick={handleConfirm}
-        >
-          {saving ? copy.savingButton : copy.saveButton}
-        </button>
+        {!requiresRegeneration ? (
+          <button
+            className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={saving || returningToQuestions || regenerating}
+            type="button"
+            onClick={handleConfirm}
+          >
+            {saving ? copy.savingButton : copy.saveButton}
+          </button>
+        ) : null}
       </div>
     </AppShell>
   );

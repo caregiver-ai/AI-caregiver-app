@@ -70,6 +70,7 @@ export async function POST(request: Request) {
         {
           session_id: body.sessionId,
           summary_json: summary,
+          edited_json: summary,
           summary_text: summaryToPlainText(summary)
         },
         {

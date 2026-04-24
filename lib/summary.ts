@@ -1,5 +1,6 @@
 import { EMPTY_SUMMARY } from "@/lib/constants";
 import { ConversationTurn, StructuredSummary, SummarySection, UiLanguage } from "@/lib/types";
+import { hydrateStructuredSection } from "@/lib/summary-structured";
 
 type LegacyStructuredSummary = {
   key_barriers?: unknown;
@@ -74,6 +75,10 @@ const NON_ANSWER_PATTERN =
   /^(?:use skip|skip|n\/a|na|none|unknown|not sure|not clearly stated(?: in the raw input)?|not stated|not provided|no information)$/i;
 const TRANSCRIPTION_NOISE_PATTERN =
   /^(?:um+|uh+|hmm+|mm+|eh+|ah+|ha+|heh+|eheh+|haha+|huh+|mmm+|uh-huh|mm-hmm)$/i;
+const TRANSCRIPT_ACKNOWLEDGEMENT_PATTERN =
+  /^(?:um+[, ]+)?(?:yeah|yes|okay|ok|right|sure|mm-hmm|uh-huh|mhm|hmm|got it)(?:[.!?,\s]+)?$/i;
+const LEADING_FILLER_PATTERN =
+  /^(?:(?:well|so|and|but|um+|uh+|you know|like|i mean|actually|basically|sort of|kind of)[,\s]+)+/i;
 const SECTION_LABEL_OVERVIEW_PATTERN =
   /\b(?:Communication|Daily Needs(?: &| and) Routines|What helps the day go well|What can upset or overwhelm(?: them)?|Signs they need help|What helps when they are having a hard time|Health(?: &| and) Safety|Who to contact(?: \(and when\)| and when)?)\s*:/i;
 
@@ -597,16 +602,26 @@ function cleanSummaryItem(value: string) {
     return null;
   }
 
-  if (TRANSCRIPTION_NOISE_PATTERN.test(trimmed)) {
+  if (TRANSCRIPTION_NOISE_PATTERN.test(trimmed) || TRANSCRIPT_ACKNOWLEDGEMENT_PATTERN.test(trimmed)) {
     return null;
   }
 
-  const alphanumericCount = (trimmed.match(/[A-Za-z0-9]/g) ?? []).length;
+  const withoutLeadingFiller = trimmed.replace(LEADING_FILLER_PATTERN, "").trim();
+  const normalized = withoutLeadingFiller || trimmed;
+
+  if (
+    TRANSCRIPTION_NOISE_PATTERN.test(normalized) ||
+    TRANSCRIPT_ACKNOWLEDGEMENT_PATTERN.test(normalized)
+  ) {
+    return null;
+  }
+
+  const alphanumericCount = (normalized.match(/[A-Za-z0-9]/g) ?? []).length;
   if (alphanumericCount < 3) {
     return null;
   }
 
-  return trimmed.replace(/\s+/g, " ");
+  return normalized.replace(/\s+/g, " ");
 }
 
 function polishSummaryItem(title: string, value: string) {
@@ -1442,6 +1457,10 @@ function usesPreferredSectionStructure(sections: SummarySection[]) {
 
 function normalizeSection(input: unknown, index: number): SummarySection | null {
   const candidate = input as Partial<SummarySection> | undefined;
+  if (Array.isArray(candidate?.blocks) || typeof candidate?.intro === "string") {
+    return hydrateStructuredSection(candidate ?? {}, index);
+  }
+
   const title =
     typeof candidate?.title === "string" ? canonicalizeSectionTitle(candidate.title) : "";
   const items = Array.isArray(candidate?.items)
@@ -1497,7 +1516,10 @@ function normalizeLegacySummary(input: LegacyStructuredSummary, nameHint?: strin
         ? shortenOverview(input.caregiver_summary_text)
         : "",
     sections: sortAndMergeSections(legacySections),
-    generatedAt: ""
+    generatedAt: "",
+    pipelineVersion: "",
+    layoutVersion: "",
+    sourceTurnsHash: ""
   };
 }
 
@@ -1941,6 +1963,137 @@ function rehomeHealthSafetyCommunicationItems(sections: SummarySection[]) {
   return nextSections;
 }
 
+function healthSafetySortCategory(item: string) {
+  if (
+    /\b(may bite you|bite caregiver|hurt caregiver|harm caregiver|injure caregiver|do not block|do not physically stop)\b/i.test(
+      item
+    )
+  ) {
+    return 4;
+  }
+
+  if (
+    /\b(abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|dose|mg\b|once a day|daily at)\b/i.test(
+      item
+    )
+  ) {
+    return 2;
+  }
+
+  if (
+    /\b(aac device|touchchat|ipad|headphones|noise-?cancel|fidgets?|buckle buddy|pull-?ups?|white cane|equipment|supports?)\b/i.test(
+      item
+    )
+  ) {
+    return 3;
+  }
+
+  if (
+    /\b(supervision|safety|unsafe|risk|elopement|run away|self-injury|hand biting|pica|low muscle tone|two caregivers?|two people|2 adults?|does not communicate pain|cannot communicate pain)\b/i.test(
+      item
+    )
+  ) {
+    return 0;
+  }
+
+  if (
+    /\b(autism|diagnos|disorder|impairment|regression|delay|apraxia|syndrome|cvi|condition)\b/i.test(
+      item
+    )
+  ) {
+    return 1;
+  }
+
+  return 1;
+}
+
+function orderHealthSafetyItems(items: string[]) {
+  const entries = items.map((item, index) => ({
+    item,
+    index,
+    category: healthSafetySortCategory(item)
+  }));
+
+  entries.sort((left, right) => {
+    if (left.category !== right.category) {
+      return left.category - right.category;
+    }
+
+    if (left.index !== right.index) {
+      return left.index - right.index;
+    }
+
+    return left.item.localeCompare(right.item);
+  });
+
+  return entries.map((entry) => entry.item);
+}
+
+function enforceCrossSectionDeconfliction(sections: SummarySection[]) {
+  const byTitle = new Map<PreferredSummarySectionTitle, SummarySection>(
+    ensurePreferredSections(sections).map((section) => [
+      canonicalizeSectionTitle(section.title) as PreferredSummarySectionTitle,
+      {
+        ...section,
+        items: section.items.filter((item) => !isNoInformationItem(item))
+      }
+    ])
+  );
+
+  for (const title of PREFERRED_SUMMARY_SECTION_ORDER) {
+    const section = byTitle.get(title);
+    if (!section) {
+      continue;
+    }
+
+    const retained: string[] = [];
+    for (const item of section.items) {
+      const preferredTitle = inferNormalizedSectionTitle(item, title);
+      if (preferredTitle !== title) {
+        const destination = byTitle.get(preferredTitle);
+        if (destination) {
+          destination.items.push(item);
+          continue;
+        }
+      }
+
+      retained.push(item);
+    }
+
+    section.items = retained;
+  }
+
+  const seen: Array<{ title: PreferredSummarySectionTitle; item: string }> = [];
+
+  for (const title of PREFERRED_SUMMARY_SECTION_ORDER) {
+    const section = byTitle.get(title);
+    if (!section) {
+      continue;
+    }
+
+    const uniqueItems: string[] = [];
+    for (const item of section.items) {
+      if (seen.some((entry) => itemsAreNearDuplicate(entry.item, item, title))) {
+        continue;
+      }
+
+      uniqueItems.push(item);
+      seen.push({ title, item });
+    }
+
+    section.items = title === "Health & Safety" ? orderHealthSafetyItems(uniqueItems) : uniqueItems;
+  }
+
+  return PREFERRED_SUMMARY_SECTION_ORDER.map((title, index) => {
+    const section = byTitle.get(title);
+    if (section) {
+      return section;
+    }
+
+    return createPlaceholderSection(title, index);
+  });
+}
+
 function refinePreferredSections(sections: SummarySection[]) {
   const normalizedSections = ensurePreferredSections(
     sections.map((section, index) => ({
@@ -1957,14 +2110,20 @@ function refinePreferredSections(sections: SummarySection[]) {
   const surfacedSupportSections = surfaceDayGoWellSupports(healthSafetyRehomedSections);
   const hardTimeSurfacedSections = surfaceHardTimeSupports(surfacedSupportSections);
   const surfacedSections = surfaceUpsetTriggers(hardTimeSurfacedSections);
+  const deconflictedSections = enforceCrossSectionDeconfliction(surfacedSections);
 
   return ensurePreferredSections(
-    surfacedSections.map((section, index) => ({
-      ...section,
-      id: section.id || `${slugify(section.title) || "section"}-${index + 1}`,
-      items: normalizeSectionItems(section.title, section.items),
-      title: canonicalizeSectionTitle(section.title)
-    }))
+    deconflictedSections.map((section, index) => {
+      const title = canonicalizeSectionTitle(section.title);
+      const normalizedItems = normalizeSectionItems(title, section.items);
+
+      return {
+        ...section,
+        id: section.id || `${slugify(title) || "section"}-${index + 1}`,
+        items: title === "Health & Safety" ? orderHealthSafetyItems(normalizedItems) : normalizedItems,
+        title
+      };
+    })
   );
 }
 
@@ -2107,7 +2266,10 @@ export function normalizeGeneratedSummaryWithOptions(
     return {
       ...EMPTY_SUMMARY,
       title: defaultSummaryTitle(nameHint),
-      sections: ensurePreferredSections([])
+      sections: ensurePreferredSections([]),
+      pipelineVersion: "",
+      layoutVersion: "",
+      sourceTurnsHash: ""
     };
   }
 
@@ -2127,7 +2289,10 @@ export function normalizeGeneratedSummaryWithOptions(
     generatedAt:
       typeof candidate.generatedAt === "string" && candidate.generatedAt.trim()
         ? candidate.generatedAt.trim()
-        : ""
+        : "",
+    pipelineVersion: "",
+    layoutVersion: "",
+    sourceTurnsHash: ""
   };
 }
 
@@ -2179,7 +2344,10 @@ export function buildFallbackSummary(
     title: defaultSummaryTitle(nameHint),
     overview: buildOverview(defaultSummaryTitle(nameHint), finalSections),
     sections: finalSections,
-    generatedAt: ""
+    generatedAt: "",
+    pipelineVersion: "",
+    layoutVersion: "",
+    sourceTurnsHash: ""
   };
 }
 
@@ -2246,7 +2414,10 @@ export function normalizeStructuredSummaryWithOptions(
   if (!candidate) {
     return {
       ...EMPTY_SUMMARY,
-      title: defaultSummaryTitle(nameHint)
+      title: defaultSummaryTitle(nameHint),
+      pipelineVersion: "",
+      layoutVersion: "",
+      sourceTurnsHash: ""
     };
   }
 
@@ -2260,11 +2431,16 @@ export function normalizeStructuredSummaryWithOptions(
           .map((section, index) => normalizeSection(section, index))
           .filter((section): section is SummarySection => Boolean(section))
       : [];
+    const containsStructuredBlocks = sections.some(
+      (section) => Array.isArray(section.blocks) && section.blocks.length > 0
+    );
 
-    const orderedSections = sortAndMergeSections(sections);
-    const finalSections = usesPreferredSectionStructure(orderedSections)
-      ? normalizePreferredSections(orderedSections, options)
-      : orderedSections;
+    const orderedSections = containsStructuredBlocks ? sections : sortAndMergeSections(sections);
+    const finalSections = containsStructuredBlocks
+      ? orderedSections
+      : usesPreferredSectionStructure(orderedSections)
+        ? normalizePreferredSections(orderedSections, options)
+        : orderedSections;
     const summaryTitle =
       typeof candidate.title === "string" && candidate.title.trim()
         ? candidate.title.trim()
@@ -2273,14 +2449,24 @@ export function normalizeStructuredSummaryWithOptions(
     return {
       title: summaryTitle,
       overview:
-        typeof candidate.overview === "string" && !shouldRewriteOverview(candidate.overview)
+        containsStructuredBlocks && typeof candidate.overview === "string"
+          ? shortenOverview(candidate.overview)
+          : containsStructuredBlocks
+            ? ""
+          : typeof candidate.overview === "string" && !shouldRewriteOverview(candidate.overview)
           ? shortenOverview(candidate.overview)
           : buildOverview(summaryTitle, finalSections),
       sections: finalSections,
       generatedAt:
         typeof candidate.generatedAt === "string" && candidate.generatedAt.trim()
           ? candidate.generatedAt.trim()
-          : ""
+          : "",
+      pipelineVersion:
+        typeof candidate.pipelineVersion === "string" ? candidate.pipelineVersion.trim() : "",
+      layoutVersion:
+        typeof candidate.layoutVersion === "string" ? candidate.layoutVersion.trim() : "",
+      sourceTurnsHash:
+        typeof candidate.sourceTurnsHash === "string" ? candidate.sourceTurnsHash.trim() : ""
     };
   }
 

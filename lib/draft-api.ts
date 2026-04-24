@@ -1,10 +1,11 @@
 "use client";
 
 import { getStoredSupabaseSession, getSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { SessionDraft } from "@/lib/types";
+import { SessionDraft, SummaryFreshness } from "@/lib/types";
 
 type DraftResponse = {
   draft: SessionDraft | null;
+  summaryFreshness?: SummaryFreshness | null;
 };
 
 function isMissingOwnedDraftError(status: number, error?: string) {
@@ -54,7 +55,7 @@ export async function authenticatedFetch(input: RequestInfo | URL, init?: Reques
   });
 }
 
-export async function loadRemoteDraft() {
+export async function loadRemoteDraftBundle() {
   const response = await authenticatedFetch("/api/draft", {
     method: "GET"
   });
@@ -64,7 +65,15 @@ export async function loadRemoteDraft() {
     throw new Error(data.error ?? "Unable to load your saved progress.");
   }
 
-  return data.draft;
+  return {
+    draft: data.draft,
+    summaryFreshness: data.summaryFreshness ?? null
+  };
+}
+
+export async function loadRemoteDraft() {
+  const { draft } = await loadRemoteDraftBundle();
+  return draft;
 }
 
 export async function saveRemoteDraft(draft: SessionDraft, status: string) {

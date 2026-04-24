@@ -10,13 +10,21 @@ export type ReflectionResponse = {
 
 export function getPromptSequence(language: UiLanguage = "english"): ConversationTurn[] {
   return getLocalizedReflectionPrompts(language).map((prompt) => ({
+    // Normalize legacy wording so section cards match the canonical 8-section naming.
+    ...(prompt.stepTitle === "Signs they may need help"
+      ? {
+          sectionTitle: "Signs they need help",
+          stepTitle: "Signs they need help"
+        }
+      : {
+          sectionTitle: prompt.stepTitle || prompt.sectionTitle,
+          stepTitle: prompt.stepTitle
+        }),
     id: prompt.id,
     role: "assistant",
     promptType: "section_prompt",
     sectionId: prompt.sectionId,
-    sectionTitle: prompt.sectionTitle,
     stepId: prompt.stepId,
-    stepTitle: prompt.stepTitle,
     stepSubtitle: prompt.stepSubtitle,
     stepCompletionMessage: prompt.stepCompletionMessage,
     promptLabel: prompt.promptLabel,

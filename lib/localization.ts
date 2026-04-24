@@ -153,6 +153,10 @@ type ReviewCopy = {
   generatedAtLabel: string;
   backToQuestionsButton: string;
   regenerateHint: string;
+  regenerateButton: string;
+  regeneratingButton: string;
+  regenerateFailed: string;
+  staleSummaryMessage: string;
   summaryTitleLabel: string;
   overviewLabel: string;
   sectionsLabel: string;
@@ -176,6 +180,11 @@ type CompletionCopy = {
   generatedAtLabel: string;
   backToQuestionsButton: string;
   regenerateHint: string;
+  regenerateButton: string;
+  regeneratingButton: string;
+  regenerateFailed: string;
+  regenerateSuccess: string;
+  staleSummaryMessage: string;
   overviewLabel: string;
   downloadPdfButton: string;
   preparingPdfButton: string;
@@ -634,6 +643,11 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
     generatedAtLabel: "Summary created",
     backToQuestionsButton: "Back to questions",
     regenerateHint: "Need to add more context? Go back to the questions, add details, and complete again to regenerate this summary.",
+    regenerateButton: "Regenerate from saved answers",
+    regeneratingButton: "Regenerating...",
+    regenerateFailed: "Unable to regenerate the summary right now.",
+    staleSummaryMessage:
+      "This saved summary is out of date. Regenerate it from the saved answers before reviewing or confirming it.",
     summaryTitleLabel: "Summary title",
     overviewLabel: "Overview",
     sectionsLabel: "Handoff sections",
@@ -654,6 +668,11 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
     backToQuestionsButton: "Volver a las preguntas",
     regenerateHint:
       "¿Necesita agregar más contexto? Vuelva a las preguntas, agregue detalles y complete de nuevo para regenerar este resumen.",
+    regenerateButton: "Regenerar desde las respuestas guardadas",
+    regeneratingButton: "Regenerando...",
+    regenerateFailed: "No fue posible regenerar el resumen en este momento.",
+    staleSummaryMessage:
+      "Este resumen guardado está desactualizado. Regénérelo desde las respuestas guardadas antes de revisarlo o confirmarlo.",
     summaryTitleLabel: "Título del resumen",
     overviewLabel: "Resumen general",
     sectionsLabel: "Secciones del relevo",
@@ -673,6 +692,10 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
     generatedAtLabel: "摘要创建时间",
     backToQuestionsButton: "返回问题页",
     regenerateHint: "如果还想补充更多背景，请返回问题页添加内容，然后再次完成以重新生成摘要。",
+    regenerateButton: "根据已保存回答重新生成",
+    regeneratingButton: "正在重新生成...",
+    regenerateFailed: "暂时无法重新生成摘要。",
+    staleSummaryMessage: "这份已保存的摘要已过期。请先根据已保存的回答重新生成，再进行审核或确认。",
     summaryTitleLabel: "摘要标题",
     overviewLabel: "概览",
     sectionsLabel: "交接部分",
@@ -699,6 +722,12 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     generatedAtLabel: "Summary created",
     backToQuestionsButton: "Back to questions",
     regenerateHint: "If you remember more details later, go back to the questions, add them, and complete again to regenerate the summary.",
+    regenerateButton: "Regenerate from saved answers",
+    regeneratingButton: "Regenerating...",
+    regenerateFailed: "Unable to regenerate the summary right now.",
+    regenerateSuccess: "Summary regenerated from the saved answers.",
+    staleSummaryMessage:
+      "This saved summary is out of date. Regenerate it from the saved answers before downloading or emailing it.",
     overviewLabel: "Overview",
     downloadPdfButton: "Download as PDF",
     preparingPdfButton: "Preparing PDF...",
@@ -729,6 +758,12 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     backToQuestionsButton: "Volver a las preguntas",
     regenerateHint:
       "Si luego recuerda más detalles, vuelva a las preguntas, agréguelos y complete de nuevo para regenerar el resumen.",
+    regenerateButton: "Regenerar desde las respuestas guardadas",
+    regeneratingButton: "Regenerando...",
+    regenerateFailed: "No fue posible regenerar el resumen en este momento.",
+    regenerateSuccess: "El resumen se regeneró a partir de las respuestas guardadas.",
+    staleSummaryMessage:
+      "Este resumen guardado está desactualizado. Regénérelo desde las respuestas guardadas antes de descargarlo o enviarlo por correo.",
     overviewLabel: "Resumen general",
     downloadPdfButton: "Descargar como PDF",
     preparingPdfButton: "Preparando PDF...",
@@ -758,6 +793,11 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     generatedAtLabel: "摘要创建时间",
     backToQuestionsButton: "返回问题页",
     regenerateHint: "如果之后想起更多细节，可以返回问题页补充内容，然后再次完成以重新生成摘要。",
+    regenerateButton: "根据已保存回答重新生成",
+    regeneratingButton: "正在重新生成...",
+    regenerateFailed: "暂时无法重新生成摘要。",
+    regenerateSuccess: "已根据保存的回答重新生成摘要。",
+    staleSummaryMessage: "这份已保存的摘要已过期。请先根据已保存的回答重新生成，再下载或通过邮件发送。",
     overviewLabel: "概览",
     downloadPdfButton: "下载 PDF",
     preparingPdfButton: "正在准备 PDF...",

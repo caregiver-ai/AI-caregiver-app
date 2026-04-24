@@ -27,10 +27,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: sessionLookupError.message }, { status: 500 });
     }
 
+    const { data: existingSummaryRow, error: summaryLookupError } = await supabase
+      .from("summaries")
+      .select("summary_json")
+      .eq("session_id", body.sessionId)
+      .maybeSingle();
+
+    if (summaryLookupError) {
+      return NextResponse.json({ error: summaryLookupError.message }, { status: 500 });
+    }
+
     const { error: summaryError } = await supabase.from("summaries").upsert(
       {
         session_id: body.sessionId,
-        summary_json: editedSummary,
+        summary_json:
+          (existingSummaryRow as { summary_json?: unknown } | null)?.summary_json ??
+          sessionRow?.draft_json?.structuredSummary ??
+          editedSummary,
         edited_json: editedSummary,
         summary_text: summaryToPlainText(editedSummary),
         confirmed_at: new Date().toISOString()
@@ -53,7 +66,7 @@ export async function POST(request: Request) {
             draft_json: {
               ...sessionRow.draft_json,
               editedSummary,
-              structuredSummary: editedSummary
+              structuredSummary: sessionRow.draft_json.structuredSummary ?? editedSummary
             }
           }
         : {})

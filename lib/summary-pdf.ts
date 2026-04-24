@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { getSectionBlocks, getVisibleSections } from "@/lib/summary-display";
 import { formatSummaryGeneratedAt } from "@/lib/summary";
-import { StructuredSummary } from "@/lib/types";
+import { StructuredSummary, SummaryBlock } from "@/lib/types";
 
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
@@ -131,10 +132,11 @@ function drawParagraph(
   font: PDFFont,
   fontSize: number,
   color: ReturnType<typeof rgb>,
-  width = CONTENT_WIDTH
+  width = CONTENT_WIDTH,
+  x = PAGE_MARGIN_X
 ) {
   const lines = wrapText(text, font, fontSize, width);
-  return drawWrappedLines(pdf, state, lines, font, fontSize, color, PAGE_MARGIN_X);
+  return drawWrappedLines(pdf, state, lines, font, fontSize, color, x);
 }
 
 function drawBulletItem(
@@ -142,17 +144,19 @@ function drawBulletItem(
   state: PageState,
   text: string,
   font: PDFFont,
-  color: ReturnType<typeof rgb>
+  color: ReturnType<typeof rgb>,
+  x = PAGE_MARGIN_X,
+  width = CONTENT_WIDTH
 ) {
   const bulletWidth = 12;
-  const lines = wrapText(text, font, BODY_SIZE, CONTENT_WIDTH - bulletWidth);
+  const lines = wrapText(text, font, BODY_SIZE, width - bulletWidth);
   if (lines.length === 0) {
     return state;
   }
 
   let nextState = ensureSpace(pdf, state, BODY_SIZE + LINE_GAP);
   nextState.page.drawText("•", {
-    x: PAGE_MARGIN_X,
+    x,
     y: nextState.y - BODY_SIZE,
     size: BODY_SIZE,
     font,
@@ -165,13 +169,84 @@ function drawBulletItem(
     font,
     BODY_SIZE,
     color,
-    PAGE_MARGIN_X + bulletWidth
+    x + bulletWidth
   );
 
   return {
     ...nextState,
     y: nextState.y - ITEM_GAP
   };
+}
+
+function drawSectionBlock(
+  pdf: PDFDocument,
+  state: PageState,
+  block: SummaryBlock,
+  regularFont: PDFFont,
+  boldFont: PDFFont,
+  slate: ReturnType<typeof rgb>,
+  muted: ReturnType<typeof rgb>
+) {
+  let nextState = state;
+
+  if (block.type === "bullets") {
+    for (const item of block.items) {
+      nextState = drawBulletItem(pdf, nextState, item, regularFont, slate);
+    }
+
+    return nextState;
+  }
+
+  if (block.type === "keyValue") {
+    for (const row of block.rows) {
+      nextState = drawBulletItem(
+        pdf,
+        nextState,
+        `${row.label}: ${row.value}`,
+        regularFont,
+        slate
+      );
+    }
+
+    return nextState;
+  }
+
+  if (block.type === "note") {
+    nextState = drawParagraph(pdf, nextState, block.text, regularFont, BODY_SIZE, slate);
+    return {
+      ...nextState,
+      y: nextState.y - ITEM_GAP
+    };
+  }
+
+  for (const group of block.groups) {
+    nextState = ensureSpace(pdf, nextState, BODY_SIZE + 10);
+    nextState.page.drawText(group.label, {
+      x: PAGE_MARGIN_X,
+      y: nextState.y - BODY_SIZE,
+      size: BODY_SIZE,
+      font: boldFont,
+      color: muted
+    });
+    nextState = {
+      ...nextState,
+      y: nextState.y - BODY_SIZE - 6
+    };
+
+    for (const item of group.items) {
+      nextState = drawBulletItem(
+        pdf,
+        nextState,
+        item,
+        regularFont,
+        slate,
+        PAGE_MARGIN_X + 16,
+        CONTENT_WIDTH - 16
+      );
+    }
+  }
+
+  return nextState;
 }
 
 function escapeHtml(value: string) {
@@ -228,10 +303,8 @@ export async function createSummaryPdf(summary: StructuredSummary) {
     state.y -= SECTION_GAP;
   }
 
-  for (const section of summary.sections) {
-    if (!section.title.trim() || section.items.length === 0) {
-      continue;
-    }
+  for (const section of getVisibleSections(summary)) {
+    const blocks = getSectionBlocks(section);
 
     state = ensureSpace(pdf, state, SECTION_TITLE_SIZE + 20);
     state.page.drawText(section.title.trim(), {
@@ -243,8 +316,13 @@ export async function createSummaryPdf(summary: StructuredSummary) {
     });
     state.y -= SECTION_TITLE_SIZE + 10;
 
-    for (const item of section.items) {
-      state = drawBulletItem(pdf, state, item, regularFont, slate);
+    if (section.intro?.trim()) {
+      state = drawParagraph(pdf, state, section.intro.trim(), regularFont, BODY_SIZE, slate);
+      state.y -= 8;
+    }
+
+    for (const block of blocks) {
+      state = drawSectionBlock(pdf, state, block, regularFont, boldFont, slate, muted);
     }
 
     state.y -= SECTION_GAP;
@@ -255,18 +333,59 @@ export async function createSummaryPdf(summary: StructuredSummary) {
 
 export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: string) {
   const generatedAtText = formatSummaryGeneratedAt(summary.generatedAt, "english");
-  const sections = summary.sections
-    .filter((section) => section.items.length > 0)
-    .map(
-      (section) => `
+  const sections = getVisibleSections(summary)
+    .map((section) => {
+      const intro = section.intro?.trim()
+        ? `<p style="margin:0 0 10px;color:#334155;">${escapeHtml(section.intro.trim())}</p>`
+        : "";
+      const blocks = getSectionBlocks(section)
+        .map((block) => {
+          if (block.type === "bullets") {
+            return `
+              <ul style="margin:0 0 0 18px;padding:0;color:#334155;">
+                ${block.items.map((item) => `<li style="margin:0 0 6px;">${escapeHtml(item)}</li>`).join("")}
+              </ul>
+            `;
+          }
+
+          if (block.type === "keyValue") {
+            return `
+              <ul style="margin:0 0 0 18px;padding:0;color:#334155;">
+                ${block.rows
+                  .map(
+                    (row) =>
+                      `<li style="margin:0 0 6px;"><strong>${escapeHtml(row.label)}:</strong> ${escapeHtml(row.value)}</li>`
+                  )
+                  .join("")}
+              </ul>
+            `;
+          }
+
+          if (block.type === "note") {
+            return `<p style="margin:0 0 10px;color:#334155;">${escapeHtml(block.text)}</p>`;
+          }
+
+          return block.groups
+            .map(
+              (group) => `
+                <div style="margin:0 0 12px;">
+                  <div style="font-weight:600;color:#64748b;margin:0 0 6px;">${escapeHtml(group.label)}</div>
+                  <ul style="margin:0 0 0 18px;padding:0;color:#334155;">
+                    ${group.items.map((item) => `<li style="margin:0 0 6px;">${escapeHtml(item)}</li>`).join("")}
+                  </ul>
+                </div>
+              `
+            )
+            .join("");
+        })
+        .join("");
+
+      return `
         <h3 style="font-size:16px;margin:20px 0 8px;color:#334155;">${escapeHtml(section.title)}</h3>
-        <ul style="margin:0 0 0 18px;padding:0;color:#334155;">
-          ${section.items
-            .map((item) => `<li style="margin:0 0 6px;">${escapeHtml(item)}</li>`)
-            .join("")}
-        </ul>
-      `
-    )
+        ${intro}
+        ${blocks}
+      `;
+    })
     .join("");
 
   return `

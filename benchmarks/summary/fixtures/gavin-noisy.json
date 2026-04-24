@@ -1,0 +1,307 @@
+{
+  "id": "gavin-noisy",
+  "nameHint": "Gavin",
+  "turns": [
+    {
+      "id": "gavin-noisy-1",
+      "role": "user",
+      "promptType": "section_prompt",
+      "content": "Gavin is non-speaking. He can make sounds but he can't say words. It's part of his disability. He will express himself with his voice. Sometimes he's kind of singing and sometimes you hear angry noises or happy noises. He can label things with his device. Ask for help. Tell us if he is happy or sad. Gavin uses an AAC device to communicate. It's on an iPad and the software is TouchChat. He uses his iPad to ask for help, like for example if he can't open his water bottle to fill it, but sometimes he can't open it. He has low muscle tone. He'll ask for help and um he also uses it for when his iPad isn't working, he might select I want iPad. That means maybe the internet is down or maybe he can't find the video that he's actually looking for. If he's upset, sometimes he just wants to go on a car ride, so he'll go to his iPad device and select the word car. That means he wants to go on a trip. Usually places he likes to go are IKEA or Bass Pro Shops in Foxborough. Um, yeah. When Gavin also wants to express himself, he'll come up to you and maybe touch you or try to lead you to what he wants. He'll also let you know when he wants attention because he'll sit next to you and kind of get closer and closer until you start giving him attention. Gavin does not communicate when he needs the bathroom. He does void in the toilet, but he does not have bowel movements in the toilet.",
+      "createdAt": "2026-04-20T10:00:00.000Z",
+      "stepId": "communication",
+      "stepTitle": "Communication",
+      "promptLabel": "Communication"
+    },
+    {
+      "id": "gavin-noisy-2",
+      "role": "user",
+      "promptType": "section_prompt",
+      "content": "So, Gavin needs to be told to use the bathroom. He won't use it independently. The house has speakers that go off every hour and tell him to go use the bathroom. For the most part, he will go use the bathroom when they go off. Sometimes he won't because he wants to be doing something else, so you have to just remind him to go use the bathroom. You know if when Gavin is hungry, first of all he needs food constantly. And if any of his food runs out, he starts going to the fridge often and grabbing cheese. That's basically a sign that he's hungry and he needs more food. On a weekday, I wake Gavin up at 7:20 a.m. I bring the iPad to his room and let him wake up to the iPad. We go to the bathroom together. If Gavin does not void, sometimes the only other way I can get him to void is to take him to the shower and turn on the showerhead. He does not eat breakfast on weekdays when he has school. For school lunches, I pack Gavin pasta with a little olive oil and Parmesan cheese, raw cauliflower, and water with Miralax. Gavin has a really limited diet. All of Gavin's food needs to be bite-sized pieces because he has trouble biting them and usually eats with his hands. He is able to independently open the fridge and get cheese for himself, which he does throughout the day. Gavin does not sit down to eat at home. We put the food up on the counter and he grazes walking by all day. When doing tasks or asked to wait, a visual timer most often works with Gavin. Also a visual schedule with a preferred at the end helps him get through tasks.",
+      "createdAt": "2026-04-20T10:02:00.000Z",
+      "stepId": "daily_schedule",
+      "stepTitle": "Daily Schedule",
+      "promptLabel": "Daily needs"
+    },
+    {
+      "id": "gavin-noisy-3",
+      "role": "user",
+      "promptType": "section_prompt",
+      "content": "Gavin is very visual, so it helps if you show him things to pick from, whether it's pictures of those items or the items themselves. Gavin is also good with two-step actions, so for example, first this, then that, that helps him. If you tell him more than two steps at a time, he kind of gets lost. Body language and communicating non-verbally also works for him. Overall interests include farms, animals, dinosaurs, cars, trucks, books, and planets. Going on walks, scooter, horseback riding, swimming, jumping, crashing, swinging, obstacle courses, bowling, YouTube videos, listening to music, playing chase, basketball, guitar, drums, and piano. He especially loves going to horseback riding lessons. He loves novelty, going to new places, exploring. He really likes walking around. He likes to keep moving and not staying still. Gavin loves his iPad the most. He loves music. Going on car rides, walking around new places, horseback riding, swimming. Downtime for Gavin is being left alone to do his own thing. Sometimes he likes to sit on the couch and watch TV.",
+      "createdAt": "2026-04-20T10:04:00.000Z",
+      "stepId": "activities_preferences",
+      "stepTitle": "Activities & Preferences",
+      "promptLabel": "Preferences"
+    },
+    {
+      "id": "gavin-noisy-4",
+      "role": "user",
+      "promptType": "section_prompt",
+      "content": "Gavin doesn't like it when things are out of place, when things are not in the place they're supposed to be, if they're moved, that upsets him. Gavin is obsessed with lights. He likes to turn them on and off. Gavin is also obsessed with shades being up or down. He's very rigid about them being either up or staying down. For lighting at home, we have to use soft indirect lighting because he won't let us turn on the overhead lighting. When things get too loud or chaotic, it can be overwhelming for him and overstimulating, and it can be upsetting. Gavin is very sensitive to noise and crowds. Loud noise, bright lights, crowded places, too many people. Always hungry, so he can get cranky if he doesn't have food with him all the time.",
+      "createdAt": "2026-04-20T10:06:00.000Z",
+      "stepId": "upset_overwhelm",
+      "stepTitle": "What can upset or overwhelm them",
+      "promptLabel": "Triggers"
+    },
+    {
+      "id": "gavin-noisy-5",
+      "role": "user",
+      "promptType": "section_prompt",
+      "content": "The easiest way to tell he needs help is when he goes up to his device and presses help. When Gavin is upset, he will run away, he'll elope. He'll definitely make angry sounds kind of like yelling as well. And sometimes if he's really dysregulated, he'll start biting his hand, which is not great. Does not let you know if he's hurt or in pain. It's very rare, so if he's walking strangely, like limping or avoiding certain body parts, check him. If Gavin's appetite changes or if he's not eating or not drinking, it could be because he's sick. When Gavin is lethargic, that is definitely a sign of sickness because he usually has a lot of energy and can't sit still. If Gavin disappears, it's probably because he's having a bowel movement and looking for privacy.",
+      "createdAt": "2026-04-20T10:08:00.000Z",
+      "stepId": "signs_need_help",
+      "stepTitle": "Signs they may need help",
+      "promptLabel": "Signs"
+    },
+    {
+      "id": "gavin-noisy-6",
+      "role": "user",
+      "promptType": "section_prompt",
+      "content": "If Gavin is really upset, giving him space and making sure everything is quiet and there isn't a lot going around is helpful to him. He needs to just have a moment to himself. Going up to him actually might make it worse, especially if he's doing self-harm or eloping. Definitely leaving the house, going for a car ride helps redirect him and helps him snap out of the bad mood. Giving him candy like Swedish fish or gummies helps sometimes calm him and redirect him. Gavin has some calming techniques. You could tell him to squeeze and release his hands. Telling him to take a deep breath or asking him to count to 10 will also help him, but this is only if he's still sort of calm and hasn't really gotten really upset yet. If he's really upset, again, giving him space is the best thing and giving him time to calm down. The most important thing to do is make sure Gavin is safe. Make sure that he can't hurt himself and just give him space. Do not try to stop him from biting his hand because then he'll just bite you.",
+      "createdAt": "2026-04-20T10:10:00.000Z",
+      "stepId": "hard_time_support",
+      "stepTitle": "What helps when they are having a hard time",
+      "promptLabel": "Supports"
+    },
+    {
+      "id": "gavin-noisy-7",
+      "role": "user",
+      "promptType": "section_prompt",
+      "content": "No allergies. Autism Spectrum Disorder: diagnosed 4/26/2015 by Dr. Catherine Davis. Cerebral Visual Impairment (CVI): diagnosed 6/26/2024 by Dr. Jam Martin. Pica: diagnosed 5/9/2025 by Dr. Patricia Peters. Language Regression: diagnosed 4/26/2015 by Dr. Catherine Davis. Mixed receptive-expressive language disorder: diagnosed 6/13/2015 by Dr. Catherine Davis. Sensory Processing Difficulty: diagnosed 6/13/2017 by Dr. Catherine Davis. Global Developmental Delay: diagnosed 7/8/2018 by Dr. Catherine Davis. Apraxia of Speech: diagnosed 7/8/2018 by Dr. Catherine Davis. ARIPiprazole 15mg also known as Abilify once a day at 3pm. Polyethylene glycol 3350, also known as MiraLax, in water daily. L’il Critters Gummy Vites multivitamin two gummies per day. Noise cancelling headphones. Buckle Buddy for seat belt car safety. Fidgets, always needs something in his hand. Pullups. White Cane that he is currently learning how to use. You definitely would need more than one person to go with him, both in the car or on walks. You need at least two people just for safety reasons.",
+      "createdAt": "2026-04-20T10:12:00.000Z",
+      "stepId": "health_safety",
+      "stepTitle": "Health & Safety",
+      "promptLabel": "Health and safety"
+    },
+    {
+      "id": "gavin-noisy-8",
+      "role": "user",
+      "promptType": "section_prompt",
+      "content": "Emergency contacts: Rania Kelly, Mother with physical custody, 617-538-4056, 20 Blue Hill Dr, Westwood MA 02090, raniadesign@gmail.com. Labebe Awde, Grandmother, 617-930-7229, 20 Blue Hill Dr, Westwood MA 02090, labebea@yahoo.com.",
+      "createdAt": "2026-04-20T10:14:00.000Z",
+      "stepId": "who_to_contact",
+      "stepTitle": "Who to contact",
+      "promptLabel": "Contacts"
+    }
+  ],
+  "expectations": {
+    "sectionTitles": [
+      "Communication",
+      "Daily Needs & Routines",
+      "What helps the day go well",
+      "What can upset or overwhelm them",
+      "Signs they need help",
+      "What helps when they are having a hard time",
+      "Health & Safety",
+      "Who to contact (and when)"
+    ],
+    "sectionChecks": {
+      "Communication": [
+        {
+          "label": "aac and non-speaking profile",
+          "anyOf": [
+            "non-speaking",
+            "aac",
+            "touchchat"
+          ]
+        },
+        {
+          "label": "device meaning cues",
+          "anyOf": [
+            "request car rides",
+            "i want ipad",
+            "ask for help"
+          ]
+        },
+        {
+          "label": "body language cues",
+          "anyOf": [
+            "lead",
+            "sit very close",
+            "touch you"
+          ]
+        }
+      ],
+      "Daily Needs & Routines": [
+        {
+          "label": "bathroom prompting",
+          "anyOf": [
+            "bathroom reminders",
+            "hourly prompts",
+            "told to use the bathroom"
+          ]
+        },
+        {
+          "label": "eating routine",
+          "anyOf": [
+            "limited diet",
+            "grazes",
+            "cheese"
+          ]
+        },
+        {
+          "label": "school routine detail",
+          "anyOf": [
+            "7:20 a.m.",
+            "8:05 a.m.",
+            "does not eat breakfast"
+          ]
+        }
+      ],
+      "What helps the day go well": [
+        {
+          "label": "visual and two-step supports",
+          "anyOf": [
+            "visual",
+            "two-step",
+            "first this, then that"
+          ]
+        },
+        {
+          "label": "preventive supports",
+          "anyOf": [
+            "food",
+            "walks can help",
+            "car rides can help",
+            "visual timer",
+            "visual schedule"
+          ]
+        }
+      ],
+      "What can upset or overwhelm them": [
+        {
+          "label": "sensory/environment triggers",
+          "anyOf": [
+            "loud noise",
+            "bright",
+            "crowded",
+            "moved",
+            "shades"
+          ]
+        },
+        {
+          "label": "hunger trigger",
+          "anyOf": [
+            "hunger",
+            "hungry"
+          ]
+        }
+      ],
+      "Signs they need help": [
+        {
+          "label": "behavioral escalation signs",
+          "anyOf": [
+            "eloping",
+            "hand biting",
+            "angry vocalizations",
+            "hiding"
+          ]
+        },
+        {
+          "label": "physical illness signs",
+          "anyOf": [
+            "limping",
+            "not eating",
+            "not drinking",
+            "low energy"
+          ]
+        },
+        {
+          "label": "communication sign",
+          "anyOf": [
+            "presses help",
+            "help on his device"
+          ]
+        }
+      ],
+      "What helps when they are having a hard time": [
+        {
+          "label": "de-escalation supports",
+          "anyOf": [
+            "give him space",
+            "keep things quiet",
+            "reduce stimulation"
+          ]
+        },
+        {
+          "label": "calming prompts",
+          "anyOf": [
+            "squeeze and release",
+            "deep breath",
+            "count to 10"
+          ]
+        },
+        {
+          "label": "safety response",
+          "anyOf": [
+            "do not physically stop",
+            "may bite you",
+            "car ride"
+          ]
+        }
+      ],
+      "Health & Safety": [
+        {
+          "label": "supervision and safety risks",
+          "anyOf": [
+            "two caregivers",
+            "safety reasons",
+            "pica",
+            "low muscle tone"
+          ]
+        },
+        {
+          "label": "diagnoses retained",
+          "anyOf": [
+            "autism spectrum disorder",
+            "cerebral visual impairment",
+            "apraxia of speech"
+          ]
+        },
+        {
+          "label": "medications retained",
+          "anyOf": [
+            "abilify",
+            "miralax",
+            "multivitamin"
+          ]
+        },
+        {
+          "label": "equipment retained",
+          "anyOf": [
+            "noise",
+            "buckle buddy",
+            "fidgets",
+            "pullups",
+            "white cane"
+          ]
+        }
+      ],
+      "Who to contact (and when)": [
+        {
+          "label": "contact retention",
+          "anyOf": [
+            "rania kelly",
+            "labebe awde",
+            "617-538-4056"
+          ]
+        }
+      ]
+    },
+    "bannedPhrases": [
+      "um, yeah.",
+      "what changes in their body show they need help",
+      "are there any allergies",
+      "how do they communicate"
+    ],
+    "sectionBannedPhrases": {
+      "Communication": [
+        "um, yeah."
+      ]
+    },
+    "maxDuplicateItems": 3,
+    "maxDuplicateItemsBySection": {
+      "Communication": 1,
+      "Health & Safety": 1
+    }
+  }
+}

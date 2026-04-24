@@ -41,14 +41,60 @@ export interface ConversationTurn {
 export interface SummarySection {
   id: string;
   title: string;
+  intro?: string;
+  items: string[];
+  blocks?: SummaryBlock[];
+}
+
+export interface SummaryKeyValueRow {
+  label: string;
+  value: string;
+}
+
+export interface SummaryLabeledGroup {
+  label: string;
   items: string[];
 }
+
+export type SummaryBlock =
+  | {
+      type: "bullets";
+      items: string[];
+    }
+  | {
+      type: "labeledBullets";
+      groups: SummaryLabeledGroup[];
+    }
+  | {
+      type: "keyValue";
+      rows: SummaryKeyValueRow[];
+    }
+  | {
+      type: "note";
+      text: string;
+    };
 
 export interface StructuredSummary {
   title: string;
   overview: string;
   sections: SummarySection[];
   generatedAt: string;
+  pipelineVersion: string;
+  layoutVersion: string;
+  sourceTurnsHash: string;
+}
+
+export interface SummaryArchive {
+  structuredSummary?: StructuredSummary;
+  editedSummary?: StructuredSummary;
+  archivedAt: string;
+  reason: "stale_regeneration";
+}
+
+export interface SummaryFreshness {
+  generated: "fresh" | "stale" | "missing";
+  edited: "fresh" | "stale" | "missing";
+  requiresRegeneration: boolean;
 }
 
 export interface SessionIntakeDetails {
@@ -71,6 +117,7 @@ export interface SessionDraft {
   turns: ConversationTurn[];
   structuredSummary?: StructuredSummary;
   editedSummary?: StructuredSummary;
+  summaryArchives?: SummaryArchive[];
   feedback?: {
     usefulnessRating: string;
     comments: string;
