@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { summaryToPlainText } from "@/lib/summary";
-import { generateCaregiverSummary } from "@/lib/summary-generation";
+import { generateCaregiverSummaryWithQa } from "@/lib/summary-generation";
 import { createSupabaseServerClient } from "@/lib/supabase";
 import { ConversationTurn } from "@/lib/types";
 
@@ -50,10 +50,12 @@ export async function POST(request: Request) {
   try {
     const rawNameHint = typeof body.nameHint === "string" ? body.nameHint.trim() : "";
     const nameHint = isUsefulNameHint(rawNameHint) ? rawNameHint : "";
+    const generated = await generateCaregiverSummaryWithQa(body.turns, nameHint || undefined, "two-step");
     const summary = {
-      ...(await generateCaregiverSummary(body.turns, nameHint || undefined, "two-step")),
+      ...generated.summary,
       generatedAt: new Date().toISOString()
     };
+    const auditReport = generated.auditReport;
 
     if (supabase) {
       const { data: sessionRow, error: sessionLookupError } = await supabase
@@ -90,7 +92,9 @@ export async function POST(request: Request) {
               ...sessionRow.draft_json,
               turns: body.turns,
               structuredSummary: summary,
-              editedSummary: summary
+              editedSummary: summary,
+              structuredSummaryAudit: auditReport,
+              editedSummaryAudit: auditReport
             },
             updated_at: new Date().toISOString()
           })
@@ -102,7 +106,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ summary });
+    return NextResponse.json({ summary, auditReport });
   } catch (error) {
     return NextResponse.json(
       {

@@ -322,6 +322,10 @@ export async function POST(request: Request) {
       structuredSummary:
         body.draft.structuredSummary ?? existingSession?.draft_json?.structuredSummary,
       editedSummary: body.draft.editedSummary ?? existingSession?.draft_json?.editedSummary,
+      structuredSummaryAudit:
+        body.draft.structuredSummaryAudit ?? existingSession?.draft_json?.structuredSummaryAudit,
+      editedSummaryAudit:
+        body.draft.editedSummaryAudit ?? existingSession?.draft_json?.editedSummaryAudit,
       summaryArchives: body.draft.summaryArchives ?? existingSession?.draft_json?.summaryArchives,
       feedback: body.draft.feedback ?? existingSession?.draft_json?.feedback
     };

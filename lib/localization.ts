@@ -151,6 +151,8 @@ type ReviewCopy = {
   title: string;
   subtitle: string;
   generatedAtLabel: string;
+  auditWarningTitle: string;
+  auditWarningIntro: string;
   backToQuestionsButton: string;
   regenerateHint: string;
   regenerateButton: string;
@@ -641,6 +643,8 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
     title: "Review and edit",
     subtitle: "Review the AI-organized handoff below. You can edit the title, overview, and sections before saving.",
     generatedAtLabel: "Summary created",
+    auditWarningTitle: "Summary QA warnings",
+    auditWarningIntro: "The summary was saved, but a few items still need review.",
     backToQuestionsButton: "Back to questions",
     regenerateHint: "Need to add more context? Go back to the questions, add details, and complete again to regenerate this summary.",
     regenerateButton: "Regenerate from saved answers",
@@ -665,6 +669,8 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
     title: "Revisar y editar",
     subtitle: "Revise el resumen organizado por IA. Puede editar el título, el resumen general y las secciones antes de guardar.",
     generatedAtLabel: "Resumen creado",
+    auditWarningTitle: "Advertencias de control de calidad",
+    auditWarningIntro: "El resumen se guardó, pero todavía hay algunos puntos que conviene revisar.",
     backToQuestionsButton: "Volver a las preguntas",
     regenerateHint:
       "¿Necesita agregar más contexto? Vuelva a las preguntas, agregue detalles y complete de nuevo para regenerar este resumen.",
@@ -690,6 +696,8 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
     title: "审核并编辑",
     subtitle: "请查看下方由 AI 整理的交接摘要。保存最终版本前，您可以编辑标题、概览和各个部分。",
     generatedAtLabel: "摘要创建时间",
+    auditWarningTitle: "摘要质检提醒",
+    auditWarningIntro: "摘要已保存，但仍有少量内容建议再检查一遍。",
     backToQuestionsButton: "返回问题页",
     regenerateHint: "如果还想补充更多背景，请返回问题页添加内容，然后再次完成以重新生成摘要。",
     regenerateButton: "根据已保存回答重新生成",

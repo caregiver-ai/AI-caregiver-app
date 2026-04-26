@@ -12,9 +12,13 @@ import {
   saveRemoteDraft
 } from "@/lib/draft-api";
 import { getCompletionCopy } from "@/lib/localization";
+import { finalizeSummaryWithQa } from "@/lib/summary-audit";
 import { getVisibleSections } from "@/lib/summary-display";
 import { getSummaryFreshness } from "@/lib/summary-structured";
-import { formatSummaryGeneratedAt, normalizeAuthoritativeStructuredSummary } from "@/lib/summary";
+import {
+  formatSummaryGeneratedAt,
+  getOverviewLines
+} from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { SessionDraft, StructuredSummary, SummaryFreshness, UiLanguage } from "@/lib/types";
 
@@ -49,10 +53,18 @@ export function CompletionView() {
     () => formatSummaryGeneratedAt(summary?.generatedAt ?? "", uiLanguage),
     [summary?.generatedAt, uiLanguage]
   );
+  const overviewLines = useMemo(
+    () => getOverviewLines(summary?.overview ?? ""),
+    [summary?.overview]
+  );
   const requiresRegeneration = summaryFreshness?.requiresRegeneration ?? false;
 
   function applyDraftState(draft: SessionDraft, freshness?: SummaryFreshness | null) {
-    setSummary(normalizeAuthoritativeStructuredSummary(draft.editedSummary ?? draft.structuredSummary));
+    setSummary(
+      finalizeSummaryWithQa(draft.editedSummary ?? draft.structuredSummary, {
+        source: "saved"
+      }).summary
+    );
     setSessionId(draft.sessionId);
     setRating(draft.feedback?.usefulnessRating ?? "");
     setComments(draft.feedback?.comments ?? "");
@@ -270,14 +282,15 @@ export function CompletionView() {
 
     try {
       const { createSummaryPdf, sanitizePdfFilename } = await import("@/lib/summary-pdf");
-      const pdfBytes = await createSummaryPdf(summary);
+      const qaSummary = finalizeSummaryWithQa(summary, { source: "saved" }).summary;
+      const pdfBytes = await createSummaryPdf(qaSummary);
       const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength);
       new Uint8Array(pdfBuffer).set(pdfBytes);
       const blob = new Blob([pdfBuffer], { type: "application/pdf" });
       const objectUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = objectUrl;
-      link.download = `${sanitizePdfFilename(summary.title)}.pdf`;
+      link.download = `${sanitizePdfFilename(qaSummary.title)}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -324,30 +337,35 @@ export function CompletionView() {
               <p className="text-sm text-slate-700">{generatedAtText}</p>
             </div>
           ) : null}
-          {summary.overview.trim() ? (
+          {overviewLines.length > 0 ? (
             <div className="space-y-2">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 {copy.overviewLabel}
               </div>
-              <p className="text-sm leading-6 text-slate-700">{summary.overview}</p>
+              <ul className="space-y-1 text-sm leading-6 text-slate-700">
+                {overviewLines.map((line) => (
+                  <li key={line} className="flex gap-2">
+                    <span aria-hidden="true">•</span>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
           <div className="space-y-3 border-t border-border pt-4">
             {requiresRegeneration ? (
-              <>
-                <StatusBanner tone="error">{copy.staleSummaryMessage}</StatusBanner>
-                <button
-                  className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={regenerating || returningToQuestions}
-                  type="button"
-                  onClick={handleRegenerate}
-                >
-                  {regenerating ? copy.regeneratingButton : copy.regenerateButton}
-                </button>
-              </>
+              <StatusBanner tone="error">{copy.staleSummaryMessage}</StatusBanner>
             ) : (
               <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
             )}
+            <button
+              className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={regenerating || returningToQuestions}
+              type="button"
+              onClick={handleRegenerate}
+            >
+              {regenerating ? copy.regeneratingButton : copy.regenerateButton}
+            </button>
             <button
               className="w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
               disabled={returningToQuestions || regenerating}

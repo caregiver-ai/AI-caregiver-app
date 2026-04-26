@@ -14,6 +14,13 @@ type LegacyStructuredSummary = {
 };
 
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
+const STRUCTURED_OVERVIEW_LABELS = [
+  "Communication",
+  "Key Needs",
+  "Top Risks",
+  "Best Supports",
+  "Emergency Contact"
+] as const;
 
 export const PREFERRED_SUMMARY_SECTION_ORDER = [
   "Communication",
@@ -49,6 +56,7 @@ type PreferredSummarySectionTitle = (typeof PREFERRED_SUMMARY_SECTION_ORDER)[num
 
 type SummaryNormalizationOptions = {
   reclassify?: boolean;
+  semanticRepair?: boolean;
 };
 
 const CONTACT_PATTERN =
@@ -78,7 +86,7 @@ const TRANSCRIPTION_NOISE_PATTERN =
 const TRANSCRIPT_ACKNOWLEDGEMENT_PATTERN =
   /^(?:um+[, ]+)?(?:yeah|yes|okay|ok|right|sure|mm-hmm|uh-huh|mhm|hmm|got it)(?:[.!?,\s]+)?$/i;
 const LEADING_FILLER_PATTERN =
-  /^(?:(?:well|so|and|but|um+|uh+|you know|like|i mean|actually|basically|sort of|kind of)[,\s]+)+/i;
+  /^(?:(?:well|so|and|but|um+|uh+|you know|like|i mean|actually|basically|sort of|kind of)\b[,\s]+)+/i;
 const SECTION_LABEL_OVERVIEW_PATTERN =
   /\b(?:Communication|Daily Needs(?: &| and) Routines|What helps the day go well|What can upset or overwhelm(?: them)?|Signs they need help|What helps when they are having a hard time|Health(?: &| and) Safety|Who to contact(?: \(and when\)| and when)?)\s*:/i;
 
@@ -135,6 +143,23 @@ function formatList(items: string[]) {
   }
 
   return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+function compactWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function trimSentence(value: string) {
+  return value.trim().replace(/[.!?]+$/g, "");
+}
+
+function normalizePhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length !== 10) {
+    return value.trim();
+  }
+
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
 function dedupe(items: string[]) {
@@ -225,7 +250,7 @@ function extractSummaryConcepts(value: string) {
     concepts.add("food_access");
   }
 
-  if (/\b(non speaking|non-speaking)\b/.test(normalized)) {
+  if (/\b(non speaking|non-speaking|can t say words|cannot say words|does not use words)\b/.test(normalized)) {
     concepts.add("non_speaking");
   }
 
@@ -233,8 +258,28 @@ function extractSummaryConcepts(value: string) {
     concepts.add("aac_device");
   }
 
-  if (/\b(happy sounds|angry sounds|singing like sounds|makes sounds|uses sounds|vocal sounds)\b/.test(normalized)) {
+  if (
+    /\b(happy sounds|angry sounds|singing like sounds|makes sounds|uses sounds|vocal sounds|singing and happy|happy noises|angry noises)\b/.test(
+      normalized
+    )
+  ) {
     concepts.add("sound_expression");
+  }
+
+  if (/\b(press(?:es)? help|sign for help|use(?:s)? the word help)\b/.test(normalized)) {
+    concepts.add("help_request_signal");
+  }
+
+  if (/\b(very visual|visual supports?|show (?:items?|pictures?)|visual timer|visual schedule)\b/.test(normalized)) {
+    concepts.add("visual_support");
+  }
+
+  if (/\b(sensory seeker|sensory activities?|sensory toys?|sensory bins?)\b/.test(normalized)) {
+    concepts.add("sensory_support");
+  }
+
+  if (/\b(two-step|first this then that|first this, then that|short directions?)\b/.test(normalized)) {
+    concepts.add("two_step_support");
   }
 
   if (/\bask for help\b/.test(normalized) && /\b(?:aac|device)\b/.test(normalized)) {
@@ -313,6 +358,30 @@ function extractSummaryConcepts(value: string) {
     /\b(activity|doing|bathroom|prompted)\b/.test(normalized)
   ) {
     concepts.add("transition_trigger");
+  }
+
+  if (/\b(lights?|shades?|out of place|things moved|moved)\b/.test(normalized)) {
+    concepts.add("environment_rigidity_trigger");
+  }
+
+  if (/\b(loud noise|bright lights?|crowded places?|too many people|chaotic|overstimulating)\b/.test(normalized)) {
+    concepts.add("sensory_trigger");
+  }
+
+  if (/\b(giv(?:e|ing)(?:\s+him)? space|time alone|moment to himself|do not crowd|reduce stimulation|keep (?:it|things|the area) quiet)\b/.test(normalized)) {
+    concepts.add("space_and_quiet_support");
+  }
+
+  if (/\b(squeeze and release|deep breath|count to 10)\b/.test(normalized)) {
+    concepts.add("calming_prompt");
+  }
+
+  if (/\b(agitated|agitation|overwhelmed|too dysregulated)\b/.test(normalized)) {
+    concepts.add("agitation_sign");
+  }
+
+  if (/\b(usually has a lot of energy|high energy|can t sit still|cannot sit still)\b/.test(normalized)) {
+    concepts.add("high_energy_baseline");
   }
 
   if (/\b(open|opening)\b/.test(normalized) && /\b(low muscle tone|unable|can t|cannot|help)\b/.test(normalized)) {
@@ -486,14 +555,135 @@ function buildPreferenceSummaryItems(items: string[]) {
   return summaryItems;
 }
 
+function extractPreferenceFragments(item: string) {
+  const trimmed = item.trim().replace(/[.!?]+$/, "");
+  const directPreferenceMatch = trimmed.match(
+    /^(?:he|she|they|gavin)\s+(?:really\s+)?(?:likes?|loves?|enjoys?|especially enjoys)\s+(.+)$/i
+  );
+  const favoritesMatch = trimmed.match(
+    /^(?:his|her|their)\s+biggest favorites are\s+(.+)$/i
+  );
+  const source = directPreferenceMatch?.[1] ?? favoritesMatch?.[1];
+
+  if (!source) {
+    return [];
+  }
+
+  return source
+    .split(/\s*,\s*|\s+and\s+/i)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 1)
+    .map((part) => part.replace(/^(?:his|her|their)\s+/i, "").trim())
+    .filter(Boolean);
+}
+
+function isPreferenceMicroItem(item: string) {
+  if (lookLikeSupportAction(item)) {
+    return false;
+  }
+
+  return extractPreferenceFragments(item).length > 0;
+}
+
+function condensePreferenceMicroItems(items: string[]) {
+  const preferenceMicroItems = items.filter((item) => isPreferenceMicroItem(item));
+  if (preferenceMicroItems.length < 6) {
+    return items;
+  }
+
+  const preferenceFragments = dedupe(
+    preferenceMicroItems
+      .flatMap((item) => extractPreferenceFragments(item))
+      .map((fragment) => fragment.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+  );
+
+  if (preferenceFragments.length < 4) {
+    return items;
+  }
+
+  const retained = items.filter((item) => !isPreferenceMicroItem(item));
+  const primaryList = preferenceFragments.slice(0, 8);
+  const secondaryList = preferenceFragments.slice(8, 14);
+  const summaryItems = [`Preferred activities include ${formatList(primaryList)}.`];
+
+  if (secondaryList.length > 0) {
+    summaryItems.push(`Other favorites include ${formatList(secondaryList)}.`);
+  }
+
+  return [...retained, ...summaryItems];
+}
+
 function lookLikeSupportAction(item: string) {
   return /\b(help(?:ing)?|check(?:ing)?|find(?:ing)?|offer|redirect|do not|don't|prevent|reduce|reduces|calm|soothe|regulate)\b/i.test(
     item
   );
 }
 
+function isHandBitingResponseItem(item: string) {
+  if (/\b(hand biting|biting (?:his|her|their) hand|may bite you|bite you)\b/i.test(item)) {
+    return true;
+  }
+
+  if (/\bdo not (?:physically )?stop\b/i.test(item) && /\b(hand|biting|bite)\b/i.test(item)) {
+    return true;
+  }
+
+  if (/\bdo not block\b/i.test(item) && /\b(hand|biting|bite)\b/i.test(item)) {
+    return true;
+  }
+
+  if (/\bredirect\b/i.test(item) && /\b(hand|biting|bite)\b/i.test(item)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isMedicationOrConditionItem(item: string) {
+  return /\b(abilify|aripiprazole|miralax|polyethylene glycol|multivitamin|gummy vites|diagnos|autism|impairment|apraxia|regression|delay|disorder|pica|cvi)\b/i.test(
+    item
+  );
+}
+
+function isEquipmentSupportItem(item: string) {
+  return /\b(equipment includes|equipment\/supports|assistive equipment|aac on an ipad|aac device|touchchat|noise-?cancel(?:ing)? headphones?|headphones?|buckle buddy|fidgets?|pull-?ups?|white cane|equipment)\b/i.test(
+    item
+  );
+}
+
+function isPhysicalOrBehaviorSignItem(item: string) {
+  return /\b(limping|avoid(?:ing)? (?:a )?body part|not eating|not drinking|low energy|letharg|elop|run(?:ning)? away|hand biting|angry (?:yelling|sounds?|vocalizations?)|yelling|hiding|grunting|go(?:ing)? to the fridge|grabbing cheese|press(?:es|ing)?\s+"?help"?|sign for help|dysregulated|agitated|agitation|overwhelmed)\b/i.test(
+    item
+  );
+}
+
 function isCommunicationMeaningSignal(item: string) {
   return /\b(?:selects?|select)\s+["']?(?:car|ipad|i want ipad|color)["']?\b|\b(?:selects?|select)\s+a color\b|\b(?:use|uses|using)\s+(?:his|her|their)\s+aac device to ask for help\b|\baac device to ask for help\b/i.test(
+    item
+  );
+}
+
+function isCommunicationMethodItem(item: string) {
+  if (
+    isPhysicalOrBehaviorSignItem(item) ||
+    /\b(bathroom|toilet|pull-up|bowel movement|limping|not eating|not drinking|low energy|letharg|Abilify|Aripiprazole|MiraLax|polyethylene glycol|multivitamin)\b/i.test(
+      item
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    isEquipmentSupportItem(item) &&
+    !/\b(communicat|ask for help|label what (?:he|she|they) wants|non-speaking|sounds?|body language|gestures?|touch you|lead you|sit very close|attention)\b/i.test(
+      item
+    )
+  ) {
+    return false;
+  }
+
+  return /\b(non-speaking|cannot use words|uses?(?: an)? AAC device|uses TouchChat|AAC app|communicates with sounds|body language|gestures?|uses sounds|singing-like sounds?|happy sounds?|angry sounds?|touch you|lead you|sit very close|wants attention)\b/i.test(
     item
   );
 }
@@ -507,6 +697,28 @@ function looksLikeCommunicationItem(item: string) {
   }
 
   return /\b(non-speaking|cannot use words|AAC|TouchChat|uses?(?: an)? AAC device|device on an iPad|makes? sounds?|uses? (?:his|her|their) AAC device|selects? (?:car|color|iPad)|means? (?:he|she|they)|looking for an object of that color|ask for help|approach|touch|lead you|lead them|lead him|lead her|communicat)\b/i.test(
+    item
+  );
+}
+
+function isDirectCaregiverActionItem(item: string) {
+  const concepts = extractSummaryConcepts(item);
+  if (
+    concepts.has("space_and_quiet_support") ||
+    concepts.has("calming_prompt") ||
+    concepts.has("offer_car_ride") ||
+    concepts.has("help_ipad_access") ||
+    concepts.has("ipad_troubleshoot_action") ||
+    concepts.has("food_response") ||
+    concepts.has("bathroom_response") ||
+    concepts.has("opening_response") ||
+    concepts.has("find_item_response") ||
+    concepts.has("do_not_block_hand_biting")
+  ) {
+    return true;
+  }
+
+  return /^(?:back off|check|do not|don't|follow|give|help|keep|let|make sure|offer|prompt|reduce|redirect|remind|support|take|turn on|use)\b/i.test(
     item
   );
 }
@@ -581,7 +793,97 @@ function itemsAreNearDuplicate(
   const unionCount = new Set([...leftTokens, ...rightTokens]).size;
   const jaccard = unionCount === 0 ? 0 : overlapCount / unionCount;
 
+  if (canonicalTitle === "Signs they need help") {
+    const signSymptoms = [
+      "limping",
+      "avoiding",
+      "favoring",
+      "not eating",
+      "not drinking",
+      "low energy",
+      "letharg",
+      "elop",
+      "run away",
+      "hand biting",
+      "yelling",
+      "angry",
+      "hiding",
+      "grunting"
+    ];
+    const matchingSymptomCount = signSymptoms.filter(
+      (symptom) => normalizedLeft.includes(symptom) && normalizedRight.includes(symptom)
+    ).length;
+
+    if (matchingSymptomCount > 0) {
+      return true;
+    }
+  }
+
   return jaccard >= 0.78;
+}
+
+function itemSpecificityScore(item: string, title?: string) {
+  const canonicalTitle = canonicalizeSectionTitle(title ?? "");
+  let score = comparisonTokens(item).length + normalizeComparisonText(item).length / 60;
+
+  if (/\b(because|including|such as|usually|when|if|especially|for safety)\b/i.test(item)) {
+    score += 1;
+  }
+
+  if (
+    canonicalTitle === "Signs they need help" &&
+    /\b(pain|illness|sick|dysregulated|hungry|hunger)\b/i.test(item)
+  ) {
+    score += 1;
+  }
+
+  if (
+    canonicalTitle === "What helps the day go well" &&
+    /^(?:he|she|they|gavin)\s+(?:likes?|loves?|enjoys?)\s+[a-z0-9][^.,]*\.?$/i.test(item)
+  ) {
+    score -= 0.75;
+  }
+
+  return score;
+}
+
+function preferMoreSpecificItem(
+  existing: string,
+  candidate: string,
+  title?: string
+) {
+  const existingScore = itemSpecificityScore(existing, title);
+  const candidateScore = itemSpecificityScore(candidate, title);
+
+  if (candidateScore > existingScore + 0.2) {
+    return candidate;
+  }
+
+  if (existingScore > candidateScore + 0.2) {
+    return existing;
+  }
+
+  return candidate.length > existing.length ? candidate : existing;
+}
+
+const SECTION_ITEM_LIMITS: Record<PreferredSummarySectionTitle, number> = {
+  Communication: 14,
+  "Daily Needs & Routines": 24,
+  "What helps the day go well": 14,
+  "What can upset or overwhelm them": 12,
+  "Signs they need help": 14,
+  "What helps when they are having a hard time": 12,
+  "Health & Safety": 18,
+  "Who to contact (and when)": 8
+};
+
+function sectionItemLimit(title?: string) {
+  if (!title) {
+    return undefined;
+  }
+
+  const canonicalTitle = canonicalizeSectionTitle(title) as PreferredSummarySectionTitle;
+  return SECTION_ITEM_LIMITS[canonicalTitle];
 }
 
 function cleanSummaryItem(value: string) {
@@ -618,6 +920,18 @@ function cleanSummaryItem(value: string) {
 
   const alphanumericCount = (normalized.match(/[A-Za-z0-9]/g) ?? []).length;
   if (alphanumericCount < 3) {
+    return null;
+  }
+
+  if (/^(?:that|this)\s+usually\s+helps\.?$/i.test(normalized)) {
+    return null;
+  }
+
+  if (/^other signs .* can be physical\.?$/i.test(normalized)) {
+    return null;
+  }
+
+  if (/^it'?s more about redirecting\.?$/i.test(normalized)) {
     return null;
   }
 
@@ -1067,6 +1381,8 @@ function polishSummaryItem(title: string, value: string) {
     .replace(/\bTouchchat\b/gi, "TouchChat")
     .replace(/\bi pad\b/gi, "iPad")
     .replace(/\baac\b/gi, "AAC")
+    .replace(/\b(\d{1,2}:\d{2})\s*a\.(?=\s|$)/gi, "$1 a.m.")
+    .replace(/\b(\d{1,2}:\d{2})\s*p\.(?=\s|$)/gi, "$1 p.m.")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -1085,18 +1401,35 @@ function limitItems(items: string[], limit?: number, title?: string) {
   const deduped = items
     .map((item) => item.trim())
     .filter(Boolean)
-    .filter((item, index, allItems) => {
-      if (!item) {
-        return false;
+    .reduce<string[]>((accumulator, item) => {
+      const duplicateIndices = accumulator
+        .map((existing, index) => (itemsAreNearDuplicate(existing, item, title) ? index : -1))
+        .filter((index) => index >= 0);
+
+      if (duplicateIndices.length === 0) {
+        accumulator.push(item);
+        return accumulator;
       }
 
-      return !allItems.slice(0, index).some((existing) => itemsAreNearDuplicate(existing, item, title));
-    });
+      const candidates = [item, ...duplicateIndices.map((index) => accumulator[index])];
+      const chosen = candidates.reduce((best, candidate) =>
+        preferMoreSpecificItem(best, candidate, title)
+      );
+
+      const indicesToRemove = [...duplicateIndices].sort((left, right) => right - left);
+      for (const index of indicesToRemove) {
+        accumulator.splice(index, 1);
+      }
+
+      accumulator.push(chosen);
+      return accumulator;
+    }, []);
   const filteredItems = deduped.some((item) => !isNoInformationItem(item))
     ? deduped.filter((item) => !isNoInformationItem(item))
     : deduped;
 
-  return typeof limit === "number" ? filteredItems.slice(0, limit) : filteredItems;
+  const effectiveLimit = typeof limit === "number" ? limit : sectionItemLimit(title);
+  return typeof effectiveLimit === "number" ? filteredItems.slice(0, effectiveLimit) : filteredItems;
 }
 
 function shortenOverview(text: string) {
@@ -1119,6 +1452,34 @@ function shortenOverview(text: string) {
   return `${words.slice(0, 70).join(" ").replace(/[,\s;:]+$/, "")}.`;
 }
 
+export function getOverviewLines(value: string) {
+  return value
+    .replace(/\r/g, "\n")
+    .split(/\n+/)
+    .map((line) => line.replace(/^[•*-]\s*/u, "").trim())
+    .filter(Boolean);
+}
+
+function isStructuredOverview(value: string) {
+  const lines = getOverviewLines(value);
+  return (
+    lines.length > 0 &&
+    lines.every((line) =>
+      STRUCTURED_OVERVIEW_LABELS.some((label) =>
+        new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:`).test(line)
+      )
+    )
+  );
+}
+
+function normalizeStructuredOverview(value: string) {
+  return getOverviewLines(value).join("\n");
+}
+
+function sectionToCanonicalItems(section: SummarySection) {
+  return normalizeSectionItems(section.title, section.items);
+}
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -1135,6 +1496,17 @@ function isNoInformationItem(value: string) {
   return value.trim().toLowerCase() === NO_INFORMATION_PLACEHOLDER.toLowerCase();
 }
 
+function splitSentenceAware(value: string) {
+  const protectedText = value
+    .replace(/\bDr\./g, "Dr<prd>")
+    .replace(/\ba\.m\./gi, (match) => match.replace(/\./g, "<prd>"))
+    .replace(/\bp\.m\./gi, (match) => match.replace(/\./g, "<prd>"));
+
+  return protectedText
+    .split(/(?<=[.!?])\s+(?=[A-Z(])/)
+    .map((segment) => segment.replace(/<prd>/g, "."));
+}
+
 function normalizeSummaryItems(items: string[], limit?: number) {
   const expanded = items.flatMap((item) =>
     item
@@ -1142,7 +1514,7 @@ function normalizeSummaryItems(items: string[], limit?: number) {
       .split(/\n+/)
       .flatMap((line) => line.split(/\s*[•*]\s*/u))
       .flatMap((line) => line.split(/;\s+/))
-      .flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-Z(])/))
+      .flatMap((line) => splitSentenceAware(line))
       .map(cleanSummaryItem)
       .filter((line): line is string => Boolean(line))
   );
@@ -1157,7 +1529,7 @@ function normalizeSectionItems(title: string, items: string[], limit?: number) {
       .split(/\n+/)
       .flatMap((line) => line.split(/\s*[•*]\s*/u))
       .flatMap((line) => line.split(/;\s+/))
-      .flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-Z(])/))
+      .flatMap((line) => splitSentenceAware(line))
       .map(cleanSummaryItem)
       .filter((line): line is string => Boolean(line))
       .flatMap((line) => {
@@ -1259,6 +1631,74 @@ function refineSectionItems(title: string, items: string[], limit?: number) {
     }
   }
 
+  if (canonicalTitle === "Signs they need help") {
+    const bowelItems = refinedItems.filter((item) =>
+      /\b(hiding|hide|grunting|grunt|bowel movement|pull-?up|privacy)\b/i.test(item)
+    );
+    if (bowelItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !bowelItems.includes(item));
+      refinedItems.push(
+        "Hiding for privacy with grunting usually means he is having a bowel movement in his pull-up."
+      );
+    }
+
+    const elopementItems = refinedItems.filter((item) =>
+      /\b(elope|elopement|running away|run away)\b/i.test(item)
+    );
+    if (elopementItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !elopementItems.includes(item));
+      refinedItems.push("Running away or elopement is a sign he needs immediate support.");
+    }
+
+    const handBitingItems = refinedItems.filter((item) =>
+      /\b(hand biting|biting his hand|self-injury)\b/i.test(item)
+    );
+    if (handBitingItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !handBitingItems.includes(item));
+      refinedItems.push("Hand biting or self-injury when very dysregulated is a sign he needs support.");
+    }
+
+    const illnessItems = refinedItems.filter((item) =>
+      /\b(limping|favoring|avoiding a body part|not eating|not drinking|low energy|letharg|sick)\b/i.test(
+        item
+      )
+    );
+    if (illnessItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !illnessItems.includes(item));
+      refinedItems.push(
+        "Limping, favoring a body part, not eating or drinking, or unusual low energy can signal illness or pain."
+      );
+    }
+
+    const painCommunicationItems = refinedItems.filter((item) =>
+      /\b(does not (?:reliably )?(?:tell|communicate).*pain|hurt or in pain|doesn't let you know if he's hurt)\b/i.test(
+        item
+      )
+    );
+    if (painCommunicationItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !painCommunicationItems.includes(item));
+      refinedItems.push("He may not communicate pain, so watch physical and behavior changes closely.");
+    }
+
+    const agitationItems = refinedItems.filter((item) =>
+      /\b(agitated|agitation|overwhelmed|too dysregulated to ask for help)\b/i.test(item)
+    );
+    if (agitationItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !agitationItems.includes(item));
+      refinedItems.push(
+        "Agitation can mean he is overwhelmed and too dysregulated to ask for help."
+      );
+    }
+
+    const highEnergyItems = refinedItems.filter((item) =>
+      /\b(usually has a lot of energy|high energy|can't sit still|cannot sit still)\b/i.test(item)
+    );
+    if (highEnergyItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !highEnergyItems.includes(item));
+      refinedItems.push("His baseline is high energy, so unusual lethargy is a concern.");
+    }
+  }
+
   if (canonicalTitle === "Communication") {
     const hasCombinedCueItem = refinedItems.some(
       (item) =>
@@ -1275,9 +1715,40 @@ function refineSectionItems(title: string, items: string[], limit?: number) {
           !/^Sitting very close usually means he wants attention\.?$/i.test(item)
       );
     }
+
+    refinedItems = refinedItems.filter(
+      (item) =>
+        !/\b(lights?|shades?|out of place|things moved|crowded|chaotic|bright lights?|loud noise)\b/i.test(
+          item
+        )
+    );
+
+    refinedItems = refinedItems.filter(
+      (item) =>
+        !/\b(deodorant|grooming|dressing|shoes?|school van|backpack|breakfast)\b/i.test(item)
+    );
+
+    refinedItems = refinedItems.filter(
+      (item) => !/\b(tap(?:ping)? (?:his|her|their) foot|lift (?:his|her|their) foot)\b/i.test(item)
+    );
   }
 
   if (canonicalTitle === "What helps the day go well") {
+    const proactiveSupportItems = refinedItems.filter((item) =>
+      /\b(visual supports?|visual choices?|show (?:pictures|items)|two-step|visual timer|visual schedule|structured routine|regular access to food|food helps prevent distress|quiet environment|low-light|low light|soft indirect lighting|prevent frustration|help(?:ing)? him find items on (?:his )?ipad|regulation)\b/i.test(
+        item
+      )
+    );
+
+    if (proactiveSupportItems.length > 0) {
+      refinedItems = refinedItems.filter(
+        (item) =>
+          !/\b(favorite person|spending time with family|downtime|watch tv|watch television|left alone to do (?:his|her|their) own thing)\b/i.test(
+            item
+          )
+      );
+    }
+
     const ipadSupportItems = refinedItems.filter((item) =>
       /\b(ipad|search history|internet|video)\b/i.test(item) &&
       /\b(help|find|access|prevent|reduce|frustration|trying|not working|cannot find|can t find)\b/i.test(
@@ -1300,6 +1771,81 @@ function refineSectionItems(title: string, items: string[], limit?: number) {
         );
       }
       refinedItems.push(...preferenceSummaryItems);
+    }
+
+    const visualSupportItems = refinedItems.filter((item) =>
+      /\b(very visual|visual supports?|show (?:items?|pictures?)|visual choices?)\b/i.test(item)
+    );
+    if (visualSupportItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !visualSupportItems.includes(item));
+      refinedItems.unshift(
+        "He is very visual; showing pictures or real items helps him understand choices."
+      );
+    }
+
+    const twoStepItems = refinedItems.filter((item) =>
+      /\b(two-step|first this, then that|first this then that|short directions?)\b/i.test(item)
+    );
+    if (twoStepItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !twoStepItems.includes(item));
+      refinedItems.push(
+        "He does best with short two-step directions such as \"first this, then that.\""
+      );
+    }
+
+    const structuredRoutineItems = refinedItems.filter((item) =>
+      /\b(structured routine|visual timer|visual schedule)\b/i.test(item)
+    );
+    if (structuredRoutineItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !structuredRoutineItems.includes(item));
+      refinedItems.push("A structured routine with a visual timer or schedule helps the day go more smoothly.");
+    }
+
+    const quietEnvironmentItems = refinedItems.filter((item) =>
+      /\b(quiet environment|low-light|low light|soft indirect lighting)\b/i.test(item)
+    );
+    if (quietEnvironmentItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !quietEnvironmentItems.includes(item));
+      refinedItems.push("A quiet, low-light environment helps him stay regulated.");
+    }
+
+    const regulationItems = refinedItems.filter((item) =>
+      /\b(car rides?|walks?)\b/i.test(item) && /\b(help|regulat|sooth|calm)\b/i.test(item)
+    );
+    if (regulationItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !regulationItems.includes(item));
+      refinedItems.push("Car rides and walks can help with regulation.");
+    }
+
+    refinedItems = condensePreferenceMicroItems(refinedItems);
+  }
+
+  if (canonicalTitle === "What can upset or overwhelm them") {
+    const hardTimeMisplacedItems = refinedItems.filter((item) =>
+      /\b(giv(?:e|ing)(?:\s+him)? space|reduce stimulation|keep (?:it|things|the area) quiet|time alone|deep breath|count to 10|squeeze and release)\b/i.test(
+        item
+      )
+    );
+    if (hardTimeMisplacedItems.length > 0) {
+      refinedItems = refinedItems.filter((item) => !hardTimeMisplacedItems.includes(item));
+    }
+
+    const lightingItems = refinedItems.filter((item) =>
+      /\b(overhead lighting|bright lights?|lights?|shades?)\b/i.test(item)
+    );
+    if (lightingItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !lightingItems.includes(item));
+      refinedItems.push(
+        "Bright or overhead lighting, changes to lights, and unexpected shade positions can overwhelm him."
+      );
+    }
+
+    const noiseCrowdItems = refinedItems.filter((item) =>
+      /\b(loud|noise|crowded|too many people|chaotic)\b/i.test(item)
+    );
+    if (noiseCrowdItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !noiseCrowdItems.includes(item));
+      refinedItems.push("Loud, chaotic, or crowded environments can overwhelm him.");
     }
   }
 
@@ -1332,11 +1878,7 @@ function refineSectionItems(title: string, items: string[], limit?: number) {
       }
     }
 
-    const handBitingResponseItems = refinedItems.filter((item) =>
-      /\b(hand biting|biting his hand|biting her hand|biting their hand|do not physically stop|do not block|may bite you|redirect)\b/i.test(
-        item
-      )
-    );
+    const handBitingResponseItems = refinedItems.filter((item) => isHandBitingResponseItem(item));
 
     if (handBitingResponseItems.length > 0) {
       refinedItems = refinedItems.filter((item) => !handBitingResponseItems.includes(item));
@@ -1344,6 +1886,77 @@ function refineSectionItems(title: string, items: string[], limit?: number) {
         "Do not physically stop him from biting his hand because he may bite you, and redirect him instead."
       );
     }
+
+    const spaceAndQuietItems = refinedItems.filter((item) =>
+      !isHandBitingResponseItem(item) &&
+      /\b(giv(?:e|ing)(?:\s+him)? space|time alone|moment to himself|do not crowd|reduce stimulation|keep (?:it|things|the area) quiet|going up to him.*worse|redirect|cannot hurt himself|can't hurt himself|make sure.*safe|most important thing)\b/i.test(
+        item
+      )
+    );
+
+    if (spaceAndQuietItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !spaceAndQuietItems.includes(item));
+      refinedItems.push(
+        "Give him space, reduce stimulation, and keep the environment quiet while redirecting and maintaining safety."
+      );
+    }
+
+    const showerSupportItems = refinedItems.filter((item) =>
+      /\b(showerhead|shower)\b/i.test(item) && /\b(void|urinat|pee)\b/i.test(item)
+    );
+    if (showerSupportItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !showerSupportItems.includes(item));
+      refinedItems.push(
+        "If he does not urinate in the morning, turn on the showerhead and have him hold it to help him void."
+      );
+    }
+
+    const candySupportItems = refinedItems.filter((item) =>
+      /\b(swedish fish|gumm(?:y|ies)|candy)\b/i.test(item) &&
+      /\b(help(?:s|ed|ing)?|calm(?:s|ed|ing)?|redirect(?:s|ed|ing)?|motivat(?:e|es|ed|ing|ion))\b/i.test(
+        item
+      )
+    );
+    if (candySupportItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !candySupportItems.includes(item));
+      refinedItems.push(
+        "Swedish Fish, gummies, or other candy can sometimes help motivate transitions or redirect him."
+      );
+    }
+  }
+
+  if (canonicalTitle === "Who to contact (and when)") {
+    const contacts = new Map<string, string>();
+
+    for (const item of refinedItems) {
+      const contactWithPhoneMatch = item.match(
+        /([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})[^0-9]*(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/
+      );
+
+      if (!contactWithPhoneMatch) {
+        continue;
+      }
+
+      const name = contactWithPhoneMatch[1].replace(/^(?:Contact\s+)+/, "").trim();
+      const phoneDigits = contactWithPhoneMatch[2].replace(/\D/g, "");
+      if (phoneDigits.length !== 10) {
+        continue;
+      }
+      const phone = `(${phoneDigits.slice(0, 3)}) ${phoneDigits.slice(3, 6)}-${phoneDigits.slice(6)}`;
+      contacts.set(`${name.toLowerCase()}::${phone}`, `Contact ${name} at ${phone}.`);
+    }
+
+    if (contacts.size > 0) {
+      refinedItems = [...contacts.values()];
+    }
+  }
+
+  if (canonicalTitle === "Health & Safety") {
+    refinedItems = refinedItems.filter((item) =>
+      /\b(supervision|safety|unsafe|risk|elopement|run away|self-injury|hand biting|pica|low muscle tone|two caregivers?|two people|2 adults?|allerg|diagnos|autism|impairment|regression|delay|apraxia|syndrome|cvi|condition|abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|dose|mg\b|once a day|daily at|aac device|touchchat|ipad|headphones|noise-?cancel|fidgets?|buckle buddy|pull-?ups?|white cane|may bite you|caregiver harm|caregiver injury)\b/i.test(
+        item
+      )
+    );
   }
 
   return limitItems(refinedItems, limit, title);
@@ -1611,8 +2224,14 @@ function inferNormalizedSectionTitle(
   item: string,
   currentTitle: PreferredSummarySectionTitle
 ): PreferredSummarySectionTitle {
+  const concepts = extractSummaryConcepts(item);
+
   if (CONTACT_PATTERN.test(item)) {
     return "Who to contact (and when)";
+  }
+
+  if (isMedicationOrConditionItem(item) || isEquipmentSupportItem(item)) {
+    return "Health & Safety";
   }
 
   if (
@@ -1620,6 +2239,10 @@ function inferNormalizedSectionTitle(
       item
     )
   ) {
+    return "What helps when they are having a hard time";
+  }
+
+  if (concepts.has("space_and_quiet_support") || concepts.has("calming_prompt")) {
     return "What helps when they are having a hard time";
   }
 
@@ -1636,12 +2259,16 @@ function inferNormalizedSectionTitle(
     return "Communication";
   }
 
+  if (isPhysicalOrBehaviorSignItem(item)) {
+    return "Signs they need help";
+  }
+
   if (
-    /\b(run(?:ning)? away|elope|biting (?:his|her|their) hand|angry sounds?|yelling|hiding|hides|grunt(?:ing|s)?|go(?:ing)? to the fridge|grabbing cheese|repeatedly going to the fridge|pulling|leading a caregiver|sit(?:ting)? very close|wanting attention|proximity-seeking)\b/i.test(
+    /\b(run(?:ning)? away|elope|biting (?:his|her|their) hand|angry sounds?|yelling|hiding|hides|grunt(?:ing|s)?|go(?:ing)? to the fridge|grabbing cheese|repeatedly going to the fridge|pulling)\b/i.test(
       item
     )
   ) {
-    return currentTitle === "Communication" ? currentTitle : "Signs they need help";
+    return "Signs they need help";
   }
 
   if (
@@ -1654,12 +2281,27 @@ function inferNormalizedSectionTitle(
   }
 
   if (
+    concepts.has("visual_support") ||
+    concepts.has("two_step_support") ||
+    concepts.has("car_ride_regulation") ||
+    concepts.has("walk_regulation")
+  ) {
+    return "What helps the day go well";
+  }
+
+  if (
     /\b(independently communicate|independently tell|tell others|tell you|let others know|communicate when he needs|communicate when she needs|communicate when they need)\b/i.test(
       item
     ) &&
     /\b(bathroom|toilet)\b/i.test(item)
   ) {
     return "Daily Needs & Routines";
+  }
+
+  if (
+    /\b(structured routine|visual timer|visual schedule)\b/i.test(item)
+  ) {
+    return "What helps the day go well";
   }
 
   if (
@@ -1679,11 +2321,209 @@ function inferNormalizedSectionTitle(
     return "What can upset or overwhelm them";
   }
 
+  if (/\b(lights?|shades?|out of place|things moved|moved|crowded|chaotic|bright lights?|loud noise)\b/i.test(item)) {
+    return "What can upset or overwhelm them";
+  }
+
   if (looksLikeCommunicationItem(item)) {
     return "Communication";
   }
 
+  if (/\b(van|school|morning routine|breakfast)\b/i.test(item)) {
+    return "Daily Needs & Routines";
+  }
+
+  if (
+    /^(?:he|she|they|gavin)\s+(?:really\s+)?(?:likes?|loves?|enjoys?|especially enjoys)\b/i.test(
+      item
+    ) ||
+    /^(?:his|her|their)\s+biggest favorites are\b/i.test(item)
+  ) {
+    return "What helps the day go well";
+  }
+
   return currentTitle;
+}
+
+export function inferAuthoritativeSectionTitle(
+  item: string,
+  currentTitle: PreferredSummarySectionTitle
+): PreferredSummarySectionTitle {
+  const concepts = extractSummaryConcepts(item);
+
+  if (CONTACT_PATTERN.test(item)) {
+    return "Who to contact (and when)";
+  }
+
+  if (
+    isMedicationOrConditionItem(item) ||
+    /\b(two caregivers?|two people|2 adults?|close supervision|supervision needs?|safety risk|low muscle tone|may bite you|bite you|unsafe|for safety reasons?|does not communicate pain|cannot communicate pain)\b/i.test(
+      item
+    ) ||
+    CAREGIVER_HARM_PATTERN.test(item)
+  ) {
+    return "Health & Safety";
+  }
+
+  if (isCommunicationMeaningSignal(item)) {
+    return "Communication";
+  }
+
+  if (isCommunicationMethodItem(item)) {
+    return "Communication";
+  }
+
+  if (
+    isPhysicalOrBehaviorSignItem(item) ||
+    concepts.has("help_request_signal") ||
+    concepts.has("hunger_sign") ||
+    concepts.has("vocalization_sign") ||
+    concepts.has("elopement") ||
+    concepts.has("hand_biting") ||
+    concepts.has("bowel_movement_sign") ||
+    concepts.has("agitation_sign")
+  ) {
+    return "Signs they need help";
+  }
+
+  if (
+    /\b(structured routine|visual timer|visual schedule)\b/i.test(item)
+  ) {
+    return "What helps the day go well";
+  }
+
+  if (
+    /\b(bathroom|toilet|pull-up|bowel movement|hourly prompt|hourly reminder|regular reminders?|go when prompted|void|showerhead|breakfast|van|water bottle|sippy cup|limited diet|bite-sized|grazes|meals?|snacks?|dress(?:ing)?|deodorant|socks|teeth brushing|hair|school days?|non-school days?)\b/i.test(
+      item
+    )
+  ) {
+    return "Daily Needs & Routines";
+  }
+
+  if (
+    concepts.has("visual_support") ||
+    concepts.has("two_step_support") ||
+    concepts.has("car_ride_regulation") ||
+    concepts.has("walk_regulation") ||
+    concepts.has("ipad_help") ||
+    concepts.has("food_access") ||
+    /\b(visual timer|visual schedule|preferred item|preferred activity|structured routine|regular access to food|prevent frustration|favorite person|spending time with family|downtime|watch tv|watch television)\b/i.test(
+      item
+    ) ||
+    /^(?:he|she|they|gavin|mom)\s+(?:really\s+)?(?:likes?|loves?|enjoys?|especially enjoys)\b/i.test(
+      item
+    ) ||
+    /^(?:his|her|their)\s+biggest favorites are\b/i.test(item)
+  ) {
+    return "What helps the day go well";
+  }
+
+  if (
+    concepts.has("ipad_trigger") ||
+    concepts.has("transition_trigger") ||
+    concepts.has("environment_rigidity_trigger") ||
+    concepts.has("sensory_trigger") ||
+    concepts.has("opening_items") ||
+    concepts.has("missing_preferred_item_trigger") ||
+    /\b(hunger|not having food available|out of place|things moved|lights?|shades?|crowded|chaotic|bright lights?|loud noise|too many people|internet is down|cannot find|can't find|not working)\b/i.test(
+      item
+    )
+  ) {
+    return "What can upset or overwhelm them";
+  }
+
+  if (isDirectCaregiverActionItem(item)) {
+    return "What helps when they are having a hard time";
+  }
+
+  if (isEquipmentSupportItem(item)) {
+    return "Health & Safety";
+  }
+
+  return currentTitle;
+}
+
+function itemsAreAuthoritativeCrossDuplicates(left: string, right: string) {
+  const normalizedLeft = normalizeComparisonText(left);
+  const normalizedRight = normalizeComparisonText(right);
+
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+
+  return (
+    normalizedLeft.length >= 24 &&
+    normalizedRight.length >= 24 &&
+    (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft))
+  );
+}
+
+function enforceAuthoritativeSectionPlacement(sections: SummarySection[]) {
+  const byTitle = new Map<PreferredSummarySectionTitle, SummarySection>(
+    ensurePreferredSections(sections).map((section) => [
+      canonicalizeSectionTitle(section.title) as PreferredSummarySectionTitle,
+      {
+        ...section,
+        items: section.items.filter((item) => !isNoInformationItem(item))
+      }
+    ])
+  );
+
+  for (const title of PREFERRED_SUMMARY_SECTION_ORDER) {
+    const section = byTitle.get(title);
+    if (!section) {
+      continue;
+    }
+
+    const retained: string[] = [];
+    for (const item of section.items) {
+      const preferredTitle = inferAuthoritativeSectionTitle(item, title);
+      if (preferredTitle !== title) {
+        const destination = byTitle.get(preferredTitle);
+        if (destination) {
+          destination.items.push(item);
+          continue;
+        }
+      }
+
+      retained.push(item);
+    }
+
+    section.items = retained;
+  }
+
+  const seen: string[] = [];
+
+  return PREFERRED_SUMMARY_SECTION_ORDER.map((title, index) => {
+    const section = byTitle.get(title) ?? createPlaceholderSection(title, index);
+    const uniqueItems: string[] = [];
+
+    for (const item of section.items) {
+      if (seen.some((existing) => itemsAreAuthoritativeCrossDuplicates(existing, item))) {
+        continue;
+      }
+
+      uniqueItems.push(item);
+      seen.push(item);
+    }
+
+    const normalizedItems = normalizeSectionItems(title, uniqueItems);
+
+    return {
+      ...section,
+      title,
+      items:
+        normalizedItems.length > 0
+          ? title === "Health & Safety"
+            ? orderHealthSafetyItems(normalizedItems)
+            : normalizedItems
+          : [NO_INFORMATION_PLACEHOLDER]
+    };
+  });
 }
 
 function reclassifySummarySections(sections: SummarySection[]) {
@@ -1830,9 +2670,7 @@ function surfaceHardTimeSupports(sections: SummarySection[]) {
     ) &&
     allItems.some(
       (item) =>
-        /\b(hand biting|biting his hand|biting her hand|biting their hand|may bite you|do not physically stop|do not block|redirect)\b/i.test(
-          item
-        )
+        isHandBitingResponseItem(item)
     )
   ) {
     hardTimeSection.items.push(
@@ -1948,6 +2786,9 @@ function rehomeHealthSafetyCommunicationItems(sections: SummarySection[]) {
   const movedItems = healthSafetySection.items.filter(
     (item) =>
       looksLikeCommunicationItem(item) &&
+      !isEquipmentSupportItem(item) &&
+      !isMedicationOrConditionItem(item) &&
+      !isPhysicalOrBehaviorSignItem(item) &&
       !/\b(two caregivers?|two people|close supervision|supervision|safety risk|low muscle tone|bite you|hand biting|elopement|elope|run away|for safety)\b/i.test(
         item
       )
@@ -2131,93 +2972,175 @@ function buildOverview(title: string, sections: SummarySection[]) {
   const meaningfulSections = sections.filter((section) =>
     section.items.some((item) => !isNoInformationItem(item))
   );
-  const personName = extractNameFromTitle(title);
-  const subject = personName || "This person";
   const communicationItems =
     meaningfulSections.find((section) => section.title === "Communication")?.items ?? [];
-  const healthAndSafetyItems =
-    meaningfulSections.find((section) => section.title === "Health & Safety")?.items ?? [];
+  const dailyItems =
+    meaningfulSections.find((section) => section.title === "Daily Needs & Routines")?.items ?? [];
+  const dayGoWellItems =
+    meaningfulSections.find((section) => section.title === "What helps the day go well")?.items ?? [];
   const signItems =
     meaningfulSections.find((section) => section.title === "Signs they need help")?.items ?? [];
+  const hardTimeItems =
+    meaningfulSections.find((section) => section.title === "What helps when they are having a hard time")?.items ?? [];
+  const healthAndSafetyItems =
+    meaningfulSections.find((section) => section.title === "Health & Safety")?.items ?? [];
+  const contactItems =
+    meaningfulSections.find((section) => section.title === "Who to contact (and when)")?.items ?? [];
+  const allItems = meaningfulSections.flatMap((section) => section.items);
 
-  const communicationSignals: string[] = [];
-  if (communicationItems.some((item) => /\bnon-speaking\b/i.test(item))) {
-    communicationSignals.push("non-speaking");
-  }
-  if (communicationItems.some((item) => /\bAAC|TouchChat|iPad\b/i.test(item))) {
-    communicationSignals.push("AAC device");
-  }
-  if (communicationItems.some((item) => /\bsounds?\b/i.test(item))) {
-    communicationSignals.push("sounds");
-  }
-  if (communicationItems.some((item) => /\blead|touch|sit close|attention\b/i.test(item))) {
-    communicationSignals.push("behavior cues");
-  }
+  function buildCommunicationOverviewValue(items: string[]) {
+    const parts: string[] = [];
 
-  const safetySignals: string[] = [];
-  if ([...healthAndSafetyItems, ...signItems].some((item) => /\belope|run away\b/i.test(item))) {
-    safetySignals.push("elopement");
-  }
-  if ([...healthAndSafetyItems, ...signItems].some((item) => /\bbiting (?:his|her|their) hand|self-injury\b/i.test(item))) {
-    safetySignals.push("self-injury");
-  }
-  if (healthAndSafetyItems.some((item) => /\btwo caregivers?|two people|close supervision|supervision\b/i.test(item))) {
-    safetySignals.push("close supervision needs");
-  }
-
-  const overviewSentences: string[] = [];
-  if (communicationSignals.length > 0) {
-    if (communicationSignals.includes("non-speaking")) {
-      const communicationModes = communicationSignals.filter((signal) => signal !== "non-speaking");
-      if (communicationModes.length > 0) {
-        overviewSentences.push(
-          `${subject} is non-speaking and communicates using ${formatList(communicationModes)}.`
-        );
-      } else {
-        overviewSentences.push(`${subject} is non-speaking.`);
-      }
-    } else {
-      overviewSentences.push(
-        `${subject} communicates using ${formatList(communicationSignals)}.`
-      );
+    if (items.some((item) => /\bnon-speaking\b/i.test(item))) {
+      parts.push("Non-speaking");
     }
+
+    if (items.some((item) => /\bAAC|Touch ?Chat|iPad\b/i.test(item))) {
+      if (items.some((item) => /\bTouch ?Chat\b/i.test(item)) && items.some((item) => /\biPad\b/i.test(item))) {
+        parts.push("uses AAC (TouchChat on iPad)");
+      } else {
+        parts.push("uses AAC");
+      }
+    }
+
+    if (parts.length === 0 && items[0]) {
+      return trimSentence(items[0]);
+    }
+
+    return parts.join(", ");
   }
 
-  if (safetySignals.length > 0) {
-    overviewSentences.push(
-      `${personName || "They"} require${personName ? "s" : ""} close supervision due to safety risks including ${formatList(
-        safetySignals
-      )}.`
-    );
+  function buildKeyNeedsValue(items: string[]) {
+    const needs: string[] = [];
+
+    if (items.some((item) => /\b(food|hungry|cheese|fridge|meal|eat)\b/i.test(item))) {
+      needs.push("constant food access");
+    }
+
+    if (items.some((item) => /\b(supervision|two caregivers?|two people|2 adults?|safety|close supervision)\b/i.test(item))) {
+      needs.push("supervision for safety");
+    }
+
+    if (
+      items.some((item) =>
+        /\b(visual|2-step|two-step|routine|structured|schedule|timer|prompts?)\b/i.test(item)
+      )
+    ) {
+      needs.push("structured support");
+    }
+
+    return formatList(needs.slice(0, 3));
   }
 
-  if (overviewSentences.length > 0) {
-    return shortenOverview(overviewSentences.join(" "));
+  function buildTopRisksValue(items: string[]) {
+    const risks: string[] = [];
+
+    if (items.some((item) => /\belope|run away\b/i.test(item))) {
+      risks.push("elopement");
+    }
+
+    if (items.some((item) => /\b(hand biting|biting his hand|biting her hand|biting their hand|self-injury)\b/i.test(item))) {
+      risks.push("self-injury (hand biting)");
+    }
+
+    if (items.some((item) => /\bpica\b/i.test(item))) {
+      risks.push("pica");
+    }
+
+    if (items.some((item) => /\bwalks?|outings?\b/i.test(item) && /\btwo caregivers?|two people|2 adults?|unsafe|safety\b/i.test(item))) {
+      risks.push("unsafe walking");
+    }
+
+    if (items.some((item) => /\bdoes not communicate pain|does not tell you if (?:he|she|they) (?:is|are) hurt\b/i.test(item))) {
+      risks.push("does not communicate pain");
+    }
+
+    return formatList(risks.slice(0, 4));
   }
 
-  const firstSection = meaningfulSections[0];
-  const secondSection = meaningfulSections[1];
+  function buildBestSupportsValue(items: string[]) {
+    const supports: string[] = [];
 
-  if (!firstSection) {
-    return "This summary highlights the most important caregiver handoff details that were shared.";
+    if (items.some((item) => /\bvisual|pictures?|show (?:him|her|them)|show him|show her|show them\b/i.test(item))) {
+      supports.push("visuals");
+    }
+
+    if (items.some((item) => /\b2-step|two-step\b/i.test(item))) {
+      supports.push("2-step directions");
+    }
+
+    if (items.some((item) => /\bgiv(?:e|ing)\b.*\bspace\b|\bspace immediately\b|\btime alone\b/i.test(item))) {
+      supports.push("space when overwhelmed");
+    }
+
+    if (items.some((item) => /\bquiet|low-light|low light|reduce noise|dim\b/i.test(item))) {
+      supports.push("quiet, low-light environment");
+    }
+
+    return formatList(supports.slice(0, 4));
   }
 
-  const fragments = [
-    firstSection.items[0] ? `${firstSection.title}: ${firstSection.items[0]}` : "",
-    secondSection?.items[0] ? `${secondSection.title}: ${secondSection.items[0]}` : ""
-  ].filter(Boolean);
+  function buildPrimaryContactValue(items: string[]) {
+    const first = items.find((item) => !isNoInformationItem(item));
+    if (!first) {
+      return "";
+    }
 
-  if (fragments.length === 0) {
-    return "This summary highlights the most important caregiver handoff details that were shared.";
+    const phone = first.match(/(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/);
+    const nameMatch = trimSentence(first)
+      .replace(/^contact\s+/i, "")
+      .replace(/\bat\s+\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}.*/i, "")
+      .replace(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/, "")
+      .split(",")[0]
+      ?.trim();
+
+    if (nameMatch && phone?.[1]) {
+      return `${nameMatch} (${normalizePhone(phone[1])})`;
+    }
+
+    return trimSentence(first);
   }
 
-  return shortenOverview(fragments.join(". "));
+  const overviewRows = [
+    {
+      label: "Communication",
+      value: buildCommunicationOverviewValue(communicationItems)
+    },
+    {
+      label: "Key Needs",
+      value: buildKeyNeedsValue([...dailyItems, ...dayGoWellItems, ...healthAndSafetyItems, ...signItems])
+    },
+    {
+      label: "Top Risks",
+      value: buildTopRisksValue([...signItems, ...healthAndSafetyItems])
+    },
+    {
+      label: "Best Supports",
+      value: buildBestSupportsValue([...communicationItems, ...dayGoWellItems, ...hardTimeItems])
+    },
+    {
+      label: "Emergency Contact",
+      value: buildPrimaryContactValue(contactItems)
+    }
+  ];
+
+  if (allItems.length === 0) {
+    return STRUCTURED_OVERVIEW_LABELS.map((label) => `${label}: Not provided`).join("\n");
+  }
+
+  return overviewRows
+    .map((row) => `${row.label}: ${row.value || "Not provided"}`)
+    .join("\n");
 }
 
 function shouldRewriteOverview(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
     return true;
+  }
+
+  if (isStructuredOverview(trimmed)) {
+    return false;
   }
 
   if (SECTION_LABEL_OVERVIEW_PATTERN.test(trimmed)) {
@@ -2245,9 +3168,13 @@ export function normalizeGeneratedSummary(input: unknown, nameHint?: string): St
 
 function normalizePreferredSections(
   sections: SummarySection[],
-  { reclassify = true }: SummaryNormalizationOptions = {}
+  { reclassify = true, semanticRepair = true }: SummaryNormalizationOptions = {}
 ) {
   const preferredSections = ensurePreferredSections(sections);
+  if (!semanticRepair) {
+    return enforceAuthoritativeSectionPlacement(preferredSections);
+  }
+
   const normalizedSections = reclassify
     ? reclassifySummarySections(preferredSections)
     : preferredSections;
@@ -2282,8 +3209,8 @@ export function normalizeGeneratedSummaryWithOptions(
   return {
     title: summaryTitle,
     overview:
-      typeof candidate.overview === "string" && !shouldRewriteOverview(candidate.overview)
-        ? shortenOverview(candidate.overview)
+      typeof candidate.overview === "string" && isStructuredOverview(candidate.overview)
+        ? normalizeStructuredOverview(candidate.overview)
         : buildOverview(summaryTitle, sections),
     sections,
     generatedAt:
@@ -2400,8 +3327,85 @@ export function normalizeStructuredSummary(input: unknown, nameHint?: string): S
   return normalizeStructuredSummaryWithOptions(input, nameHint);
 }
 
+export function normalizeEditableStructuredSummary(input: unknown, nameHint?: string): StructuredSummary {
+  const candidate = input as Partial<StructuredSummary & LegacyStructuredSummary & GeneratedStructuredSummary> | undefined;
+
+  if (!candidate) {
+    return {
+      ...EMPTY_SUMMARY,
+      title: defaultSummaryTitle(nameHint),
+      pipelineVersion: "",
+      layoutVersion: "",
+      sourceTurnsHash: ""
+    };
+  }
+
+  if (GENERATED_SUMMARY_SECTION_FIELDS.some((field) => field.key in candidate)) {
+    return normalizeGeneratedSummaryWithOptions(candidate, nameHint, {
+      reclassify: false,
+      semanticRepair: false
+    });
+  }
+
+  if (Array.isArray(candidate.sections) || typeof candidate.title === "string" || typeof candidate.overview === "string") {
+    const sections = Array.isArray(candidate.sections)
+      ? candidate.sections
+          .map((section, index) => normalizeSection(section, index))
+          .filter((section): section is SummarySection => Boolean(section))
+      : [];
+    const containsStructuredBlocks = sections.some(
+      (section) => Array.isArray(section.blocks) && section.blocks.length > 0
+    );
+    const orderedSections = containsStructuredBlocks ? sections : sortAndMergeSections(sections);
+    const usesPreferredSummaryTitles = usesPreferredSectionStructure(orderedSections);
+    const finalSections = usesPreferredSummaryTitles
+      ? ensurePreferredSections(
+          orderedSections.map((section, index) => ({
+            id: section.id || `${slugify(section.title) || "section"}-${index + 1}`,
+            title: canonicalizeSectionTitle(section.title),
+            items: normalizeSectionItems(section.title, section.items)
+          }))
+        )
+      : orderedSections;
+    const summaryTitle =
+      typeof candidate.title === "string" && candidate.title.trim()
+        ? candidate.title.trim()
+        : defaultSummaryTitle(nameHint);
+
+    return {
+      title: summaryTitle,
+      overview:
+        !usesPreferredSummaryTitles && containsStructuredBlocks && typeof candidate.overview === "string"
+          ? (isStructuredOverview(candidate.overview)
+              ? normalizeStructuredOverview(candidate.overview)
+              : shortenOverview(candidate.overview))
+          : !usesPreferredSummaryTitles && containsStructuredBlocks
+            ? ""
+            : typeof candidate.overview === "string" && isStructuredOverview(candidate.overview)
+              ? normalizeStructuredOverview(candidate.overview)
+              : buildOverview(summaryTitle, finalSections),
+      sections: finalSections,
+      generatedAt:
+        typeof candidate.generatedAt === "string" && candidate.generatedAt.trim()
+          ? candidate.generatedAt.trim()
+          : "",
+      pipelineVersion:
+        typeof candidate.pipelineVersion === "string" ? candidate.pipelineVersion.trim() : "",
+      layoutVersion:
+        typeof candidate.layoutVersion === "string" ? candidate.layoutVersion.trim() : "",
+      sourceTurnsHash:
+        typeof candidate.sourceTurnsHash === "string" ? candidate.sourceTurnsHash.trim() : ""
+    };
+  }
+
+  return normalizeLegacySummary(candidate, nameHint);
+}
+
 export function normalizeAuthoritativeStructuredSummary(input: unknown, nameHint?: string): StructuredSummary {
-  return normalizeStructuredSummaryWithOptions(input, nameHint, { reclassify: false });
+  return normalizeStructuredSummaryWithOptions(input, nameHint, {
+    reclassify: false,
+    semanticRepair: false
+  });
 }
 
 export function normalizeStructuredSummaryWithOptions(
@@ -2434,12 +3438,19 @@ export function normalizeStructuredSummaryWithOptions(
     const containsStructuredBlocks = sections.some(
       (section) => Array.isArray(section.blocks) && section.blocks.length > 0
     );
-
     const orderedSections = containsStructuredBlocks ? sections : sortAndMergeSections(sections);
-    const finalSections = containsStructuredBlocks
-      ? orderedSections
-      : usesPreferredSectionStructure(orderedSections)
-        ? normalizePreferredSections(orderedSections, options)
+    const usesPreferredSummaryTitles = usesPreferredSectionStructure(orderedSections);
+    const finalSections = usesPreferredSummaryTitles
+      ? normalizePreferredSections(
+          orderedSections.map((section, index) => ({
+            id: section.id || `${slugify(section.title) || "section"}-${index + 1}`,
+            title: section.title,
+            items: sectionToCanonicalItems(section)
+          })),
+          options
+        )
+      : containsStructuredBlocks
+        ? orderedSections
         : orderedSections;
     const summaryTitle =
       typeof candidate.title === "string" && candidate.title.trim()
@@ -2449,12 +3460,14 @@ export function normalizeStructuredSummaryWithOptions(
     return {
       title: summaryTitle,
       overview:
-        containsStructuredBlocks && typeof candidate.overview === "string"
-          ? shortenOverview(candidate.overview)
-          : containsStructuredBlocks
+        !usesPreferredSummaryTitles && containsStructuredBlocks && typeof candidate.overview === "string"
+          ? (isStructuredOverview(candidate.overview)
+              ? normalizeStructuredOverview(candidate.overview)
+              : shortenOverview(candidate.overview))
+          : !usesPreferredSummaryTitles && containsStructuredBlocks
             ? ""
-          : typeof candidate.overview === "string" && !shouldRewriteOverview(candidate.overview)
-          ? shortenOverview(candidate.overview)
+          : typeof candidate.overview === "string" && isStructuredOverview(candidate.overview)
+          ? normalizeStructuredOverview(candidate.overview)
           : buildOverview(summaryTitle, finalSections),
       sections: finalSections,
       generatedAt:

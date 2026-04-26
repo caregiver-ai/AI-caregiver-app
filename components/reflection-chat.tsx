@@ -607,7 +607,8 @@ export function ReflectionChat() {
       });
 
       if (!response.ok) {
-        throw new Error("Summary generation failed.");
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? reflectionCopy.unableToGenerateSummary);
       }
 
       const data = await response.json();
@@ -616,6 +617,8 @@ export function ReflectionChat() {
         updatedDraft.turns = finalTurns;
         updatedDraft.structuredSummary = data.summary;
         updatedDraft.editedSummary = data.summary;
+        updatedDraft.structuredSummaryAudit = data.auditReport ?? undefined;
+        updatedDraft.editedSummaryAudit = data.auditReport ?? undefined;
         delete updatedDraft.feedback;
         await persistDraft(updatedDraft);
       }

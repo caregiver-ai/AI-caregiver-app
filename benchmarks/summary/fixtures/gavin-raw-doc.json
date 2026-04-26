@@ -118,6 +118,14 @@
           ]
         },
         {
+          "label": "hunger sign",
+          "anyOf": [
+            "grabbing cheese",
+            "fridge",
+            "hungry"
+          ]
+        },
+        {
           "label": "physical signs",
           "anyOf": [
             "limping",
@@ -171,6 +179,12 @@
           ]
         },
         {
+          "label": "allergies",
+          "anyOf": [
+            "no allergies"
+          ]
+        },
+        {
           "label": "conditions",
           "anyOf": [
             "autism spectrum disorder",
@@ -221,13 +235,32 @@
     ],
     "sectionBannedPhrases": {
       "Communication": [
-        "um, yeah."
+        "um, yeah.",
+        "buckle buddy",
+        "noise-canceling",
+        "white cane",
+        "limping",
+        "bowel movements happen in his pull-up",
+        "polyethylene glycol",
+        "miralax"
+      ],
+      "Signs they need help": [
+        "abilify",
+        "aripiprazole",
+        "polyethylene glycol",
+        "miralax",
+        "multivitamin",
+        "buckle buddy",
+        "touchchat aac on ipad"
       ]
     },
-    "maxDuplicateItems": 3,
+    "maxDuplicateItems": 1,
     "maxDuplicateItemsBySection": {
-      "Communication": 1,
-      "Health & Safety": 1
+      "Communication": 0,
+      "Health & Safety": 0,
+      "Signs they need help": 0,
+      "What helps when they are having a hard time": 0,
+      "What helps the day go well": 0
     }
   }
 }
