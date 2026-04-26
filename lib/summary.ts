@@ -1476,6 +1476,10 @@ function normalizeStructuredOverview(value: string) {
   return getOverviewLines(value).join("\n");
 }
 
+function sectionToCanonicalItems(section: SummarySection) {
+  return normalizeSectionItems(section.title, section.items);
+}
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -1730,6 +1734,21 @@ function refineSectionItems(title: string, items: string[], limit?: number) {
   }
 
   if (canonicalTitle === "What helps the day go well") {
+    const proactiveSupportItems = refinedItems.filter((item) =>
+      /\b(visual supports?|visual choices?|show (?:pictures|items)|two-step|visual timer|visual schedule|structured routine|regular access to food|food helps prevent distress|quiet environment|low-light|low light|soft indirect lighting|prevent frustration|help(?:ing)? him find items on (?:his )?ipad|regulation)\b/i.test(
+        item
+      )
+    );
+
+    if (proactiveSupportItems.length > 0) {
+      refinedItems = refinedItems.filter(
+        (item) =>
+          !/\b(favorite person|spending time with family|downtime|watch tv|watch television|left alone to do (?:his|her|their) own thing)\b/i.test(
+            item
+          )
+      );
+    }
+
     const ipadSupportItems = refinedItems.filter((item) =>
       /\b(ipad|search history|internet|video)\b/i.test(item) &&
       /\b(help|find|access|prevent|reduce|frustration|trying|not working|cannot find|can t find)\b/i.test(
@@ -1772,6 +1791,22 @@ function refineSectionItems(title: string, items: string[], limit?: number) {
       refinedItems.push(
         "He does best with short two-step directions such as \"first this, then that.\""
       );
+    }
+
+    const structuredRoutineItems = refinedItems.filter((item) =>
+      /\b(structured routine|visual timer|visual schedule)\b/i.test(item)
+    );
+    if (structuredRoutineItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !structuredRoutineItems.includes(item));
+      refinedItems.push("A structured routine with a visual timer or schedule helps the day go more smoothly.");
+    }
+
+    const quietEnvironmentItems = refinedItems.filter((item) =>
+      /\b(quiet environment|low-light|low light|soft indirect lighting)\b/i.test(item)
+    );
+    if (quietEnvironmentItems.length > 1) {
+      refinedItems = refinedItems.filter((item) => !quietEnvironmentItems.includes(item));
+      refinedItems.push("A quiet, low-light environment helps him stay regulated.");
     }
 
     const regulationItems = refinedItems.filter((item) =>
@@ -3317,12 +3352,19 @@ export function normalizeStructuredSummaryWithOptions(
     const containsStructuredBlocks = sections.some(
       (section) => Array.isArray(section.blocks) && section.blocks.length > 0
     );
-
     const orderedSections = containsStructuredBlocks ? sections : sortAndMergeSections(sections);
-    const finalSections = containsStructuredBlocks
-      ? orderedSections
-      : usesPreferredSectionStructure(orderedSections)
-        ? normalizePreferredSections(orderedSections, options)
+    const usesPreferredSummaryTitles = usesPreferredSectionStructure(orderedSections);
+    const finalSections = usesPreferredSummaryTitles
+      ? normalizePreferredSections(
+          orderedSections.map((section, index) => ({
+            id: section.id || `${slugify(section.title) || "section"}-${index + 1}`,
+            title: section.title,
+            items: sectionToCanonicalItems(section)
+          })),
+          options
+        )
+      : containsStructuredBlocks
+        ? orderedSections
         : orderedSections;
     const summaryTitle =
       typeof candidate.title === "string" && candidate.title.trim()
@@ -3332,11 +3374,11 @@ export function normalizeStructuredSummaryWithOptions(
     return {
       title: summaryTitle,
       overview:
-        containsStructuredBlocks && typeof candidate.overview === "string"
+        !usesPreferredSummaryTitles && containsStructuredBlocks && typeof candidate.overview === "string"
           ? (isStructuredOverview(candidate.overview)
               ? normalizeStructuredOverview(candidate.overview)
               : shortenOverview(candidate.overview))
-          : containsStructuredBlocks
+          : !usesPreferredSummaryTitles && containsStructuredBlocks
             ? ""
           : typeof candidate.overview === "string" && isStructuredOverview(candidate.overview)
           ? normalizeStructuredOverview(candidate.overview)

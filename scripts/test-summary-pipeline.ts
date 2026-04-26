@@ -261,6 +261,112 @@ function testStructuredOverview() {
   assert.match(overviewLines[4] ?? "", /^Emergency Contact:\s+Rania Kelly \(\(617\) 538-4056\)$/i);
 }
 
+function testPreferredStructuredBlocksUseAuthoritativeCleanup() {
+  const summary = emptySummary();
+  summary.overview =
+    "Gavin is non-speaking and communicates using AAC device, sounds, and behavior cues. Gavin requires close supervision due to safety risks including self-injury.";
+  summary.sections = [
+    {
+      id: "communication-1",
+      title: "Communication",
+      items: [],
+      blocks: [
+        {
+          type: "bullets",
+          items: [
+            "Gavin is non-speaking and communicates with sounds, body language, and AAC.",
+            "He uses TouchChat on an iPad to ask for help and label what he wants."
+          ]
+        }
+      ]
+    },
+    {
+      id: "daily-needs-routines-2",
+      title: "Daily Needs & Routines",
+      items: [],
+      blocks: [
+        {
+          type: "bullets",
+          items: [
+            "On school days, Gavin wakes around 7:20 a.",
+            "A visual timer and visual schedule with a preferred item or activity at the end are helpful."
+          ]
+        }
+      ]
+    },
+    {
+      id: "what-helps-the-day-go-well-3",
+      title: "What helps the day go well",
+      items: [],
+      blocks: [
+        {
+          type: "bullets",
+          items: [
+            "Regular access to food helps prevent distress.",
+            "Structured routine helps him stay regulated.",
+            "Mom is his favorite person.",
+            "He also enjoys spending time with family.",
+            "Downtime usually means being left alone to do his own thing."
+          ]
+        }
+      ]
+    },
+    {
+      id: "what-can-upset-or-overwhelm-them-4",
+      title: "What can upset or overwhelm them",
+      items: [],
+      blocks: [{ type: "bullets", items: ["Overhead lighting is upsetting, so the home uses soft indirect lighting."] }]
+    },
+    {
+      id: "signs-they-need-help-5",
+      title: "Signs they need help",
+      items: [],
+      blocks: [
+        {
+          type: "bullets",
+          items: [
+            "Abilify (Aripiprazole) 15 mg once daily at 3pm for irritability, aggression, repetitive behaviors, and self-injury.",
+            "Limping, avoiding a body part, not eating, not drinking, and unusual lethargy or low energy."
+          ]
+        }
+      ]
+    },
+    {
+      id: "what-helps-when-they-are-having-a-hard-time-6",
+      title: "What helps when they are having a hard time",
+      items: [],
+      blocks: [{ type: "bullets", items: ["Give him space, reduce stimulation, and keep things quiet."] }]
+    },
+    {
+      id: "health-safety-7",
+      title: "Health & Safety",
+      items: [],
+      blocks: [{ type: "bullets", items: ["Pica.", "Outings such as walks or car rides require at least two caregivers for safety."] }]
+    },
+    {
+      id: "who-to-contact-and-when-8",
+      title: "Who to contact (and when)",
+      items: [],
+      blocks: [{ type: "bullets", items: ["Rania Kelly, Mother with physical custody, 617-538-4056."] }]
+    }
+  ];
+
+  const normalized = normalizeAuthoritativeStructuredSummary(summary, "Gavin");
+  const overviewLines = getOverviewLines(normalized.overview);
+  const dayGoWellText = sectionText(normalized, "What helps the day go well");
+  const signsText = sectionText(normalized, "Signs they need help");
+  const healthText = sectionText(normalized, "Health & Safety");
+  const dailyText = sectionText(normalized, "Daily Needs & Routines");
+
+  assert.equal(overviewLines.length, 5);
+  assert.match(overviewLines[0] ?? "", /^Communication:\s+/i);
+  assert.doesNotMatch(signsText, /Abilify|Aripiprazole/i);
+  assert.match(healthText, /Abilify|Aripiprazole/i);
+  assert.match(dailyText, /7:20 a\.m\./i);
+  assert.match(dayGoWellText, /structured routine|visual timer|visual schedule|regular access to food/i);
+  assert.doesNotMatch(dayGoWellText, /favorite person|spending time with family|downtime/i);
+}
+
 testAuthoritativePlacement();
 testHardTimeDedupes();
 testPreferenceCondensing();
@@ -268,5 +374,6 @@ testNoInventedSupports();
 testRawInputParser();
 testAmPmFormatting();
 testStructuredOverview();
+testPreferredStructuredBlocksUseAuthoritativeCleanup();
 
 console.log("summary pipeline tests passed");
