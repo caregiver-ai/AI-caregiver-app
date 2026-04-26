@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { normalizeAuthoritativeStructuredSummary, summaryToPlainText } from "@/lib/summary";
+import { normalizeEditableStructuredSummary, summaryToPlainText } from "@/lib/summary";
+import { finalizeSummaryWithQa } from "@/lib/summary-audit";
 import { createSupabaseServerClient } from "@/lib/supabase";
 
 export async function POST(request: Request) {
@@ -12,7 +13,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "sessionId and editedSummary are required." }, { status: 400 });
   }
 
-  const editedSummary = normalizeAuthoritativeStructuredSummary(body.editedSummary);
+  const { summary: editedSummary, report: editedSummaryAudit } = finalizeSummaryWithQa(
+    normalizeEditableStructuredSummary(body.editedSummary),
+    {
+      source: "edited"
+    }
+  );
 
   const supabase = createSupabaseServerClient();
 
@@ -66,7 +72,10 @@ export async function POST(request: Request) {
             draft_json: {
               ...sessionRow.draft_json,
               editedSummary,
-              structuredSummary: sessionRow.draft_json.structuredSummary ?? editedSummary
+              structuredSummary: sessionRow.draft_json.structuredSummary ?? editedSummary,
+              editedSummaryAudit,
+              structuredSummaryAudit:
+                sessionRow.draft_json.structuredSummaryAudit ?? editedSummaryAudit
             }
           }
         : {})
@@ -82,5 +91,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, auditReport: editedSummaryAudit, editedSummary });
 }

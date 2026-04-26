@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { getOverviewLines, normalizeAuthoritativeStructuredSummary } from "../lib/summary";
+import {
+  getOverviewLines,
+  normalizeAuthoritativeStructuredSummary,
+  normalizeEditableStructuredSummary
+} from "../lib/summary";
+import { finalizeSummaryWithQa } from "../lib/summary-audit";
 import { expandTurnsForSummaryCapture } from "../lib/summary-generation";
 import { StructuredSummary } from "../lib/types";
 
@@ -367,6 +372,83 @@ function testPreferredStructuredBlocksUseAuthoritativeCleanup() {
   assert.doesNotMatch(dayGoWellText, /favorite person|spending time with family|downtime/i);
 }
 
+function testQaReportWarnsForEditedSummaryWithoutRewritingCards() {
+  const summary = emptySummary();
+  summary.overview =
+    "Gavin is non-speaking and communicates using AAC device, sounds, and behavior cues. Gavin requires close supervision due to safety risks including self-injury.";
+  summary.sections = summary.sections.map((section) => {
+    if (section.title === "Signs they need help") {
+      return {
+        ...section,
+        items: [
+          "Abilify (Aripiprazole) 15 mg once daily at 3pm for irritability, aggression, repetitive behaviors, and self-injury.",
+          "Limping, avoiding a body part, not eating, not drinking, and unusual lethargy or low energy."
+        ]
+      };
+    }
+
+    if (section.title === "What helps the day go well") {
+      return {
+        ...section,
+        items: [
+          "Regular access to food helps prevent distress.",
+          "Structured routine helps him stay regulated.",
+          "Mom is his favorite person.",
+          "He also enjoys spending time with family."
+        ]
+      };
+    }
+
+    if (section.title === "Who to contact (and when)") {
+      return {
+        ...section,
+        items: ["Rania Kelly, Mother with physical custody, 617-538-4056."]
+      };
+    }
+
+    return section;
+  });
+
+  const normalized = normalizeEditableStructuredSummary(summary, "Gavin");
+  const { summary: qaSummary, report } = finalizeSummaryWithQa(normalized, { source: "edited" });
+
+  assert.equal(report.status, "warn");
+  assert.match(report.issues.map((issue) => issue.message).join("\n"), /Health & Safety/i);
+  assert.match(report.issues.map((issue) => issue.message).join("\n"), /What helps the day go well/i);
+  assert.match(sectionText(qaSummary, "Signs they need help"), /Abilify|Aripiprazole/i);
+  assert.equal(getOverviewLines(qaSummary.overview).length, 5);
+}
+
+function testSavedSummaryQaRebuildsOverviewAndWarns() {
+  const summary = emptySummary();
+  summary.overview =
+    "Gavin is non-speaking and communicates using AAC device, sounds, and behavior cues. Gavin requires close supervision due to safety risks including self-injury.";
+  summary.sections = summary.sections.map((section) =>
+    section.title === "What helps the day go well"
+      ? {
+          ...section,
+          items: ["Structured routine helps him stay regulated.", "Downtime usually means being left alone to do his own thing."]
+        }
+      : section.title === "Who to contact (and when)"
+        ? {
+            ...section,
+            items: ["Contact Rania Kelly at (617) 538-4056."]
+          }
+        : section.title === "Communication"
+          ? {
+              ...section,
+              items: ["Gavin is non-speaking.", "He uses TouchChat on an iPad to ask for help."]
+            }
+          : section
+  );
+
+  const { summary: qaSummary, report } = finalizeSummaryWithQa(summary, { source: "saved" });
+
+  assert.equal(getOverviewLines(qaSummary.overview).length, 5);
+  assert.equal(report.status, "warn");
+  assert.match(report.issues.map((issue) => issue.message).join("\n"), /What helps the day go well/i);
+}
+
 testAuthoritativePlacement();
 testHardTimeDedupes();
 testPreferenceCondensing();
@@ -375,5 +457,7 @@ testRawInputParser();
 testAmPmFormatting();
 testStructuredOverview();
 testPreferredStructuredBlocksUseAuthoritativeCleanup();
+testQaReportWarnsForEditedSummaryWithoutRewritingCards();
+testSavedSummaryQaRebuildsOverviewAndWarns();
 
 console.log("summary pipeline tests passed");

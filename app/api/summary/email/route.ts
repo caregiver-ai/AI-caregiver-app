@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { createSummaryPdf, buildSummaryEmailHtml, sanitizePdfFilename } from "@/lib/summary-pdf";
 import { summaryHasContent } from "@/lib/summary-display";
 import { getSummaryFreshness } from "@/lib/summary-structured";
-import { normalizeAuthoritativeStructuredSummary, summaryToPlainText } from "@/lib/summary";
+import { normalizeEditableStructuredSummary, summaryToPlainText } from "@/lib/summary";
+import { finalizeSummaryWithQa } from "@/lib/summary-audit";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
 import { SessionDraft, StructuredSummary } from "@/lib/types";
 
@@ -152,10 +153,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: summaryLookupError.message }, { status: 500 });
     }
 
-    const generatedSummary = normalizeAuthoritativeStructuredSummary(
+    const generatedSummary = normalizeEditableStructuredSummary(
       (summaryRow as SummaryRow | null)?.summary_json ?? (sessionRow as SessionRow).draft_json?.structuredSummary
     );
-    const editedSummary = normalizeAuthoritativeStructuredSummary(
+    const editedSummary = normalizeEditableStructuredSummary(
       (summaryRow as SummaryRow | null)?.edited_json ??
         (sessionRow as SessionRow).draft_json?.editedSummary ??
         generatedSummary
@@ -179,8 +180,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No saved summary is available to send." }, { status: 404 });
     }
 
-    const pdfBytes = await createSummaryPdf(editedSummary);
-    const filename = `${sanitizePdfFilename(editedSummary.title)}.pdf`;
+    const { summary: qaSummary } = finalizeSummaryWithQa(editedSummary, {
+      source: "saved"
+    });
+    const pdfBytes = await createSummaryPdf(qaSummary);
+    const filename = `${sanitizePdfFilename(qaSummary.title)}.pdf`;
     const editUrl = buildEditUrl(request);
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -191,9 +195,9 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         from: resendFromEmail,
         to: [recipientEmail],
-        subject: editedSummary.title || "Caregiver Handoff Summary",
-        html: buildSummaryEmailHtml(editedSummary, editUrl),
-        text: buildSummaryEmailText(editedSummary, editUrl),
+        subject: qaSummary.title || "Caregiver Handoff Summary",
+        html: buildSummaryEmailHtml(qaSummary, editUrl),
+        text: buildSummaryEmailText(qaSummary, editUrl),
         attachments: [
           {
             filename,

@@ -13,11 +13,19 @@ import {
   saveRemoteDraft
 } from "@/lib/draft-api";
 import { getReviewCopy } from "@/lib/localization";
+import { finalizeSummaryWithQa, summarizeSummaryAuditReport } from "@/lib/summary-audit";
 import { getVisibleSections } from "@/lib/summary-display";
 import { getSummaryFreshness } from "@/lib/summary-structured";
-import { formatSummaryGeneratedAt, normalizeAuthoritativeStructuredSummary } from "@/lib/summary";
+import { formatSummaryGeneratedAt, normalizeEditableStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { SessionDraft, StructuredSummary, SummaryFreshness, SummarySection, UiLanguage } from "@/lib/types";
+import {
+  SessionDraft,
+  StructuredSummary,
+  SummaryAuditReport,
+  SummaryFreshness,
+  SummarySection,
+  UiLanguage
+} from "@/lib/types";
 
 function deriveFreshness(draft: SessionDraft, remoteFreshness?: SummaryFreshness | null) {
   if (remoteFreshness) {
@@ -37,18 +45,29 @@ export function ReviewEditor() {
   const [error, setError] = useState("");
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
   const [summaryFreshness, setSummaryFreshness] = useState<SummaryFreshness | null>(null);
+  const [storedAuditReport, setStoredAuditReport] = useState<SummaryAuditReport | null>(null);
   const copy = useMemo(() => getReviewCopy(uiLanguage), [uiLanguage]);
   const generatedAtText = useMemo(
     () => formatSummaryGeneratedAt(summary.generatedAt, uiLanguage),
     [summary.generatedAt, uiLanguage]
   );
+  const auditResult = useMemo(
+    () => finalizeSummaryWithQa(summary, { source: "edited" }),
+    [summary]
+  );
+  const auditReport = auditResult.report;
+  const auditSummaryLines = useMemo(
+    () => summarizeSummaryAuditReport(auditReport),
+    [auditReport]
+  );
   const requiresRegeneration = summaryFreshness?.requiresRegeneration ?? false;
 
   function applyDraftState(draft: SessionDraft, freshness?: SummaryFreshness | null) {
-    setSummary(normalizeAuthoritativeStructuredSummary(draft.editedSummary ?? draft.structuredSummary));
+    setSummary(normalizeEditableStructuredSummary(draft.editedSummary ?? draft.structuredSummary));
     setSessionId(draft.sessionId);
     setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
     setSummaryFreshness(deriveFreshness(draft, freshness));
+    setStoredAuditReport(draft.editedSummaryAudit ?? draft.structuredSummaryAudit ?? null);
   }
 
   useEffect(() => {
@@ -112,7 +131,8 @@ export function ReviewEditor() {
 
       const nextDraft = {
         ...draft,
-        editedSummary: summary
+        editedSummary: summary,
+        editedSummaryAudit: auditReport
       };
 
       saveDraft(nextDraft);
@@ -215,9 +235,16 @@ export function ReviewEditor() {
         throw new Error(data.error ?? copy.confirmFailed);
       }
 
+      const data = (await response.json()) as {
+        ok?: boolean;
+        editedSummary?: StructuredSummary;
+        auditReport?: SummaryAuditReport;
+      };
+
       const draft = loadDraft();
       if (draft) {
-        draft.editedSummary = summary;
+        draft.editedSummary = data.editedSummary ?? summary;
+        draft.editedSummaryAudit = data.auditReport ?? auditReport;
         saveDraft(draft);
       }
 
@@ -237,7 +264,8 @@ export function ReviewEditor() {
       const nextDraft = {
         ...draft,
         editedSummary: summary,
-        structuredSummary: draft.structuredSummary ?? summary
+        structuredSummary: draft.structuredSummary ?? summary,
+        editedSummaryAudit: auditReport
       };
 
       saveDraft(nextDraft);
@@ -276,6 +304,31 @@ export function ReviewEditor() {
           ) : (
             <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
           )}
+          {!requiresRegeneration && auditReport.status === "warn" ? (
+            <StatusBanner tone="error">
+              <div className="space-y-2">
+                <p className="font-medium">{copy.auditWarningTitle}</p>
+                <p>{copy.auditWarningIntro}</p>
+                <ul className="list-disc pl-5">
+                  {auditSummaryLines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            </StatusBanner>
+          ) : storedAuditReport?.status === "warn" ? (
+            <StatusBanner tone="error">
+              <div className="space-y-2">
+                <p className="font-medium">{copy.auditWarningTitle}</p>
+                <p>{copy.auditWarningIntro}</p>
+                <ul className="list-disc pl-5">
+                  {summarizeSummaryAuditReport(storedAuditReport).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            </StatusBanner>
+          ) : null}
           <button
             className="w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
             disabled={saving || regenerating || returningToQuestions}

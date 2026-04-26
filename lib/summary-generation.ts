@@ -5,12 +5,19 @@ import {
   normalizeAuthoritativeStructuredSummary,
   normalizeGeneratedSummaryWithOptions
 } from "./summary";
+import { finalizeSummaryWithQa } from "./summary-audit";
 import {
   SUMMARY_LAYOUT_VERSION,
   SUMMARY_PIPELINE_VERSION,
   computeTurnsHash
 } from "./summary-structured";
-import { ConversationTurn, ReflectionStepId, StructuredSummary } from "./types";
+import {
+  ConversationTurn,
+  ReflectionStepId,
+  StructuredSummary,
+  SummaryAuditIssue,
+  SummaryAuditReport
+} from "./types";
 
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
@@ -75,19 +82,6 @@ type FactAuditStatus = {
   status: "covered" | "leaked" | "missing" | "duplicated";
   actualSection?: SummarySectionTitle;
   matchedBullet?: string;
-};
-
-type SummaryAuditIssue = {
-  code:
-    | "missing_coverage"
-    | "section_leakage"
-    | "wrong_section"
-    | "duplicate_item";
-  message: string;
-  factId?: string;
-  expectedSection?: SummarySectionTitle;
-  actualSection?: SummarySectionTitle;
-  item?: string;
 };
 
 export class SummaryQualityError extends Error {
@@ -2066,8 +2060,15 @@ function auditAndFinalizeSummary(
   capture: StructuredCapture,
   nameHint?: string
 ) {
-  const normalized = composeSummaryFromCapture(summary, capture, nameHint);
+  const composed = composeSummaryFromCapture(summary, capture, nameHint);
   const clusters = buildFactClusters(capture);
+  const captureIssues = auditSummaryAgainstCapture(composed, capture);
+  const { summary: normalized, report } = finalizeSummaryWithQa(composed, {
+    source: "generated",
+    nameHint,
+    issues: captureIssues,
+    diagnostics: []
+  });
   const sectionItems = new Map(
     normalized.sections.map((section) => [
       section.title as SummarySectionTitle,
@@ -2135,12 +2136,12 @@ function auditAndFinalizeSummary(
     );
   }
 
-  const issues = auditSummaryAgainstCapture(normalized, capture);
-
   return {
     summary: normalized,
-    issues,
-    diagnostics: buildAuditDiagnostics(statuses)
+    report: {
+      ...report,
+      diagnostics: [...report.diagnostics, ...buildAuditDiagnostics(statuses)]
+    }
   };
 }
 
@@ -2383,8 +2384,8 @@ async function generateSummaryTwoStep(
   }
 
   const firstPass = auditAndFinalizeSummary(rewrittenSummary, capture, nameHint);
-  if (firstPass.issues.length === 0) {
-    return firstPass.summary;
+  if (firstPass.report.issues.length === 0) {
+    return firstPass;
   }
 
   const repairedSummary = await rewriteStructuredCapture(
@@ -2392,27 +2393,14 @@ async function generateSummaryTwoStep(
     model,
     capture,
     nameHint,
-    summarizeAuditIssues(firstPass.issues)
+    summarizeAuditIssues(firstPass.report.issues)
   );
 
   if (!repairedSummary) {
-    throw new SummaryQualityError(
-      "The caregiver summary could not be repaired after audit failures.",
-      firstPass.issues,
-      firstPass.diagnostics
-    );
+    return firstPass;
   }
 
-  const secondPass = auditAndFinalizeSummary(repairedSummary, capture, nameHint);
-  if (secondPass.issues.length > 0) {
-    throw new SummaryQualityError(
-      "The caregiver summary still failed the final quality audit after one retry.",
-      secondPass.issues,
-      secondPass.diagnostics
-    );
-  }
-
-  return secondPass.summary;
+  return auditAndFinalizeSummary(repairedSummary, capture, nameHint);
 }
 
 export function buildSummarySource(turns: ConversationTurn[]) {
@@ -2422,23 +2410,37 @@ export function buildSummarySource(turns: ConversationTurn[]) {
 function finalizeGeneratedSummary(
   summary: StructuredSummary,
   turns: ConversationTurn[],
-  nameHint?: string
+  nameHint?: string,
+  existingReport?: SummaryAuditReport
 ) {
-  const normalized = normalizeAuthoritativeStructuredSummary(summary, nameHint);
+  const finalized = existingReport
+    ? {
+        summary,
+        report: existingReport
+      }
+    : finalizeSummaryWithQa(summary, {
+        source: "generated",
+        nameHint
+      });
+  const normalized = finalized.summary;
+  const report = finalized.report;
 
   return {
-    ...normalized,
-    pipelineVersion: SUMMARY_PIPELINE_VERSION,
-    layoutVersion: SUMMARY_LAYOUT_VERSION,
-    sourceTurnsHash: computeTurnsHash(turns)
-  } satisfies StructuredSummary;
+    summary: {
+      ...normalized,
+      pipelineVersion: SUMMARY_PIPELINE_VERSION,
+      layoutVersion: SUMMARY_LAYOUT_VERSION,
+      sourceTurnsHash: computeTurnsHash(turns)
+    } satisfies StructuredSummary,
+    auditReport: report
+  };
 }
 
-export async function generateCaregiverSummary(
+export async function generateCaregiverSummaryWithQa(
   turns: ConversationTurn[],
   nameHint?: string,
   mode: SummaryGenerationMode = "two-step"
-) {
+): Promise<{ summary: StructuredSummary; auditReport: SummaryAuditReport }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return finalizeGeneratedSummary(buildFallbackSummary(turns, nameHint), turns, nameHint);
@@ -2458,14 +2460,14 @@ export async function generateCaregiverSummary(
       return finalizeGeneratedSummary(summary, turns, nameHint);
     }
 
-    const summary = await generateSummaryTwoStep(apiKey, model, turns, nameHint);
-    if (!summary) {
+    const result = await generateSummaryTwoStep(apiKey, model, turns, nameHint);
+    if (!result) {
       throw new SummaryQualityError(
         "Summary generation returned no structured two-step summary.",
         []
       );
     }
-    return finalizeGeneratedSummary(summary, turns, nameHint);
+    return finalizeGeneratedSummary(result.summary, turns, nameHint, result.report);
   } catch (error) {
     if (
       error instanceof SummaryQualityError ||
@@ -2480,4 +2482,13 @@ export async function generateCaregiverSummary(
 
     throw new SummaryModelRequestError("Summary generation failed unexpectedly.");
   }
+}
+
+export async function generateCaregiverSummary(
+  turns: ConversationTurn[],
+  nameHint?: string,
+  mode: SummaryGenerationMode = "two-step"
+) {
+  const result = await generateCaregiverSummaryWithQa(turns, nameHint, mode);
+  return result.summary;
 }

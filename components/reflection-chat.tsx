@@ -616,6 +616,8 @@ export function ReflectionChat() {
         updatedDraft.turns = finalTurns;
         updatedDraft.structuredSummary = data.summary;
         updatedDraft.editedSummary = data.summary;
+        updatedDraft.structuredSummaryAudit = data.auditReport ?? undefined;
+        updatedDraft.editedSummaryAudit = data.auditReport ?? undefined;
         delete updatedDraft.feedback;
         await persistDraft(updatedDraft);
       }

@@ -12,12 +12,12 @@ import {
   saveRemoteDraft
 } from "@/lib/draft-api";
 import { getCompletionCopy } from "@/lib/localization";
+import { finalizeSummaryWithQa } from "@/lib/summary-audit";
 import { getVisibleSections } from "@/lib/summary-display";
 import { getSummaryFreshness } from "@/lib/summary-structured";
 import {
   formatSummaryGeneratedAt,
-  getOverviewLines,
-  normalizeAuthoritativeStructuredSummary
+  getOverviewLines
 } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { SessionDraft, StructuredSummary, SummaryFreshness, UiLanguage } from "@/lib/types";
@@ -60,7 +60,11 @@ export function CompletionView() {
   const requiresRegeneration = summaryFreshness?.requiresRegeneration ?? false;
 
   function applyDraftState(draft: SessionDraft, freshness?: SummaryFreshness | null) {
-    setSummary(normalizeAuthoritativeStructuredSummary(draft.editedSummary ?? draft.structuredSummary));
+    setSummary(
+      finalizeSummaryWithQa(draft.editedSummary ?? draft.structuredSummary, {
+        source: "saved"
+      }).summary
+    );
     setSessionId(draft.sessionId);
     setRating(draft.feedback?.usefulnessRating ?? "");
     setComments(draft.feedback?.comments ?? "");
@@ -278,14 +282,15 @@ export function CompletionView() {
 
     try {
       const { createSummaryPdf, sanitizePdfFilename } = await import("@/lib/summary-pdf");
-      const pdfBytes = await createSummaryPdf(summary);
+      const qaSummary = finalizeSummaryWithQa(summary, { source: "saved" }).summary;
+      const pdfBytes = await createSummaryPdf(qaSummary);
       const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength);
       new Uint8Array(pdfBuffer).set(pdfBytes);
       const blob = new Blob([pdfBuffer], { type: "application/pdf" });
       const objectUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = objectUrl;
-      link.download = `${sanitizePdfFilename(summary.title)}.pdf`;
+      link.download = `${sanitizePdfFilename(qaSummary.title)}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

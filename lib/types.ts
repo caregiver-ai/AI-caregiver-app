@@ -84,6 +84,35 @@ export interface StructuredSummary {
   sourceTurnsHash: string;
 }
 
+export type SummaryAuditStatus = "pass" | "warn";
+
+export interface SummaryAuditIssue {
+  code:
+    | "missing_coverage"
+    | "section_leakage"
+    | "wrong_section"
+    | "duplicate_item"
+    | "awkward_item";
+  message: string;
+  factId?: string;
+  expectedSection?: string;
+  actualSection?: string;
+  sectionTitle?: string;
+  item?: string;
+}
+
+export interface SummaryAuditSectionWarning {
+  sectionTitle: string;
+  count: number;
+}
+
+export interface SummaryAuditReport {
+  status: SummaryAuditStatus;
+  issues: SummaryAuditIssue[];
+  diagnostics: string[];
+  sectionWarnings: SummaryAuditSectionWarning[];
+}
+
 export interface SummaryArchive {
   structuredSummary?: StructuredSummary;
   editedSummary?: StructuredSummary;
@@ -117,6 +146,8 @@ export interface SessionDraft {
   turns: ConversationTurn[];
   structuredSummary?: StructuredSummary;
   editedSummary?: StructuredSummary;
+  structuredSummaryAudit?: SummaryAuditReport;
+  editedSummaryAudit?: SummaryAuditReport;
   summaryArchives?: SummaryArchive[];
   feedback?: {
     usefulnessRating: string;

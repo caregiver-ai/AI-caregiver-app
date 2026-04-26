@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { generateCaregiverSummary } from "@/lib/summary-generation";
+import { generateCaregiverSummaryWithQa } from "@/lib/summary-generation";
 import { getSummaryFreshness } from "@/lib/summary-structured";
 import { summaryToPlainText } from "@/lib/summary";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
@@ -156,10 +156,12 @@ export async function POST(request: Request) {
         .join(" ")
         .trim();
     const nameHint = isUsefulNameHint(rawNameHint) ? rawNameHint : "";
+    const generated = await generateCaregiverSummaryWithQa(turns, nameHint || undefined, "two-step");
     const summary = {
-      ...(await generateCaregiverSummary(turns, nameHint || undefined, "two-step")),
+      ...generated.summary,
       generatedAt: new Date().toISOString()
     };
+    const auditReport = generated.auditReport;
 
     const nextDraft: SessionDraft = {
       ...(ownedSession.draft_json ?? {
@@ -193,7 +195,9 @@ export async function POST(request: Request) {
         (archive) => archive.structuredSummary || archive.editedSummary
       ),
       structuredSummary: summary,
-      editedSummary: summary
+      editedSummary: summary,
+      structuredSummaryAudit: auditReport,
+      editedSummaryAudit: auditReport
     };
 
     const { error: summaryUpsertError } = await supabase.from("summaries").upsert(
@@ -228,7 +232,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       summary,
       draft: nextDraft,
-      summaryFreshness: getSummaryFreshness(turns, summary, summary)
+      summaryFreshness: getSummaryFreshness(turns, summary, summary),
+      auditReport
     });
   } catch (error) {
     return NextResponse.json(

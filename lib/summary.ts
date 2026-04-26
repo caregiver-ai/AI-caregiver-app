@@ -3315,6 +3315,80 @@ export function normalizeStructuredSummary(input: unknown, nameHint?: string): S
   return normalizeStructuredSummaryWithOptions(input, nameHint);
 }
 
+export function normalizeEditableStructuredSummary(input: unknown, nameHint?: string): StructuredSummary {
+  const candidate = input as Partial<StructuredSummary & LegacyStructuredSummary & GeneratedStructuredSummary> | undefined;
+
+  if (!candidate) {
+    return {
+      ...EMPTY_SUMMARY,
+      title: defaultSummaryTitle(nameHint),
+      pipelineVersion: "",
+      layoutVersion: "",
+      sourceTurnsHash: ""
+    };
+  }
+
+  if (GENERATED_SUMMARY_SECTION_FIELDS.some((field) => field.key in candidate)) {
+    return normalizeGeneratedSummaryWithOptions(candidate, nameHint, {
+      reclassify: false,
+      semanticRepair: false
+    });
+  }
+
+  if (Array.isArray(candidate.sections) || typeof candidate.title === "string" || typeof candidate.overview === "string") {
+    const sections = Array.isArray(candidate.sections)
+      ? candidate.sections
+          .map((section, index) => normalizeSection(section, index))
+          .filter((section): section is SummarySection => Boolean(section))
+      : [];
+    const containsStructuredBlocks = sections.some(
+      (section) => Array.isArray(section.blocks) && section.blocks.length > 0
+    );
+    const orderedSections = containsStructuredBlocks ? sections : sortAndMergeSections(sections);
+    const usesPreferredSummaryTitles = usesPreferredSectionStructure(orderedSections);
+    const finalSections = usesPreferredSummaryTitles
+      ? ensurePreferredSections(
+          orderedSections.map((section, index) => ({
+            id: section.id || `${slugify(section.title) || "section"}-${index + 1}`,
+            title: canonicalizeSectionTitle(section.title),
+            items: normalizeSectionItems(section.title, section.items)
+          }))
+        )
+      : orderedSections;
+    const summaryTitle =
+      typeof candidate.title === "string" && candidate.title.trim()
+        ? candidate.title.trim()
+        : defaultSummaryTitle(nameHint);
+
+    return {
+      title: summaryTitle,
+      overview:
+        !usesPreferredSummaryTitles && containsStructuredBlocks && typeof candidate.overview === "string"
+          ? (isStructuredOverview(candidate.overview)
+              ? normalizeStructuredOverview(candidate.overview)
+              : shortenOverview(candidate.overview))
+          : !usesPreferredSummaryTitles && containsStructuredBlocks
+            ? ""
+            : typeof candidate.overview === "string" && isStructuredOverview(candidate.overview)
+              ? normalizeStructuredOverview(candidate.overview)
+              : buildOverview(summaryTitle, finalSections),
+      sections: finalSections,
+      generatedAt:
+        typeof candidate.generatedAt === "string" && candidate.generatedAt.trim()
+          ? candidate.generatedAt.trim()
+          : "",
+      pipelineVersion:
+        typeof candidate.pipelineVersion === "string" ? candidate.pipelineVersion.trim() : "",
+      layoutVersion:
+        typeof candidate.layoutVersion === "string" ? candidate.layoutVersion.trim() : "",
+      sourceTurnsHash:
+        typeof candidate.sourceTurnsHash === "string" ? candidate.sourceTurnsHash.trim() : ""
+    };
+  }
+
+  return normalizeLegacySummary(candidate, nameHint);
+}
+
 export function normalizeAuthoritativeStructuredSummary(input: unknown, nameHint?: string): StructuredSummary {
   return normalizeStructuredSummaryWithOptions(input, nameHint, {
     reclassify: false,
