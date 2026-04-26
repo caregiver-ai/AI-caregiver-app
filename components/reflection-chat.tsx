@@ -607,7 +607,8 @@ export function ReflectionChat() {
       });
 
       if (!response.ok) {
-        throw new Error("Summary generation failed.");
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? reflectionCopy.unableToGenerateSummary);
       }
 
       const data = await response.json();
