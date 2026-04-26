@@ -1357,6 +1357,8 @@ function polishSummaryItem(title: string, value: string) {
     .replace(/\bTouchchat\b/gi, "TouchChat")
     .replace(/\bi pad\b/gi, "iPad")
     .replace(/\baac\b/gi, "AAC")
+    .replace(/\b(\d{1,2}:\d{2})\s*a\.(?=\s|$)/gi, "$1 a.m.")
+    .replace(/\b(\d{1,2}:\d{2})\s*p\.(?=\s|$)/gi, "$1 p.m.")
     .replace(/\s+/g, " ")
     .trim();
 

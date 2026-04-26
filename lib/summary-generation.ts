@@ -115,6 +115,10 @@ class SummaryModelRequestError extends Error {
 type SummarySourceEntry = {
   entryId: string;
   text: string;
+  sectionTitle?: string;
+  stepId?: ReflectionStepId;
+  stepTitle?: string;
+  promptLabel?: string;
 };
 
 type RawPromptDefinition = {
@@ -123,6 +127,11 @@ type RawPromptDefinition = {
   stepTitle: string;
   promptLabel: string;
   aliases: string[];
+};
+
+type EntryPromptRouting = {
+  preferredSection: SummarySectionTitle;
+  defaultFactKind: StructuredFactKind;
 };
 
 type GeneratedSummarySectionField = {
@@ -410,6 +419,44 @@ const RAW_PROMPT_DEFINITIONS: RawPromptDefinition[] = [
     aliases: ["Who should be contacted in an emergency?", "Emergency contacts:"]
   }
 ];
+
+const PROMPT_ROUTING_BY_LABEL = new Map<string, EntryPromptRouting>([
+  ["how do they communicate?", { preferredSection: "Communication", defaultFactKind: "communication_method" }],
+  [
+    "are there things they say or do that mean something specific? what do they mean?",
+    { preferredSection: "Communication", defaultFactKind: "communication_signal" }
+  ],
+  ["what helps you communicate with them?", { preferredSection: "What helps the day go well", defaultFactKind: "support_strategy" }],
+  [
+    "how can you tell when they need help, and what should you check first?",
+    { preferredSection: "Signs they need help", defaultFactKind: "help_sign" }
+  ],
+  ["are there any allergies?", { preferredSection: "Health & Safety", defaultFactKind: "condition" }],
+  ["do they have any health conditions?", { preferredSection: "Health & Safety", defaultFactKind: "condition" }],
+  ["do they take any medication? what should others know?", { preferredSection: "Health & Safety", defaultFactKind: "medication" }],
+  ["do they use any equipment or supports?", { preferredSection: "Health & Safety", defaultFactKind: "equipment" }],
+  ["what is their typical morning routine?", { preferredSection: "Daily Needs & Routines", defaultFactKind: "routine" }],
+  ["what are meals and snacks like?", { preferredSection: "Daily Needs & Routines", defaultFactKind: "routine" }],
+  ["what helps with transitions during the day?", { preferredSection: "What helps the day go well", defaultFactKind: "support_strategy" }],
+  ["what do they like to do during the day?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
+  ["what is their bedtime routine?", { preferredSection: "Daily Needs & Routines", defaultFactKind: "routine" }],
+  ["what do they enjoy doing during the day?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
+  ["what do they enjoy doing outside the home?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
+  ["what activities do they enjoy most?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
+  ["who do they enjoy spending time with?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
+  ["what does quiet or downtime look like for them?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
+  ["what changes in plans or routine tend to upset or overwhelm them?", { preferredSection: "What can upset or overwhelm them", defaultFactKind: "trigger" }],
+  ["what places or things around them can feel overwhelming?", { preferredSection: "What can upset or overwhelm them", defaultFactKind: "trigger" }],
+  ["what things like hunger, tiredness, or not feeling well can affect them?", { preferredSection: "What can upset or overwhelm them", defaultFactKind: "trigger" }],
+  ["what signs in their body show they need help?", { preferredSection: "Signs they need help", defaultFactKind: "help_sign" }],
+  ["what changes in their behavior show they need help?", { preferredSection: "Signs they need help", defaultFactKind: "help_sign" }],
+  ["what changes in how they communicate show they need help?", { preferredSection: "Signs they need help", defaultFactKind: "help_sign" }],
+  ["what changes to the environment help?", { preferredSection: "What helps when they are having a hard time", defaultFactKind: "caregiver_action" }],
+  ["what calming items help them?", { preferredSection: "What helps when they are having a hard time", defaultFactKind: "caregiver_action" }],
+  ["what can you do in the moment to help?", { preferredSection: "What helps when they are having a hard time", defaultFactKind: "caregiver_action" }],
+  ["who should be contacted in an emergency?", { preferredSection: "Who to contact (and when)", defaultFactKind: "contact" }],
+  ["emergency contacts:", { preferredSection: "Who to contact (and when)", defaultFactKind: "contact" }]
+]);
 
 const STRUCTURED_FACT_KINDS: StructuredFactKind[] = [
   "communication_method",
@@ -1057,7 +1104,11 @@ function buildSummaryEntries(turns: ConversationTurn[], options?: { chunkLongEnt
 
       return parts.map((part) => ({
         entryId,
-        text: buildSummaryEntryText(turn, entryId, part)
+        text: buildSummaryEntryText(turn, entryId, part),
+        sectionTitle: turn.sectionTitle,
+        stepId: turn.stepId,
+        stepTitle: turn.stepTitle,
+        promptLabel: turn.promptLabel
       }));
     });
 }
@@ -1087,6 +1138,45 @@ function buildSummaryEntryChunks(entries: SummarySourceEntry[], targetChars: num
 
   flush();
   return chunks;
+}
+
+function normalizePromptKey(value?: string) {
+  return compactWhitespace(String(value ?? "")).toLowerCase();
+}
+
+function entryRouting(entry?: SummarySourceEntry): EntryPromptRouting | null {
+  if (!entry) {
+    return null;
+  }
+
+  const byPrompt = PROMPT_ROUTING_BY_LABEL.get(normalizePromptKey(entry.promptLabel));
+  if (byPrompt) {
+    return byPrompt;
+  }
+
+  switch (entry.stepId) {
+    case "communication":
+      return { preferredSection: "Communication", defaultFactKind: "communication_method" };
+    case "health_safety":
+      return { preferredSection: "Health & Safety", defaultFactKind: "condition" };
+    case "daily_schedule":
+      return { preferredSection: "Daily Needs & Routines", defaultFactKind: "routine" };
+    case "activities_preferences":
+      return { preferredSection: "What helps the day go well", defaultFactKind: "preference" };
+    case "upset_overwhelm":
+      return { preferredSection: "What can upset or overwhelm them", defaultFactKind: "trigger" };
+    case "signs_need_help":
+      return { preferredSection: "Signs they need help", defaultFactKind: "help_sign" };
+    case "hard_time_support":
+      return {
+        preferredSection: "What helps when they are having a hard time",
+        defaultFactKind: "caregiver_action"
+      };
+    case "who_to_contact":
+      return { preferredSection: "Who to contact (and when)", defaultFactKind: "contact" };
+    default:
+      return null;
+  }
 }
 
 function defaultModel() {
@@ -1158,12 +1248,147 @@ function cleanCaptureStatement(value: string) {
   return trimmed;
 }
 
-function normalizeCapture(input: unknown) {
+function statementLooksLikeMedication(value: string) {
+  return /\b(abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|mg\b|dose|once a day|daily at|3pm|3 p\.m\.)\b/i.test(
+    value
+  );
+}
+
+function statementLooksLikeEquipment(value: string) {
+  return /\b(aac on an ipad|aac device|touchchat|noise-?cancel(?:ing)? headphones?|headphones?|buckle buddy|fidgets?|pull-?ups?|white cane)\b/i.test(
+    value
+  );
+}
+
+function statementLooksLikeCondition(value: string) {
+  return /\b(no allergies|allerg|autism|cerebral visual impairment|cvi|language regression|mixed receptive-expressive language disorder|sensory processing difficulty|global developmental delay|apraxia of speech|diagnos|condition|low muscle tone)\b/i.test(
+    value
+  );
+}
+
+function statementLooksLikeSafetyRisk(value: string) {
+  return /\b(two caregivers?|two people|2 adults?|close supervision|supervision|safety risk|unsafe|pica|elopement|run away|hand biting|self-injury|may bite you|caregiver injury|for safety reasons?)\b/i.test(
+    value
+  );
+}
+
+function statementLooksLikeDirectCaregiverAction(value: string) {
+  return /^(?:back off|check|do not|don't|follow|give|help|keep|let|make sure|offer|prompt|reduce|redirect|remind|support|take|turn on|use)\b/i.test(
+    value
+  );
+}
+
+function statementLooksLikeHelpSign(value: string) {
+  return /\b(press(?:es)? help|sign for help|limping|avoid(?:ing)? (?:a )?body part|not eating|not drinking|low energy|letharg|elop|run(?:ning)? away|hand biting|angry (?:sounds?|vocalizations?|yelling)|yelling|hiding|grunting|fridge|grabbing cheese|hungry|dysregulated|agitated|overwhelmed|pain|illness)\b/i.test(
+    value
+  );
+}
+
+function statementLooksLikeRoutine(value: string) {
+  return /\b(bathroom|toilet|toileting|pull-?up|bowel movement|routine|morning|breakfast|meal|meals|snack|snacks|school|van|water bottle|sippy cup|diet|bite-sized|grazes|showerhead|dress(?:ing)?|deodorant|socks|teeth brushing|hair)\b/i.test(
+    value
+  );
+}
+
+function statementLooksLikeTrigger(value: string) {
+  return /\b(out of place|things moved|lights?|shades?|loud noise|bright lights?|crowded places?|too many people|chaotic|overstimulating|hunger|not having food available|internet is down|cannot find|can't find|not working|stop(?:ping)? an activity|transition(?:ing)?)\b/i.test(
+    value
+  );
+}
+
+function statementLooksLikeCommunication(value: string) {
+  return /\b(non-speaking|cannot say words|uses? (?:an )?aac|touchchat|communicates? with sounds|body language|gestures?|happy sounds?|angry sounds?|singing|lead(?:ing)? you|touch(?:ing)? you|sit(?:ting)? very close|wants attention|selects? (?:car|i want ipad|ipad|a color)|ask for help)\b/i.test(
+    value
+  );
+}
+
+function statementLooksLikePreference(value: string) {
+  return /^(?:he|she|they|gavin|mom)\s+(?:really\s+)?(?:likes?|loves?|enjoys?|especially enjoys)\b/i.test(
+    value
+  ) || /^(?:his|her|their)\s+biggest favorites are\b/i.test(value);
+}
+
+function inferCaptureRouting(
+  statement: string,
+  rawSection: SummarySectionTitle,
+  rawFactKind: StructuredFactKind,
+  entry?: SummarySourceEntry
+) {
+  const routing = entryRouting(entry);
+  const preferredSection = routing?.preferredSection ?? rawSection;
+  const defaultFactKind = routing?.defaultFactKind ?? rawFactKind;
+
+  if (statementLooksLikeContact(statement)) {
+    return { section: "Who to contact (and when)" as SummarySectionTitle, factKind: "contact" as StructuredFactKind };
+  }
+
+  if (statementLooksLikeMedication(statement)) {
+    return { section: "Health & Safety" as SummarySectionTitle, factKind: "medication" as StructuredFactKind };
+  }
+
+  if (statementLooksLikeEquipment(statement)) {
+    return { section: "Health & Safety" as SummarySectionTitle, factKind: "equipment" as StructuredFactKind };
+  }
+
+  if (statementLooksLikeCondition(statement)) {
+    return { section: "Health & Safety" as SummarySectionTitle, factKind: "condition" as StructuredFactKind };
+  }
+
+  if (statementLooksLikeSafetyRisk(statement)) {
+    return { section: "Health & Safety" as SummarySectionTitle, factKind: "safety_risk" as StructuredFactKind };
+  }
+
+  if (statementLooksLikeDirectCaregiverAction(statement)) {
+    if (preferredSection === "What helps the day go well" && !/\b(give him space|reduce stimulation|keep things quiet|do not|offer a car ride|make sure.*safe|back off)\b/i.test(statement)) {
+      return { section: preferredSection, factKind: "support_strategy" as StructuredFactKind };
+    }
+
+    return {
+      section: "What helps when they are having a hard time" as SummarySectionTitle,
+      factKind: "caregiver_action" as StructuredFactKind
+    };
+  }
+
+  if (statementLooksLikeHelpSign(statement)) {
+    return { section: "Signs they need help" as SummarySectionTitle, factKind: "help_sign" as StructuredFactKind };
+  }
+
+  if (statementLooksLikeRoutine(statement)) {
+    return { section: "Daily Needs & Routines" as SummarySectionTitle, factKind: "routine" as StructuredFactKind };
+  }
+
+  if (statementLooksLikeTrigger(statement)) {
+    return { section: "What can upset or overwhelm them" as SummarySectionTitle, factKind: "trigger" as StructuredFactKind };
+  }
+
+  if (statementLooksLikeCommunication(statement)) {
+    const factKind: StructuredFactKind =
+      /\b(selects?|lead(?:ing)?|touch(?:ing)?|sit(?:ting)? very close|wants attention|ask for help)\b/i.test(statement)
+        ? "communication_signal"
+        : "communication_method";
+    return { section: "Communication" as SummarySectionTitle, factKind };
+  }
+
+  if (statementLooksLikePreference(statement)) {
+    return { section: "What helps the day go well" as SummarySectionTitle, factKind: "preference" as StructuredFactKind };
+  }
+
+  return {
+    section: preferredSection,
+    factKind: defaultFactKind
+  };
+}
+
+function statementLooksLikeContact(value: string) {
+  return /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}).*\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(value);
+}
+
+function normalizeCapture(input: unknown, entryMetadata = new Map<string, SummarySourceEntry>()) {
   const candidate = input as Partial<StructuredCapture> | undefined;
   const facts = Array.isArray(candidate?.facts) ? candidate.facts : [];
 
   return {
-    facts: facts
+      facts: facts
       .map((fact, index) => {
         const section = SUMMARY_SECTION_TITLES.find((title) => title === fact.section);
         const factKind = STRUCTURED_FACT_KINDS.find((kind) => kind === (fact as { factKind?: string }).factKind);
@@ -1174,14 +1399,15 @@ function normalizeCapture(input: unknown) {
 
         const entryId = compactWhitespace(String(fact.entryId ?? "")) || `Entry ${index + 1}`;
         const subcategory = compactWhitespace(String(fact.subcategory ?? "")) || "General";
+        const routing = inferCaptureRouting(statement, section, factKind, entryMetadata.get(entryId));
         const conceptKeys = [...extractCoverageConcepts(statement)].sort();
         const factIdPrefix = entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
         return {
           factId: `${factIdPrefix || "entry"}-fact-${index + 1}`,
           entryId,
-          section,
-          factKind,
+          section: routing.section,
+          factKind: routing.factKind,
           subcategory,
           statement,
           safetyRelevant: Boolean(fact.safetyRelevant),
@@ -2077,10 +2303,9 @@ async function captureSummaryFacts(
   model: string,
   turns: ConversationTurn[]
 ) {
-  const entryChunks = buildSummaryEntryChunks(
-    buildSummaryEntries(turns, { chunkLongEntries: true }),
-    CAPTURE_PROMPT_TARGET_CHARS
-  );
+  const entries = buildSummaryEntries(turns, { chunkLongEntries: true });
+  const entryMetadata = new Map(entries.map((entry) => [entry.entryId, entry] as const));
+  const entryChunks = buildSummaryEntryChunks(entries, CAPTURE_PROMPT_TARGET_CHARS);
   const captures: StructuredCaptureFact[] = [];
 
   for (const chunk of entryChunks) {
@@ -2096,7 +2321,7 @@ async function captureSummaryFacts(
       maxCompletionTokens: 6000
     });
 
-    captures.push(...normalizeCapture(rawCapture).facts);
+    captures.push(...normalizeCapture(rawCapture, entryMetadata).facts);
   }
 
   return {
