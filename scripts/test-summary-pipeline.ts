@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { normalizeAuthoritativeStructuredSummary } from "../lib/summary";
+import { expandTurnsForSummaryCapture } from "../lib/summary-generation";
 import { StructuredSummary } from "../lib/types";
 
 function emptySummary(): StructuredSummary {
@@ -148,9 +149,64 @@ function testNoInventedSupports() {
   );
 }
 
+function testRawInputParser() {
+  const turns = expandTurnsForSummaryCapture([
+    {
+      id: "raw-1",
+      role: "user",
+      promptType: "section_prompt",
+      content: `Communication
+How do they communicate?
+Gavin is non-speaking and uses AAC.
+
+What helps you communicate with them?
+Visual supports and 2-step directions help.
+
+Signs They May Need Help
+What changes in their behavior show they need help?
+He may run away or bite his hand.
+
+Who To Contact
+Who should be contacted in an emergency?
+Rania Kelly, 617-538-4056.`,
+      createdAt: "2026-04-26T12:00:00.000Z",
+      promptLabel: "Raw input"
+    }
+  ]);
+
+  assert.equal(turns.length, 4);
+  assert.equal(turns[0]?.promptLabel, "How do they communicate?");
+  assert.equal(turns[0]?.sectionTitle, "Communication");
+  assert.match(turns[0]?.content ?? "", /non-speaking/i);
+  assert.equal(turns[2]?.stepTitle, "Signs They May Need Help");
+  assert.equal(turns[2]?.promptLabel, "What changes in their behavior show they need help?");
+  assert.match(turns[2]?.content ?? "", /run away|bite his hand/i);
+  assert.equal(turns[3]?.sectionTitle, "Who to contact (and when)");
+}
+
+function testAmPmFormatting() {
+  const summary = emptySummary();
+  summary.sections = summary.sections.map((section) =>
+    section.title === "Daily Needs & Routines"
+      ? {
+          ...section,
+          items: ["On school days, Gavin wakes around 7:20 a.m.", "The van usually comes around 8:05 p.m."]
+        }
+      : section
+  );
+
+  const normalized = normalizeAuthoritativeStructuredSummary(summary, "Gavin");
+  const text = sectionText(normalized, "Daily Needs & Routines");
+
+  assert.match(text, /7:20 a\.m\./i);
+  assert.match(text, /8:05 p\.m\./i);
+}
+
 testAuthoritativePlacement();
 testHardTimeDedupes();
 testPreferenceCondensing();
 testNoInventedSupports();
+testRawInputParser();
+testAmPmFormatting();
 
 console.log("summary pipeline tests passed");

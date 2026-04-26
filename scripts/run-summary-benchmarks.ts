@@ -2,7 +2,11 @@ import { loadEnvConfig } from "@next/env";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { getVisibleSections, sectionToSearchText, summaryToSearchText } from "../lib/summary-display";
-import { generateCaregiverSummary, SummaryGenerationMode } from "../lib/summary-generation";
+import {
+  SummaryGenerationMode,
+  SummaryQualityError,
+  generateCaregiverSummary
+} from "../lib/summary-generation";
 import { PREFERRED_SUMMARY_SECTION_ORDER } from "../lib/summary";
 import { ConversationTurn, StructuredSummary } from "../lib/types";
 
@@ -319,8 +323,19 @@ async function runMode(
   const results: EvaluationResult[] = [];
 
   for (let index = 0; index < runs; index += 1) {
-    const summary = await generateCaregiverSummary(fixture.turns, fixture.nameHint, mode);
-    results.push(evaluateSummary(summary, fixture, `${mode} run ${index + 1}`));
+    try {
+      const summary = await generateCaregiverSummary(fixture.turns, fixture.nameHint, mode);
+      results.push(evaluateSummary(summary, fixture, `${mode} run ${index + 1}`));
+    } catch (error) {
+      if (error instanceof SummaryQualityError) {
+        console.log(`  ${mode} run ${index + 1} audit failed: ${error.message}`);
+        for (const diagnostic of error.diagnostics.slice(0, 20)) {
+          console.log(`    - ${diagnostic}`);
+        }
+      }
+
+      throw error;
+    }
   }
 
   return aggregateEvaluations(mode, results);

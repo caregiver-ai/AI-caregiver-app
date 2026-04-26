@@ -118,6 +118,14 @@
           ]
         },
         {
+          "label": "hunger sign",
+          "anyOf": [
+            "grabbing cheese",
+            "fridge",
+            "hungry"
+          ]
+        },
+        {
           "label": "physical signs",
           "anyOf": [
             "limping",
@@ -168,6 +176,12 @@
             "elopement",
             "pica",
             "does not communicate pain"
+          ]
+        },
+        {
+          "label": "allergies",
+          "anyOf": [
+            "no allergies"
           ]
         },
         {
@@ -245,7 +259,8 @@
       "Communication": 0,
       "Health & Safety": 0,
       "Signs they need help": 0,
-      "What helps when they are having a hard time": 0
+      "What helps when they are having a hard time": 0,
+      "What helps the day go well": 0
     }
   }
 }

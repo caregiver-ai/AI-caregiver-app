@@ -10,7 +10,7 @@ import {
   SUMMARY_PIPELINE_VERSION,
   computeTurnsHash
 } from "./summary-structured";
-import { ConversationTurn, StructuredSummary } from "./types";
+import { ConversationTurn, ReflectionStepId, StructuredSummary } from "./types";
 
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
@@ -32,6 +32,7 @@ type StructuredCaptureFact = {
   factId: string;
   entryId: string;
   section: SummarySectionTitle;
+  factKind: StructuredFactKind;
   subcategory: string;
   statement: string;
   safetyRelevant: boolean;
@@ -41,6 +42,39 @@ type StructuredCaptureFact = {
 
 type StructuredCapture = {
   facts: StructuredCaptureFact[];
+};
+
+type StructuredFactKind =
+  | "communication_method"
+  | "communication_signal"
+  | "support_strategy"
+  | "routine"
+  | "trigger"
+  | "help_sign"
+  | "caregiver_action"
+  | "condition"
+  | "medication"
+  | "equipment"
+  | "safety_risk"
+  | "contact"
+  | "preference";
+
+type FactCluster = {
+  clusterId: string;
+  section: SummarySectionTitle;
+  factKind: StructuredFactKind;
+  conceptKeys: string[];
+  facts: StructuredCaptureFact[];
+};
+
+type FactAuditStatus = {
+  factId: string;
+  clusterId: string;
+  expectedSection: SummarySectionTitle;
+  factKind: StructuredFactKind;
+  status: "covered" | "leaked" | "missing" | "duplicated";
+  actualSection?: SummarySectionTitle;
+  matchedBullet?: string;
 };
 
 type SummaryAuditIssue = {
@@ -56,13 +90,15 @@ type SummaryAuditIssue = {
   item?: string;
 };
 
-class SummaryQualityError extends Error {
+export class SummaryQualityError extends Error {
   issues: SummaryAuditIssue[];
+  diagnostics: string[];
 
-  constructor(message: string, issues: SummaryAuditIssue[]) {
+  constructor(message: string, issues: SummaryAuditIssue[], diagnostics: string[] = []) {
     super(message);
     this.name = "SummaryQualityError";
     this.issues = issues;
+    this.diagnostics = diagnostics;
   }
 }
 
@@ -79,6 +115,14 @@ class SummaryModelRequestError extends Error {
 type SummarySourceEntry = {
   entryId: string;
   text: string;
+};
+
+type RawPromptDefinition = {
+  sectionTitle: string;
+  stepId: ReflectionStepId;
+  stepTitle: string;
+  promptLabel: string;
+  aliases: string[];
 };
 
 type GeneratedSummarySectionField = {
@@ -108,6 +152,279 @@ const GENERATED_SUMMARY_SECTION_FIELDS: GeneratedSummarySectionField[] = [
   },
   { key: "healthAndSafety", title: "Health & Safety" },
   { key: "whoToContactAndWhen", title: "Who to contact (and when)" }
+];
+
+const RAW_SECTION_PATTERNS: Array<{
+  sectionTitle: string;
+  stepId: ReflectionStepId;
+  stepTitle: string;
+  aliases: string[];
+}> = [
+  {
+    sectionTitle: "Communication",
+    stepId: "communication",
+    stepTitle: "Communication",
+    aliases: ["Communication"]
+  },
+  {
+    sectionTitle: "Health & Safety",
+    stepId: "health_safety",
+    stepTitle: "Health & Safety",
+    aliases: ["Health & Safety", "Health and Safety"]
+  },
+  {
+    sectionTitle: "Daily Needs & Routines",
+    stepId: "daily_schedule",
+    stepTitle: "Daily Schedule",
+    aliases: ["Daily Schedule", "Daily Needs & Routines"]
+  },
+  {
+    sectionTitle: "What helps the day go well",
+    stepId: "activities_preferences",
+    stepTitle: "Activities & Preferences",
+    aliases: ["Activities & Preferences", "Activities and Preferences"]
+  },
+  {
+    sectionTitle: "What can upset or overwhelm them",
+    stepId: "upset_overwhelm",
+    stepTitle: "What Can Upset or Overwhelm Them",
+    aliases: ["What Can Upset or Overwhelm Them", "What changes in plans or routine tend to upset or overwhelm them"]
+  },
+  {
+    sectionTitle: "Signs they need help",
+    stepId: "signs_need_help",
+    stepTitle: "Signs They May Need Help",
+    aliases: ["Signs They May Need Help", "Signs they need help"]
+  },
+  {
+    sectionTitle: "What helps when they are having a hard time",
+    stepId: "hard_time_support",
+    stepTitle: "What Helps When They Are Having a Hard Time",
+    aliases: ["What Helps When They Are Having a Hard Time"]
+  },
+  {
+    sectionTitle: "Who to contact (and when)",
+    stepId: "who_to_contact",
+    stepTitle: "Who To Contact",
+    aliases: ["Who To Contact", "Who to contact", "Emergency contacts", "Emergency Contacts"]
+  }
+];
+
+const RAW_PROMPT_DEFINITIONS: RawPromptDefinition[] = [
+  {
+    sectionTitle: "Communication",
+    stepId: "communication",
+    stepTitle: "Communication",
+    promptLabel: "How do they communicate?",
+    aliases: ["How do they communicate?"]
+  },
+  {
+    sectionTitle: "Communication",
+    stepId: "communication",
+    stepTitle: "Communication",
+    promptLabel: "Are there things they say or do that mean something specific? What do they mean?",
+    aliases: [
+      "Are there things they say or do that mean something specific? What do they mean?"
+    ]
+  },
+  {
+    sectionTitle: "Communication",
+    stepId: "communication",
+    stepTitle: "Communication",
+    promptLabel: "What helps you communicate with them?",
+    aliases: ["What helps you communicate with them?"]
+  },
+  {
+    sectionTitle: "Communication",
+    stepId: "communication",
+    stepTitle: "Communication",
+    promptLabel: "How can you tell when they need help, and what should you check first?",
+    aliases: ["How can you tell when they need help, and what should you check first?"]
+  },
+  {
+    sectionTitle: "Health & Safety",
+    stepId: "health_safety",
+    stepTitle: "Health & Safety",
+    promptLabel: "Are there any allergies?",
+    aliases: ["Are there any allergies?"]
+  },
+  {
+    sectionTitle: "Health & Safety",
+    stepId: "health_safety",
+    stepTitle: "Health & Safety",
+    promptLabel: "Do they have any health conditions?",
+    aliases: ["Do they have any health conditions?"]
+  },
+  {
+    sectionTitle: "Health & Safety",
+    stepId: "health_safety",
+    stepTitle: "Health & Safety",
+    promptLabel: "Do they take any medication? What should others know?",
+    aliases: ["Do they take any medication? What should others know?"]
+  },
+  {
+    sectionTitle: "Health & Safety",
+    stepId: "health_safety",
+    stepTitle: "Health & Safety",
+    promptLabel: "Do they use any equipment or supports?",
+    aliases: ["Do they use any equipment or supports?"]
+  },
+  {
+    sectionTitle: "Daily Needs & Routines",
+    stepId: "daily_schedule",
+    stepTitle: "Daily Schedule",
+    promptLabel: "What is their typical morning routine?",
+    aliases: ["What is their typical morning routine?"]
+  },
+  {
+    sectionTitle: "Daily Needs & Routines",
+    stepId: "daily_schedule",
+    stepTitle: "Daily Schedule",
+    promptLabel: "What are meals and snacks like?",
+    aliases: ["What are meals and snacks like?"]
+  },
+  {
+    sectionTitle: "Daily Needs & Routines",
+    stepId: "daily_schedule",
+    stepTitle: "Daily Schedule",
+    promptLabel: "What helps with transitions during the day?",
+    aliases: ["What helps with transitions during the day?"]
+  },
+  {
+    sectionTitle: "Daily Needs & Routines",
+    stepId: "daily_schedule",
+    stepTitle: "Daily Schedule",
+    promptLabel: "What do they like to do during the day?",
+    aliases: ["What do they like to do during the day?"]
+  },
+  {
+    sectionTitle: "Daily Needs & Routines",
+    stepId: "daily_schedule",
+    stepTitle: "Daily Schedule",
+    promptLabel: "What is their bedtime routine?",
+    aliases: ["What is their bedtime routine?"]
+  },
+  {
+    sectionTitle: "What helps the day go well",
+    stepId: "activities_preferences",
+    stepTitle: "Activities & Preferences",
+    promptLabel: "What do they enjoy doing during the day?",
+    aliases: ["What do they enjoy doing during the day?"]
+  },
+  {
+    sectionTitle: "What helps the day go well",
+    stepId: "activities_preferences",
+    stepTitle: "Activities & Preferences",
+    promptLabel: "What do they enjoy doing outside the home?",
+    aliases: ["What do they enjoy doing outside the home?"]
+  },
+  {
+    sectionTitle: "What helps the day go well",
+    stepId: "activities_preferences",
+    stepTitle: "Activities & Preferences",
+    promptLabel: "What activities do they enjoy most?",
+    aliases: ["What activities do they enjoy most?"]
+  },
+  {
+    sectionTitle: "What helps the day go well",
+    stepId: "activities_preferences",
+    stepTitle: "Activities & Preferences",
+    promptLabel: "Who do they enjoy spending time with?",
+    aliases: ["Who do they enjoy spending time with?"]
+  },
+  {
+    sectionTitle: "What helps the day go well",
+    stepId: "activities_preferences",
+    stepTitle: "Activities & Preferences",
+    promptLabel: "What does quiet or downtime look like for them?",
+    aliases: ["What does quiet or downtime look like for them?"]
+  },
+  {
+    sectionTitle: "What can upset or overwhelm them",
+    stepId: "upset_overwhelm",
+    stepTitle: "What Can Upset or Overwhelm Them",
+    promptLabel: "What changes in plans or routine tend to upset or overwhelm them?",
+    aliases: ["What changes in plans or routine tend to upset or overwhelm them?"]
+  },
+  {
+    sectionTitle: "What can upset or overwhelm them",
+    stepId: "upset_overwhelm",
+    stepTitle: "What Can Upset or Overwhelm Them",
+    promptLabel: "What places or things around them can feel overwhelming?",
+    aliases: ["What places or things around them can feel overwhelming?"]
+  },
+  {
+    sectionTitle: "What can upset or overwhelm them",
+    stepId: "upset_overwhelm",
+    stepTitle: "What Can Upset or Overwhelm Them",
+    promptLabel: "What things like hunger, tiredness, or not feeling well can affect them?",
+    aliases: ["What things like hunger, tiredness, or not feeling well can affect them?"]
+  },
+  {
+    sectionTitle: "Signs they need help",
+    stepId: "signs_need_help",
+    stepTitle: "Signs They May Need Help",
+    promptLabel: "What signs in their body show they need help?",
+    aliases: ["What signs in their body show they need help?"]
+  },
+  {
+    sectionTitle: "Signs they need help",
+    stepId: "signs_need_help",
+    stepTitle: "Signs They May Need Help",
+    promptLabel: "What changes in their behavior show they need help?",
+    aliases: ["What changes in their behavior show they need help?"]
+  },
+  {
+    sectionTitle: "Signs they need help",
+    stepId: "signs_need_help",
+    stepTitle: "Signs They May Need Help",
+    promptLabel: "What changes in how they communicate show they need help?",
+    aliases: ["What changes in how they communicate show they need help?"]
+  },
+  {
+    sectionTitle: "What helps when they are having a hard time",
+    stepId: "hard_time_support",
+    stepTitle: "What Helps When They Are Having a Hard Time",
+    promptLabel: "What changes to the environment help?",
+    aliases: ["What changes to the environment help?"]
+  },
+  {
+    sectionTitle: "What helps when they are having a hard time",
+    stepId: "hard_time_support",
+    stepTitle: "What Helps When They Are Having a Hard Time",
+    promptLabel: "What calming items help them?",
+    aliases: ["What calming items help them?"]
+  },
+  {
+    sectionTitle: "What helps when they are having a hard time",
+    stepId: "hard_time_support",
+    stepTitle: "What Helps When They Are Having a Hard Time",
+    promptLabel: "What can you do in the moment to help?",
+    aliases: ["What can you do in the moment to help?"]
+  },
+  {
+    sectionTitle: "Who to contact (and when)",
+    stepId: "who_to_contact",
+    stepTitle: "Who To Contact",
+    promptLabel: "Who should be contacted in an emergency?",
+    aliases: ["Who should be contacted in an emergency?", "Emergency contacts:"]
+  }
+];
+
+const STRUCTURED_FACT_KINDS: StructuredFactKind[] = [
+  "communication_method",
+  "communication_signal",
+  "support_strategy",
+  "routine",
+  "trigger",
+  "help_sign",
+  "caregiver_action",
+  "condition",
+  "medication",
+  "equipment",
+  "safety_risk",
+  "contact",
+  "preference"
 ];
 
 const QUESTION_ECHO_PATTERN =
@@ -246,6 +563,10 @@ const captureSchema = {
             type: "string",
             enum: SUMMARY_SECTION_TITLES
           },
+          factKind: {
+            type: "string",
+            enum: STRUCTURED_FACT_KINDS
+          },
           subcategory: {
             type: "string"
           },
@@ -256,7 +577,7 @@ const captureSchema = {
             type: "boolean"
           }
         },
-        required: ["entryId", "section", "subcategory", "statement", "safetyRelevant"]
+        required: ["entryId", "section", "factKind", "subcategory", "statement", "safetyRelevant"]
       }
     }
   },
@@ -371,6 +692,7 @@ You must:
 - Break the information into atomic facts: one idea per fact.
 - Preserve the original meaning and wording as much as possible.
 - Assign each fact to the single best section based on meaning, not where it was originally entered.
+- Assign each fact a factKind from the allowed enum. Use the most specific kind.
 - Choose a short internal subcategory label that helps organize related facts.
 - Mark safetyRelevant as true for self-injury, elopement, supervision needs, medical needs, or situations where a caregiver could be harmed.
 
@@ -390,6 +712,21 @@ Section guidance:
 - Health & Safety
 - Who to contact (and when)
 
+Allowed factKind values:
+- communication_method: how the person communicates
+- communication_signal: what a signal, AAC selection, gesture, or cue means
+- support_strategy: proactive supports that help the day go well
+- routine: schedules, toileting, meals, daily care, transitions
+- trigger: what can upset or overwhelm them
+- help_sign: physical, behavioral, or communication signs that they need help
+- caregiver_action: what the caregiver should do in the moment
+- condition: diagnoses, allergies, physical limitations, or health conditions
+- medication: medicines, doses, and medication instructions
+- equipment: devices, supplies, or supports
+- safety_risk: supervision needs, elopement, self-injury, or caregiver-harm cautions
+- contact: who to contact
+- preference: favorite people, activities, places, or downtime preferences
+
 Strict categorization rules:
 - Running away, aggression, self-injury, and withdrawal belong in Signs they need help.
 - What the caregiver should do belongs in What helps when they are having a hard time.
@@ -405,6 +742,7 @@ Strict categorization rules:
 - If helping find content is phrased as an in-the-moment caregiver action, place it in What helps when they are having a hard time.
 - Use communication only for how Gavin expresses himself and what his signals mean.
 - Do not place proactive supports, triggers, signs of distress, or caregiver instructions in Communication.
+- The factKind must agree with the section. For example, medication belongs in Health & Safety with factKind=medication, not help_sign.
 
 Use the provided Entry labels in entryId exactly, such as "Entry 1".`;
 
@@ -433,6 +771,7 @@ Output rules:
 - No question fragments, worksheet wording, or filler/noise.
 - Do not expose internal subcategory labels in the final output.
 - The section assignments in the structured capture are authoritative. Keep each fact in its assigned section.
+- The factKind assignments in the structured capture are authoritative. Use them to keep bullets in the right role within each section.
 - Do not move facts into Communication just because they mention an iPad, AAC device, attention, or help.
 - Use this distinction:
   - meaning of a device selection or communication method -> Communication
@@ -449,7 +788,7 @@ Output rules:
 - Keep diagnoses, medications, equipment/supports, supervision risks, and caregiver-harm cautions in Health & Safety when present.
 - Keep bullets atomic and concise so they can be reorganized into a richer final handoff layout after rewriting.
 - Prefer short fact statements such as "Uses AAC to ask for help", "Leads you to what he needs", "Give space immediately", or "Abilify at 3pm daily" over long transcript-style sentences.
-- Keep medications, equipment, contacts, and health conditions as separate bullets so they can be split into dedicated sections later.
+- Keep medications, equipment, contacts, and health conditions as separate bullets.
 - In What helps the day go well, collapse preferred activities into 1-2 concise bullets. Do not repeat the same preference in separate "likes" or "enjoys" bullets.
 - In What helps the day go well, do not produce long runs of one-item preference bullets like "He likes X."
 - In Communication, do not repeat the same cue twice in different wording.
@@ -487,6 +826,131 @@ function normalizeSummarySourceText(value: string) {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function rawPromptRegex(prompt: RawPromptDefinition) {
+  return new RegExp(
+    `(?:^|\\n)\\s*(?:${prompt.aliases.map((alias) => escapeRegex(alias)).join("|")})\\s*`,
+    "gi"
+  );
+}
+
+function rawSectionRegex() {
+  return new RegExp(
+    `(?:^|\\n)\\s*(?:${RAW_SECTION_PATTERNS.flatMap((pattern) => pattern.aliases)
+      .map((alias) => escapeRegex(alias))
+      .join("|")})\\s*(?=\\n|$)`,
+    "gi"
+  );
+}
+
+function looksLikeRawInputDocument(content: string) {
+  const normalized = normalizeSummarySourceText(content);
+  if (!normalized) {
+    return false;
+  }
+
+  const promptHits = RAW_PROMPT_DEFINITIONS.reduce((count, definition) => {
+    const match = normalized.match(rawPromptRegex(definition));
+    return count + (match?.length ?? 0);
+  }, 0);
+  const sectionHits = normalized.match(rawSectionRegex())?.length ?? 0;
+
+  return promptHits >= 3 || (promptHits >= 2 && sectionHits >= 1);
+}
+
+function findPromptAtStart(
+  content: string,
+  startIndex: number
+) {
+  const slice = content.slice(startIndex);
+
+  for (const definition of RAW_PROMPT_DEFINITIONS) {
+    for (const alias of definition.aliases) {
+      const regex = new RegExp(`^\\s*${escapeRegex(alias)}\\s*`, "i");
+      const match = slice.match(regex);
+      if (match) {
+        return {
+          definition,
+          length: match[0].length
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+export function expandTurnsForSummaryCapture(turns: ConversationTurn[]) {
+  const expanded: ConversationTurn[] = [];
+
+  for (const turn of turns) {
+    if (turn.role !== "user" || turn.skipped || !looksLikeRawInputDocument(turn.content)) {
+      expanded.push(turn);
+      continue;
+    }
+
+    const normalized = normalizeSummarySourceText(turn.content);
+    const matches = Array.from(
+      new Set(
+        RAW_PROMPT_DEFINITIONS.flatMap((definition) =>
+          [...normalized.matchAll(rawPromptRegex(definition))].map((match) => match.index ?? -1)
+        ).filter((index) => index >= 0)
+      )
+    ).sort((left, right) => left - right);
+    const sectionBoundaries = [...normalized.matchAll(rawSectionRegex())]
+      .map((match) => match.index ?? -1)
+      .filter((index) => index >= 0);
+    const boundaries = Array.from(new Set([...matches, ...sectionBoundaries])).sort(
+      (left, right) => left - right
+    );
+
+    if (matches.length === 0) {
+      expanded.push(turn);
+      continue;
+    }
+
+    const parsedTurns: ConversationTurn[] = [];
+
+    for (let index = 0; index < matches.length; index += 1) {
+      const start = matches[index];
+      const promptMatch = findPromptAtStart(normalized, start);
+      if (!promptMatch) {
+        continue;
+      }
+
+      const end =
+        boundaries.find((boundary) => boundary > start) ??
+        normalized.length;
+      const answer = normalized.slice(start + promptMatch.length, end).trim();
+      if (!answer) {
+        continue;
+      }
+
+      parsedTurns.push({
+        ...turn,
+        id: `${turn.id}-parsed-${parsedTurns.length + 1}`,
+        content: answer,
+        sectionTitle: promptMatch.definition.sectionTitle,
+        stepId: promptMatch.definition.stepId,
+        stepTitle: promptMatch.definition.stepTitle,
+        promptLabel: promptMatch.definition.promptLabel
+      });
+    }
+
+    if (parsedTurns.length === 0) {
+      expanded.push(turn);
+      continue;
+    }
+
+    expanded.push(...parsedTurns);
+  }
+
+  return expanded;
 }
 
 function buildSummaryEntryText(turn: ConversationTurn, entryId: string, content: string) {
@@ -582,7 +1046,7 @@ function splitSummaryEntryContent(content: string, maxChars: number) {
 }
 
 function buildSummaryEntries(turns: ConversationTurn[], options?: { chunkLongEntries?: boolean }) {
-  return turns
+  return expandTurnsForSummaryCapture(turns)
     .filter((turn) => turn.role === "user" && !turn.skipped)
     .flatMap((turn, index) => {
       const entryId = `Entry ${index + 1}`;
@@ -702,8 +1166,9 @@ function normalizeCapture(input: unknown) {
     facts: facts
       .map((fact, index) => {
         const section = SUMMARY_SECTION_TITLES.find((title) => title === fact.section);
+        const factKind = STRUCTURED_FACT_KINDS.find((kind) => kind === (fact as { factKind?: string }).factKind);
         const statement = cleanCaptureStatement(String(fact.statement ?? ""));
-        if (!section || !statement) {
+        if (!section || !factKind || !statement) {
           return null;
         }
 
@@ -716,6 +1181,7 @@ function normalizeCapture(input: unknown) {
           factId: `${factIdPrefix || "entry"}-fact-${index + 1}`,
           entryId,
           section,
+          factKind,
           subcategory,
           statement,
           safetyRelevant: Boolean(fact.safetyRelevant),
@@ -731,12 +1197,12 @@ function dedupeCaptureFacts(facts: StructuredCaptureFact[]) {
   const deduped = new Map<string, StructuredCaptureFact>();
 
   for (const fact of facts) {
-    const key = `${fact.section}::${normalizeCoverageText(fact.statement)}`;
+    const key = `${fact.section}::${fact.factKind}::${normalizeCoverageText(fact.statement)}`;
     const existing = deduped.get(key);
 
     if (!existing) {
       const nearDuplicate = [...deduped.entries()].find(([, entry]) => {
-        if (entry.section !== fact.section) {
+        if (entry.section !== fact.section || entry.factKind !== fact.factKind) {
           return false;
         }
 
@@ -770,10 +1236,11 @@ function dedupeCaptureFacts(facts: StructuredCaptureFact[]) {
       continue;
     }
 
-    deduped.set(key, {
-      ...existing,
-      entryId: existing.entryId || fact.entryId,
-      subcategory:
+      deduped.set(key, {
+        ...existing,
+        entryId: existing.entryId || fact.entryId,
+        factKind: existing.factKind,
+        subcategory:
         existing.subcategory === "General" && fact.subcategory !== "General"
           ? fact.subcategory
           : existing.subcategory,
@@ -1002,27 +1469,257 @@ function formatStructuredCaptureForPrompt(capture: StructuredCapture) {
       return `[${title}]\n- ${NO_INFORMATION_PLACEHOLDER}`;
     }
 
-    const grouped = new Map<string, StructuredCaptureFact[]>();
+    const grouped = new Map<StructuredFactKind, Map<string, StructuredCaptureFact[]>>();
 
     for (const fact of sectionFacts) {
-      const items = grouped.get(fact.subcategory) ?? [];
+      const kindGroups = grouped.get(fact.factKind) ?? new Map<string, StructuredCaptureFact[]>();
+      const items = kindGroups.get(fact.subcategory) ?? [];
       items.push(fact);
-      grouped.set(fact.subcategory, items);
+      kindGroups.set(fact.subcategory, items);
+      grouped.set(fact.factKind, kindGroups);
     }
 
     const lines = [`[${title}]`];
 
-    for (const [subcategory, facts] of grouped.entries()) {
-      lines.push(`Subcategory: ${subcategory}`);
-      for (const fact of facts) {
+    for (const factKind of STRUCTURED_FACT_KINDS) {
+      const subcategories = grouped.get(factKind);
+      if (!subcategories) {
+        continue;
+      }
+
+      lines.push(`Fact kind: ${factKind}`);
+      for (const [subcategory, facts] of subcategories.entries()) {
+        lines.push(`Subcategory: ${subcategory}`);
+        for (const fact of facts) {
+          lines.push(
+            `- [${fact.factId}] ${fact.statement}${fact.safetyRelevant ? " [safety]" : ""} (${fact.sourceEntryIds.join(", ")})`
+          );
+        }
+      }
+    }
+
+    return lines.join("\n");
+  }).join("\n\n");
+}
+
+function clusterSignature(fact: StructuredCaptureFact) {
+  const conceptSignature =
+    fact.conceptKeys.length > 0 ? fact.conceptKeys.join("|") : normalizeCoverageText(fact.statement);
+  return `${fact.section}::${fact.factKind}::${conceptSignature}`;
+}
+
+function buildFactClusters(capture: StructuredCapture) {
+  const clusters = new Map<string, FactCluster>();
+
+  for (const fact of capture.facts) {
+    const signature = clusterSignature(fact);
+    const existing = clusters.get(signature);
+
+    if (existing) {
+      existing.facts.push(fact);
+      existing.conceptKeys = [...new Set([...existing.conceptKeys, ...fact.conceptKeys])].sort();
+      continue;
+    }
+
+    clusters.set(signature, {
+      clusterId: signature,
+      section: fact.section,
+      factKind: fact.factKind,
+      conceptKeys: [...fact.conceptKeys],
+      facts: [fact]
+    });
+  }
+
+  return [...clusters.values()];
+}
+
+function sectionFactKindOrder(title: SummarySectionTitle, factKind: StructuredFactKind) {
+  const order: Record<SummarySectionTitle, StructuredFactKind[]> = {
+    Communication: [
+      "communication_method",
+      "communication_signal",
+      "support_strategy"
+    ],
+    "Daily Needs & Routines": [
+      "routine",
+      "support_strategy"
+    ],
+    "What helps the day go well": [
+      "support_strategy",
+      "preference",
+      "routine"
+    ],
+    "What can upset or overwhelm them": [
+      "trigger"
+    ],
+    "Signs they need help": [
+      "help_sign",
+      "communication_signal"
+    ],
+    "What helps when they are having a hard time": [
+      "caregiver_action",
+      "support_strategy"
+    ],
+    "Health & Safety": [
+      "safety_risk",
+      "condition",
+      "medication",
+      "equipment"
+    ],
+    "Who to contact (and when)": [
+      "contact"
+    ]
+  };
+
+  const rank = order[title].indexOf(factKind);
+  return rank >= 0 ? rank : order[title].length;
+}
+
+function clusterStatement(cluster: FactCluster) {
+  return cluster.facts
+    .slice()
+    .sort((left, right) => right.statement.length - left.statement.length)[0]?.statement ?? "";
+}
+
+function clusterSortKey(cluster: FactCluster) {
+  return [
+    sectionFactKindOrder(cluster.section, cluster.factKind),
+    clusterStatement(cluster)
+  ] as const;
+}
+
+function groupFactsForRewritePrompt(capture: StructuredCapture) {
+  const clusters = buildFactClusters(capture)
+    .slice()
+    .sort((left, right) => {
+      const [leftRank, leftStatement] = clusterSortKey(left);
+      const [rightRank, rightStatement] = clusterSortKey(right);
+      if (left.section !== right.section) {
+        return SUMMARY_SECTION_TITLES.indexOf(left.section) - SUMMARY_SECTION_TITLES.indexOf(right.section);
+      }
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+      return leftStatement.localeCompare(rightStatement);
+    });
+
+  return SUMMARY_SECTION_TITLES.map((title) => {
+    const sectionClusters = clusters.filter((cluster) => cluster.section === title);
+    if (sectionClusters.length === 0) {
+      return `[${title}]\n- ${NO_INFORMATION_PLACEHOLDER}`;
+    }
+
+    const lines = [`[${title}]`];
+
+    for (const cluster of sectionClusters) {
+      lines.push(`Fact kind: ${cluster.factKind}`);
+      for (const fact of cluster.facts) {
         lines.push(
-          `- [${fact.factId}] ${fact.statement}${fact.safetyRelevant ? " [safety]" : ""} (${fact.sourceEntryIds.join(", ")})`
+          `- [${fact.factId}] ${fact.statement}${fact.safetyRelevant ? " [safety]" : ""}`
         );
       }
     }
 
     return lines.join("\n");
   }).join("\n\n");
+}
+
+function bulletSpecificityScore(item: string, expectedSection: SummarySectionTitle, actualSection: SummarySectionTitle) {
+  let score = coverageTokens(item).length + item.length / 80;
+
+  if (actualSection === expectedSection) {
+    score += 3;
+  }
+
+  if (/\b(because|if|when|usually|especially|for safety|daily|every hour|a\.m\.|p\.m\.)\b/i.test(item)) {
+    score += 1;
+  }
+
+  return score;
+}
+
+function selectBestBulletForCluster(cluster: FactCluster, summary: StructuredSummary) {
+  const candidates = summary.sections.flatMap((section) =>
+    section.items
+      .filter((item) => normalizeCoverageText(item) !== normalizeCoverageText(NO_INFORMATION_PLACEHOLDER))
+      .filter((item) => cluster.facts.some((fact) => factLooksCoveredByItem(fact, item)))
+      .map((item) => ({
+        section: section.title as SummarySectionTitle,
+        item
+      }))
+  );
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort((left, right) => {
+    const scoreDifference =
+      bulletSpecificityScore(right.item, cluster.section, right.section) -
+      bulletSpecificityScore(left.item, cluster.section, left.section);
+    if (scoreDifference !== 0) {
+      return scoreDifference;
+    }
+
+    if (left.section !== right.section) {
+      return left.section === cluster.section ? -1 : right.section === cluster.section ? 1 : 0;
+    }
+
+    return right.item.length - left.item.length;
+  })[0];
+}
+
+function buildAuditDiagnostics(statuses: FactAuditStatus[]) {
+  return statuses.map((status) => {
+    const detail = status.matchedBullet ? ` -> ${status.matchedBullet}` : "";
+    const actual = status.actualSection && status.actualSection !== status.expectedSection ? ` actual=${status.actualSection}` : "";
+    return `[${status.status}] ${status.factId} expected=${status.expectedSection}${actual} kind=${status.factKind}${detail}`;
+  });
+}
+
+function composeSummaryFromCapture(
+  summary: StructuredSummary,
+  capture: StructuredCapture,
+  nameHint?: string
+) {
+  const buckets = new Map<SummarySectionTitle, string[]>(
+    SUMMARY_SECTION_TITLES.map((title) => [title, []])
+  );
+  const clusters = buildFactClusters(capture)
+    .slice()
+    .sort((left, right) => {
+      if (left.section !== right.section) {
+        return SUMMARY_SECTION_TITLES.indexOf(left.section) - SUMMARY_SECTION_TITLES.indexOf(right.section);
+      }
+
+      const [leftRank, leftStatement] = clusterSortKey(left);
+      const [rightRank, rightStatement] = clusterSortKey(right);
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+
+      return leftStatement.localeCompare(rightStatement);
+    });
+
+  for (const cluster of clusters) {
+    const selected = selectBestBulletForCluster(cluster, summary);
+    if (!selected) {
+      continue;
+    }
+
+    buckets.get(cluster.section)?.push(selected.item);
+  }
+
+  const composed: StructuredSummary = {
+    ...summary,
+    sections: SUMMARY_SECTION_TITLES.map((title, index) => ({
+      id: `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${index + 1}`,
+      title,
+      items: buckets.get(title) ?? [NO_INFORMATION_PLACEHOLDER]
+    }))
+  };
+
+  return normalizeAuthoritativeStructuredSummary(composed, nameHint);
 }
 
 function summaryItemsBySection(
@@ -1143,12 +1840,81 @@ function auditAndFinalizeSummary(
   capture: StructuredCapture,
   nameHint?: string
 ) {
-  const finalized = normalizeAuthoritativeStructuredSummary(summary, nameHint);
-  const issues = auditSummaryAgainstCapture(finalized, capture);
+  const normalized = composeSummaryFromCapture(summary, capture, nameHint);
+  const clusters = buildFactClusters(capture);
+  const sectionItems = new Map(
+    normalized.sections.map((section) => [
+      section.title as SummarySectionTitle,
+      section.items.filter((item) => normalizeCoverageText(item) !== normalizeCoverageText(NO_INFORMATION_PLACEHOLDER))
+    ] as const)
+  );
+  const statuses: FactAuditStatus[] = [];
+
+  for (const cluster of clusters) {
+    const expectedItems = sectionItems.get(cluster.section) ?? [];
+    const matchedInExpected = expectedItems.find((item) =>
+      cluster.facts.some((fact) => factLooksCoveredByItem(fact, item))
+    );
+
+    if (matchedInExpected) {
+      statuses.push(
+        ...cluster.facts.map((fact) => ({
+          factId: fact.factId,
+          clusterId: cluster.clusterId,
+          expectedSection: cluster.section,
+          factKind: cluster.factKind,
+          status: "covered" as const,
+          matchedBullet: matchedInExpected
+        }))
+      );
+      continue;
+    }
+
+    const matchedElsewhere = SUMMARY_SECTION_TITLES.find((title) => {
+      if (title === cluster.section) {
+        return false;
+      }
+
+      return (sectionItems.get(title) ?? []).some((item) =>
+        cluster.facts.some((fact) => factLooksCoveredByItem(fact, item))
+      );
+    });
+
+    if (matchedElsewhere) {
+      const matchedBullet = (sectionItems.get(matchedElsewhere) ?? []).find((item) =>
+        cluster.facts.some((fact) => factLooksCoveredByItem(fact, item))
+      );
+      statuses.push(
+        ...cluster.facts.map((fact) => ({
+          factId: fact.factId,
+          clusterId: cluster.clusterId,
+          expectedSection: cluster.section,
+          factKind: cluster.factKind,
+          status: "leaked" as const,
+          actualSection: matchedElsewhere,
+          matchedBullet
+        }))
+      );
+      continue;
+    }
+
+    statuses.push(
+      ...cluster.facts.map((fact) => ({
+        factId: fact.factId,
+        clusterId: cluster.clusterId,
+        expectedSection: cluster.section,
+        factKind: cluster.factKind,
+        status: "missing" as const
+      }))
+    );
+  }
+
+  const issues = auditSummaryAgainstCapture(normalized, capture);
 
   return {
-    summary: finalized,
-    issues
+    summary: normalized,
+    issues,
+    diagnostics: buildAuditDiagnostics(statuses)
   };
 }
 
@@ -1360,7 +2126,7 @@ async function rewriteStructuredCapture(
       "You are the final caregiver handoff writer. Use the structured capture to write a complete, organized, caregiver-ready handoff that preserves safety details and avoids duplication.",
     userPrompt: `${summarySchemaDescription}\n\n${stepTwoRewriteRules}\n\n${buildTitleInstruction(
       nameHint
-    )}\n\nStructured capture:\n${formatStructuredCaptureForPrompt(capture)}${repairPrompt}`,
+    )}\n\nStructured capture:\n${groupFactsForRewritePrompt(capture)}${repairPrompt}`,
     temperature: 0.1,
     maxCompletionTokens: 5000
   });
@@ -1407,7 +2173,8 @@ async function generateSummaryTwoStep(
   if (!repairedSummary) {
     throw new SummaryQualityError(
       "The caregiver summary could not be repaired after audit failures.",
-      firstPass.issues
+      firstPass.issues,
+      firstPass.diagnostics
     );
   }
 
@@ -1415,7 +2182,8 @@ async function generateSummaryTwoStep(
   if (secondPass.issues.length > 0) {
     throw new SummaryQualityError(
       "The caregiver summary still failed the final quality audit after one retry.",
-      secondPass.issues
+      secondPass.issues,
+      secondPass.diagnostics
     );
   }
 
