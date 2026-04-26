@@ -134,7 +134,7 @@ export function summarizeSummaryAuditReport(report: SummaryAuditReport) {
 
 export function finalizeSummaryWithQa(input: unknown, options: SummaryAuditOptions) {
   const summary =
-    options.source === "generated"
+    options.source === "generated" || options.source === "saved"
       ? normalizeAuthoritativeStructuredSummary(input, options.nameHint)
       : normalizeEditableStructuredSummary(input, options.nameHint);
   const issues: SummaryAuditIssue[] = [...(options.issues ?? [])];

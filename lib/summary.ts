@@ -2299,6 +2299,12 @@ function inferNormalizedSectionTitle(
   }
 
   if (
+    /\b(structured routine|visual timer|visual schedule)\b/i.test(item)
+  ) {
+    return "What helps the day go well";
+  }
+
+  if (
     /\b(bathroom|toilet|pull-up|hourly prompt|hourly reminder|regular reminders?|go when prompted|food often|frequent access to food|needs food constantly)\b/i.test(
       item
     )
@@ -2381,7 +2387,13 @@ export function inferAuthoritativeSectionTitle(
   }
 
   if (
-    /\b(bathroom|toilet|pull-up|bowel movement|hourly prompt|hourly reminder|regular reminders?|go when prompted|void|showerhead|breakfast|van|water bottle|sippy cup|limited diet|bite-sized|grazes|meals?|snacks?|dress(?:ing)?|deodorant|socks|teeth brushing|hair|routine|school days?|non-school days?)\b/i.test(
+    /\b(structured routine|visual timer|visual schedule)\b/i.test(item)
+  ) {
+    return "What helps the day go well";
+  }
+
+  if (
+    /\b(bathroom|toilet|pull-up|bowel movement|hourly prompt|hourly reminder|regular reminders?|go when prompted|void|showerhead|breakfast|van|water bottle|sippy cup|limited diet|bite-sized|grazes|meals?|snacks?|dress(?:ing)?|deodorant|socks|teeth brushing|hair|school days?|non-school days?)\b/i.test(
       item
     )
   ) {

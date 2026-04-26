@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   const { summary: editedSummary, report: editedSummaryAudit } = finalizeSummaryWithQa(
     normalizeEditableStructuredSummary(body.editedSummary),
     {
-      source: "edited"
+      source: "saved"
     }
   );
 

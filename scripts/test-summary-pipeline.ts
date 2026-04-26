@@ -414,7 +414,6 @@ function testQaReportWarnsForEditedSummaryWithoutRewritingCards() {
 
   assert.equal(report.status, "warn");
   assert.match(report.issues.map((issue) => issue.message).join("\n"), /Health & Safety/i);
-  assert.match(report.issues.map((issue) => issue.message).join("\n"), /What helps the day go well/i);
   assert.match(sectionText(qaSummary, "Signs they need help"), /Abilify|Aripiprazole/i);
   assert.equal(getOverviewLines(qaSummary.overview).length, 5);
 }
@@ -445,8 +444,27 @@ function testSavedSummaryQaRebuildsOverviewAndWarns() {
   const { summary: qaSummary, report } = finalizeSummaryWithQa(summary, { source: "saved" });
 
   assert.equal(getOverviewLines(qaSummary.overview).length, 5);
-  assert.equal(report.status, "warn");
-  assert.match(report.issues.map((issue) => issue.message).join("\n"), /What helps the day go well/i);
+  assert.equal(report.status, "pass");
+  assert.doesNotMatch(sectionText(qaSummary, "What helps the day go well"), /Downtime/i);
+  assert.match(sectionText(qaSummary, "What helps the day go well"), /structured routine/i);
+}
+
+function testSavedSummaryQaRepairsMedicationPlacement() {
+  const summary = emptySummary();
+  summary.sections = summary.sections.map((section) =>
+    section.title === "Signs they need help"
+      ? {
+          ...section,
+          items: ["Abilify (Aripiprazole) 15 mg once daily at 3pm for irritability, aggression, repetitive behaviors, and self-injury."]
+        }
+      : section
+  );
+
+  const { summary: qaSummary, report } = finalizeSummaryWithQa(summary, { source: "saved" });
+
+  assert.equal(report.status, "pass");
+  assert.doesNotMatch(sectionText(qaSummary, "Signs they need help"), /Abilify|Aripiprazole/i);
+  assert.match(sectionText(qaSummary, "Health & Safety"), /Abilify|Aripiprazole/i);
 }
 
 testAuthoritativePlacement();
@@ -459,5 +477,6 @@ testStructuredOverview();
 testPreferredStructuredBlocksUseAuthoritativeCleanup();
 testQaReportWarnsForEditedSummaryWithoutRewritingCards();
 testSavedSummaryQaRebuildsOverviewAndWarns();
+testSavedSummaryQaRepairsMedicationPlacement();
 
 console.log("summary pipeline tests passed");
