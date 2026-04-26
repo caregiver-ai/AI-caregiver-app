@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { normalizeAuthoritativeStructuredSummary } from "../lib/summary";
+import { getOverviewLines, normalizeAuthoritativeStructuredSummary } from "../lib/summary";
 import { expandTurnsForSummaryCapture } from "../lib/summary-generation";
 import { StructuredSummary } from "../lib/types";
 
@@ -202,11 +202,71 @@ function testAmPmFormatting() {
   assert.match(text, /8:05 p\.m\./i);
 }
 
+function testStructuredOverview() {
+  const summary = emptySummary();
+  summary.sections = summary.sections.map((section) => {
+    if (section.title === "Communication") {
+      return {
+        ...section,
+        items: ["Gavin is non-speaking.", "He uses TouchChat on an iPad to ask for help."]
+      };
+    }
+
+    if (section.title === "Daily Needs & Routines") {
+      return {
+        ...section,
+        items: ["He needs food often.", "Give regular bathroom reminders."]
+      };
+    }
+
+    if (section.title === "What helps the day go well") {
+      return {
+        ...section,
+        items: ["He is very visual.", "He does best with 2-step directions."]
+      };
+    }
+
+    if (section.title === "Signs they need help") {
+      return {
+        ...section,
+        items: ["Running away or elopement is a sign he needs help.", "Hand biting is a sign he needs help."]
+      };
+    }
+
+    if (section.title === "Health & Safety") {
+      return {
+        ...section,
+        items: ["Pica.", "Outings such as walks or car rides require at least two caregivers for safety."]
+      };
+    }
+
+    if (section.title === "Who to contact (and when)") {
+      return {
+        ...section,
+        items: ["Contact Rania Kelly at (617) 538-4056."]
+      };
+    }
+
+    return section;
+  });
+
+  const normalized = normalizeAuthoritativeStructuredSummary(summary, "Gavin");
+  const overviewLines = getOverviewLines(normalized.overview);
+
+  assert.equal(overviewLines.length, 5);
+  assert.match(overviewLines[0] ?? "", /^Communication:\s+Non-speaking, uses AAC \(TouchChat on iPad\)$/i);
+  assert.match(overviewLines[1] ?? "", /^Key Needs:\s+/i);
+  assert.match(overviewLines[2] ?? "", /^Top Risks:\s+/i);
+  assert.match(overviewLines[3] ?? "", /^Best Supports:\s+/i);
+  assert.match(overviewLines[4] ?? "", /^Emergency Contact:\s+Rania Kelly \(\(617\) 538-4056\)$/i);
+}
+
 testAuthoritativePlacement();
 testHardTimeDedupes();
 testPreferenceCondensing();
 testNoInventedSupports();
 testRawInputParser();
 testAmPmFormatting();
+testStructuredOverview();
 
 console.log("summary pipeline tests passed");

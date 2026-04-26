@@ -14,7 +14,11 @@ import {
 import { getCompletionCopy } from "@/lib/localization";
 import { getVisibleSections } from "@/lib/summary-display";
 import { getSummaryFreshness } from "@/lib/summary-structured";
-import { formatSummaryGeneratedAt, normalizeAuthoritativeStructuredSummary } from "@/lib/summary";
+import {
+  formatSummaryGeneratedAt,
+  getOverviewLines,
+  normalizeAuthoritativeStructuredSummary
+} from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { SessionDraft, StructuredSummary, SummaryFreshness, UiLanguage } from "@/lib/types";
 
@@ -48,6 +52,10 @@ export function CompletionView() {
   const generatedAtText = useMemo(
     () => formatSummaryGeneratedAt(summary?.generatedAt ?? "", uiLanguage),
     [summary?.generatedAt, uiLanguage]
+  );
+  const overviewLines = useMemo(
+    () => getOverviewLines(summary?.overview ?? ""),
+    [summary?.overview]
   );
   const requiresRegeneration = summaryFreshness?.requiresRegeneration ?? false;
 
@@ -324,12 +332,19 @@ export function CompletionView() {
               <p className="text-sm text-slate-700">{generatedAtText}</p>
             </div>
           ) : null}
-          {summary.overview.trim() ? (
+          {overviewLines.length > 0 ? (
             <div className="space-y-2">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 {copy.overviewLabel}
               </div>
-              <p className="text-sm leading-6 text-slate-700">{summary.overview}</p>
+              <ul className="space-y-1 text-sm leading-6 text-slate-700">
+                {overviewLines.map((line) => (
+                  <li key={line} className="flex gap-2">
+                    <span aria-hidden="true">•</span>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
           <div className="space-y-3 border-t border-border pt-4">

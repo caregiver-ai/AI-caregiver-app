@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { getSectionBlocks, getVisibleSections } from "@/lib/summary-display";
-import { formatSummaryGeneratedAt } from "@/lib/summary";
+import { formatSummaryGeneratedAt, getOverviewLines } from "@/lib/summary";
 import { StructuredSummary, SummaryBlock } from "@/lib/types";
 
 const PAGE_WIDTH = 612;
@@ -290,7 +290,8 @@ export async function createSummaryPdf(summary: StructuredSummary) {
     state.y -= SMALL_SIZE + 12;
   }
 
-  if (summary.overview.trim()) {
+  const overviewLines = getOverviewLines(summary.overview.trim());
+  if (overviewLines.length > 0) {
     state.page.drawText("Overview", {
       x: PAGE_MARGIN_X,
       y: state.y,
@@ -299,7 +300,9 @@ export async function createSummaryPdf(summary: StructuredSummary) {
       color: muted
     });
     state.y -= SMALL_SIZE + 8;
-    state = drawParagraph(pdf, state, summary.overview.trim(), regularFont, BODY_SIZE, slate);
+    for (const line of overviewLines) {
+      state = drawBulletItem(pdf, state, line, regularFont, slate);
+    }
     state.y -= SECTION_GAP;
   }
 
@@ -333,6 +336,7 @@ export async function createSummaryPdf(summary: StructuredSummary) {
 
 export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: string) {
   const generatedAtText = formatSummaryGeneratedAt(summary.generatedAt, "english");
+  const overviewLines = getOverviewLines(summary.overview.trim());
   const sections = getVisibleSections(summary)
     .map((section) => {
       const intro = section.intro?.trim()
@@ -403,8 +407,10 @@ export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: stri
           : ""
       }
       ${
-        summary.overview.trim()
-          ? `<p style="margin:0 0 16px;">${escapeHtml(summary.overview.trim())}</p>`
+        overviewLines.length > 0
+          ? `<ul style="margin:0 0 16px 18px;padding:0;color:#334155;">${overviewLines
+              .map((line) => `<li style="margin:0 0 6px;">${escapeHtml(line)}</li>`)
+              .join("")}</ul>`
           : ""
       }
       ${sections}

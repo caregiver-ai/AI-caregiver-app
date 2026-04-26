@@ -14,6 +14,13 @@ type LegacyStructuredSummary = {
 };
 
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
+const STRUCTURED_OVERVIEW_LABELS = [
+  "Communication",
+  "Key Needs",
+  "Top Risks",
+  "Best Supports",
+  "Emergency Contact"
+] as const;
 
 export const PREFERRED_SUMMARY_SECTION_ORDER = [
   "Communication",
@@ -136,6 +143,23 @@ function formatList(items: string[]) {
   }
 
   return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+function compactWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function trimSentence(value: string) {
+  return value.trim().replace(/[.!?]+$/g, "");
+}
+
+function normalizePhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length !== 10) {
+    return value.trim();
+  }
+
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
 function dedupe(items: string[]) {
@@ -1426,6 +1450,30 @@ function shortenOverview(text: string) {
   }
 
   return `${words.slice(0, 70).join(" ").replace(/[,\s;:]+$/, "")}.`;
+}
+
+export function getOverviewLines(value: string) {
+  return value
+    .replace(/\r/g, "\n")
+    .split(/\n+/)
+    .map((line) => line.replace(/^[•*-]\s*/u, "").trim())
+    .filter(Boolean);
+}
+
+function isStructuredOverview(value: string) {
+  const lines = getOverviewLines(value);
+  return (
+    lines.length > 0 &&
+    lines.every((line) =>
+      STRUCTURED_OVERVIEW_LABELS.some((label) =>
+        new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:`).test(line)
+      )
+    )
+  );
+}
+
+function normalizeStructuredOverview(value: string) {
+  return getOverviewLines(value).join("\n");
 }
 
 function slugify(value: string) {
@@ -2877,93 +2925,175 @@ function buildOverview(title: string, sections: SummarySection[]) {
   const meaningfulSections = sections.filter((section) =>
     section.items.some((item) => !isNoInformationItem(item))
   );
-  const personName = extractNameFromTitle(title);
-  const subject = personName || "This person";
   const communicationItems =
     meaningfulSections.find((section) => section.title === "Communication")?.items ?? [];
-  const healthAndSafetyItems =
-    meaningfulSections.find((section) => section.title === "Health & Safety")?.items ?? [];
+  const dailyItems =
+    meaningfulSections.find((section) => section.title === "Daily Needs & Routines")?.items ?? [];
+  const dayGoWellItems =
+    meaningfulSections.find((section) => section.title === "What helps the day go well")?.items ?? [];
   const signItems =
     meaningfulSections.find((section) => section.title === "Signs they need help")?.items ?? [];
+  const hardTimeItems =
+    meaningfulSections.find((section) => section.title === "What helps when they are having a hard time")?.items ?? [];
+  const healthAndSafetyItems =
+    meaningfulSections.find((section) => section.title === "Health & Safety")?.items ?? [];
+  const contactItems =
+    meaningfulSections.find((section) => section.title === "Who to contact (and when)")?.items ?? [];
+  const allItems = meaningfulSections.flatMap((section) => section.items);
 
-  const communicationSignals: string[] = [];
-  if (communicationItems.some((item) => /\bnon-speaking\b/i.test(item))) {
-    communicationSignals.push("non-speaking");
-  }
-  if (communicationItems.some((item) => /\bAAC|TouchChat|iPad\b/i.test(item))) {
-    communicationSignals.push("AAC device");
-  }
-  if (communicationItems.some((item) => /\bsounds?\b/i.test(item))) {
-    communicationSignals.push("sounds");
-  }
-  if (communicationItems.some((item) => /\blead|touch|sit close|attention\b/i.test(item))) {
-    communicationSignals.push("behavior cues");
-  }
+  function buildCommunicationOverviewValue(items: string[]) {
+    const parts: string[] = [];
 
-  const safetySignals: string[] = [];
-  if ([...healthAndSafetyItems, ...signItems].some((item) => /\belope|run away\b/i.test(item))) {
-    safetySignals.push("elopement");
-  }
-  if ([...healthAndSafetyItems, ...signItems].some((item) => /\bbiting (?:his|her|their) hand|self-injury\b/i.test(item))) {
-    safetySignals.push("self-injury");
-  }
-  if (healthAndSafetyItems.some((item) => /\btwo caregivers?|two people|close supervision|supervision\b/i.test(item))) {
-    safetySignals.push("close supervision needs");
-  }
-
-  const overviewSentences: string[] = [];
-  if (communicationSignals.length > 0) {
-    if (communicationSignals.includes("non-speaking")) {
-      const communicationModes = communicationSignals.filter((signal) => signal !== "non-speaking");
-      if (communicationModes.length > 0) {
-        overviewSentences.push(
-          `${subject} is non-speaking and communicates using ${formatList(communicationModes)}.`
-        );
-      } else {
-        overviewSentences.push(`${subject} is non-speaking.`);
-      }
-    } else {
-      overviewSentences.push(
-        `${subject} communicates using ${formatList(communicationSignals)}.`
-      );
+    if (items.some((item) => /\bnon-speaking\b/i.test(item))) {
+      parts.push("Non-speaking");
     }
+
+    if (items.some((item) => /\bAAC|Touch ?Chat|iPad\b/i.test(item))) {
+      if (items.some((item) => /\bTouch ?Chat\b/i.test(item)) && items.some((item) => /\biPad\b/i.test(item))) {
+        parts.push("uses AAC (TouchChat on iPad)");
+      } else {
+        parts.push("uses AAC");
+      }
+    }
+
+    if (parts.length === 0 && items[0]) {
+      return trimSentence(items[0]);
+    }
+
+    return parts.join(", ");
   }
 
-  if (safetySignals.length > 0) {
-    overviewSentences.push(
-      `${personName || "They"} require${personName ? "s" : ""} close supervision due to safety risks including ${formatList(
-        safetySignals
-      )}.`
-    );
+  function buildKeyNeedsValue(items: string[]) {
+    const needs: string[] = [];
+
+    if (items.some((item) => /\b(food|hungry|cheese|fridge|meal|eat)\b/i.test(item))) {
+      needs.push("constant food access");
+    }
+
+    if (items.some((item) => /\b(supervision|two caregivers?|two people|2 adults?|safety|close supervision)\b/i.test(item))) {
+      needs.push("supervision for safety");
+    }
+
+    if (
+      items.some((item) =>
+        /\b(visual|2-step|two-step|routine|structured|schedule|timer|prompts?)\b/i.test(item)
+      )
+    ) {
+      needs.push("structured support");
+    }
+
+    return formatList(needs.slice(0, 3));
   }
 
-  if (overviewSentences.length > 0) {
-    return shortenOverview(overviewSentences.join(" "));
+  function buildTopRisksValue(items: string[]) {
+    const risks: string[] = [];
+
+    if (items.some((item) => /\belope|run away\b/i.test(item))) {
+      risks.push("elopement");
+    }
+
+    if (items.some((item) => /\b(hand biting|biting his hand|biting her hand|biting their hand|self-injury)\b/i.test(item))) {
+      risks.push("self-injury (hand biting)");
+    }
+
+    if (items.some((item) => /\bpica\b/i.test(item))) {
+      risks.push("pica");
+    }
+
+    if (items.some((item) => /\bwalks?|outings?\b/i.test(item) && /\btwo caregivers?|two people|2 adults?|unsafe|safety\b/i.test(item))) {
+      risks.push("unsafe walking");
+    }
+
+    if (items.some((item) => /\bdoes not communicate pain|does not tell you if (?:he|she|they) (?:is|are) hurt\b/i.test(item))) {
+      risks.push("does not communicate pain");
+    }
+
+    return formatList(risks.slice(0, 4));
   }
 
-  const firstSection = meaningfulSections[0];
-  const secondSection = meaningfulSections[1];
+  function buildBestSupportsValue(items: string[]) {
+    const supports: string[] = [];
 
-  if (!firstSection) {
-    return "This summary highlights the most important caregiver handoff details that were shared.";
+    if (items.some((item) => /\bvisual|pictures?|show (?:him|her|them)|show him|show her|show them\b/i.test(item))) {
+      supports.push("visuals");
+    }
+
+    if (items.some((item) => /\b2-step|two-step\b/i.test(item))) {
+      supports.push("2-step directions");
+    }
+
+    if (items.some((item) => /\bgiv(?:e|ing)\b.*\bspace\b|\bspace immediately\b|\btime alone\b/i.test(item))) {
+      supports.push("space when overwhelmed");
+    }
+
+    if (items.some((item) => /\bquiet|low-light|low light|reduce noise|dim\b/i.test(item))) {
+      supports.push("quiet, low-light environment");
+    }
+
+    return formatList(supports.slice(0, 4));
   }
 
-  const fragments = [
-    firstSection.items[0] ? `${firstSection.title}: ${firstSection.items[0]}` : "",
-    secondSection?.items[0] ? `${secondSection.title}: ${secondSection.items[0]}` : ""
-  ].filter(Boolean);
+  function buildPrimaryContactValue(items: string[]) {
+    const first = items.find((item) => !isNoInformationItem(item));
+    if (!first) {
+      return "";
+    }
 
-  if (fragments.length === 0) {
-    return "This summary highlights the most important caregiver handoff details that were shared.";
+    const phone = first.match(/(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/);
+    const nameMatch = trimSentence(first)
+      .replace(/^contact\s+/i, "")
+      .replace(/\bat\s+\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}.*/i, "")
+      .replace(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/, "")
+      .split(",")[0]
+      ?.trim();
+
+    if (nameMatch && phone?.[1]) {
+      return `${nameMatch} (${normalizePhone(phone[1])})`;
+    }
+
+    return trimSentence(first);
   }
 
-  return shortenOverview(fragments.join(". "));
+  const overviewRows = [
+    {
+      label: "Communication",
+      value: buildCommunicationOverviewValue(communicationItems)
+    },
+    {
+      label: "Key Needs",
+      value: buildKeyNeedsValue([...dailyItems, ...dayGoWellItems, ...healthAndSafetyItems, ...signItems])
+    },
+    {
+      label: "Top Risks",
+      value: buildTopRisksValue([...signItems, ...healthAndSafetyItems])
+    },
+    {
+      label: "Best Supports",
+      value: buildBestSupportsValue([...communicationItems, ...dayGoWellItems, ...hardTimeItems])
+    },
+    {
+      label: "Emergency Contact",
+      value: buildPrimaryContactValue(contactItems)
+    }
+  ];
+
+  if (allItems.length === 0) {
+    return STRUCTURED_OVERVIEW_LABELS.map((label) => `${label}: Not provided`).join("\n");
+  }
+
+  return overviewRows
+    .map((row) => `${row.label}: ${row.value || "Not provided"}`)
+    .join("\n");
 }
 
 function shouldRewriteOverview(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
     return true;
+  }
+
+  if (isStructuredOverview(trimmed)) {
+    return false;
   }
 
   if (SECTION_LABEL_OVERVIEW_PATTERN.test(trimmed)) {
@@ -3032,8 +3162,8 @@ export function normalizeGeneratedSummaryWithOptions(
   return {
     title: summaryTitle,
     overview:
-      typeof candidate.overview === "string" && !shouldRewriteOverview(candidate.overview)
-        ? shortenOverview(candidate.overview)
+      typeof candidate.overview === "string" && isStructuredOverview(candidate.overview)
+        ? normalizeStructuredOverview(candidate.overview)
         : buildOverview(summaryTitle, sections),
     sections,
     generatedAt:
@@ -3203,11 +3333,13 @@ export function normalizeStructuredSummaryWithOptions(
       title: summaryTitle,
       overview:
         containsStructuredBlocks && typeof candidate.overview === "string"
-          ? shortenOverview(candidate.overview)
+          ? (isStructuredOverview(candidate.overview)
+              ? normalizeStructuredOverview(candidate.overview)
+              : shortenOverview(candidate.overview))
           : containsStructuredBlocks
             ? ""
-          : typeof candidate.overview === "string" && !shouldRewriteOverview(candidate.overview)
-          ? shortenOverview(candidate.overview)
+          : typeof candidate.overview === "string" && isStructuredOverview(candidate.overview)
+          ? normalizeStructuredOverview(candidate.overview)
           : buildOverview(summaryTitle, finalSections),
       sections: finalSections,
       generatedAt:
