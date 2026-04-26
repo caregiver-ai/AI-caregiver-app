@@ -354,20 +354,18 @@ export function CompletionView() {
           ) : null}
           <div className="space-y-3 border-t border-border pt-4">
             {requiresRegeneration ? (
-              <>
-                <StatusBanner tone="error">{copy.staleSummaryMessage}</StatusBanner>
-                <button
-                  className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={regenerating || returningToQuestions}
-                  type="button"
-                  onClick={handleRegenerate}
-                >
-                  {regenerating ? copy.regeneratingButton : copy.regenerateButton}
-                </button>
-              </>
+              <StatusBanner tone="error">{copy.staleSummaryMessage}</StatusBanner>
             ) : (
               <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
             )}
+            <button
+              className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={regenerating || returningToQuestions}
+              type="button"
+              onClick={handleRegenerate}
+            >
+              {regenerating ? copy.regeneratingButton : copy.regenerateButton}
+            </button>
             <button
               className="w-full rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
               disabled={returningToQuestions || regenerating}

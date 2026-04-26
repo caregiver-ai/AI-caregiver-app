@@ -63,7 +63,11 @@ export function ReviewEditor() {
   const requiresRegeneration = summaryFreshness?.requiresRegeneration ?? false;
 
   function applyDraftState(draft: SessionDraft, freshness?: SummaryFreshness | null) {
-    setSummary(normalizeEditableStructuredSummary(draft.editedSummary ?? draft.structuredSummary));
+    setSummary(
+      finalizeSummaryWithQa(draft.editedSummary ?? draft.structuredSummary, {
+        source: "saved"
+      }).summary
+    );
     setSessionId(draft.sessionId);
     setUiLanguage(draft.intakeDetails.preferredLanguage ?? "english");
     setSummaryFreshness(deriveFreshness(draft, freshness));
@@ -119,7 +123,7 @@ export function ReviewEditor() {
   }, [router]);
 
   useEffect(() => {
-    if (!sessionId || requiresRegeneration) {
+    if (!sessionId || requiresRegeneration || saving || regenerating || returningToQuestions) {
       return;
     }
 
@@ -144,7 +148,7 @@ export function ReviewEditor() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [requiresRegeneration, sessionId, summary]);
+  }, [auditReport, regenerating, requiresRegeneration, returningToQuestions, saving, sessionId, summary]);
 
   function updateSection(nextSection: SummarySection) {
     setSummary((current) => ({
@@ -248,6 +252,10 @@ export function ReviewEditor() {
         saveDraft(draft);
       }
 
+      if (data.editedSummary) {
+        setSummary(data.editedSummary);
+      }
+
       router.push("/complete");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : copy.saveFailed);
@@ -289,21 +297,21 @@ export function ReviewEditor() {
               <div className="text-sm text-slate-700">{generatedAtText}</div>
             </div>
           ) : null}
-          {requiresRegeneration ? (
-            <div className="space-y-3">
+          <div className="space-y-3">
+            {requiresRegeneration ? (
               <StatusBanner tone="error">{copy.staleSummaryMessage}</StatusBanner>
-              <button
-                className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={regenerating || returningToQuestions}
-                type="button"
-                onClick={handleRegenerate}
-              >
-                {regenerating ? copy.regeneratingButton : copy.regenerateButton}
-              </button>
-            </div>
-          ) : (
-            <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
-          )}
+            ) : (
+              <p className="text-sm leading-6 text-slate-700">{copy.regenerateHint}</p>
+            )}
+            <button
+              className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={regenerating || returningToQuestions}
+              type="button"
+              onClick={handleRegenerate}
+            >
+              {regenerating ? copy.regeneratingButton : copy.regenerateButton}
+            </button>
+          </div>
           {!requiresRegeneration && auditReport.status === "warn" ? (
             <StatusBanner tone="error">
               <div className="space-y-2">
