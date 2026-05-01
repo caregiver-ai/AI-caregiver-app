@@ -24,7 +24,7 @@ const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 const DEFAULT_SUMMARY_MODEL = "gpt-5.4";
 const DEFAULT_OPENAI_TIMEOUT_MS = 75_000;
 const CAPTURE_ENTRY_TARGET_CHARS = 2_400;
-const CAPTURE_PROMPT_TARGET_CHARS = 7_200;
+const CAPTURE_PROMPT_TARGET_CHARS = 5_000;
 
 const SUMMARY_SECTION_TITLES = [...PREFERRED_SUMMARY_SECTION_ORDER];
 
@@ -109,6 +109,13 @@ class SummaryModelRequestError extends Error {
     this.name = "SummaryModelRequestError";
     this.status = status;
   }
+}
+
+function isStructuredJsonParseFailure(error: unknown) {
+  return (
+    error instanceof SummaryModelRequestError &&
+    /structured json/i.test(error.message)
+  );
 }
 
 type SummarySourceEntry = {
@@ -1151,13 +1158,13 @@ function buildSummaryEntries(turns: ConversationTurn[], options?: { chunkLongEnt
 }
 
 function buildSummaryEntryChunks(entries: SummarySourceEntry[], targetChars: number) {
-  const chunks: string[] = [];
-  let current: string[] = [];
+  const chunks: SummarySourceEntry[][] = [];
+  let current: SummarySourceEntry[] = [];
   let currentLength = 0;
 
   const flush = () => {
     if (current.length > 0) {
-      chunks.push(current.join("\n\n"));
+      chunks.push(current);
       current = [];
       currentLength = 0;
     }
@@ -1169,7 +1176,7 @@ function buildSummaryEntryChunks(entries: SummarySourceEntry[], targetChars: num
       flush();
     }
 
-    current.push(entry.text);
+    current.push(entry);
     currentLength += (current.length > 1 ? 2 : 0) + entry.text.length;
   }
 
@@ -2290,11 +2297,13 @@ async function requestStructuredCompletion<T>({
 
   const data = (await response.json()) as {
     choices?: Array<{
+      finish_reason?: string | null;
       message?: ChatCompletionMessage;
     }>;
   };
 
-  const message = data.choices?.[0]?.message;
+  const choice = data.choices?.[0];
+  const message = choice?.message;
   const refusal = compactWhitespace(String(message?.refusal ?? ""));
   if (refusal) {
     throw new SummaryModelRequestError(`Model refused structured summary generation: ${refusal}`);
@@ -2313,9 +2322,9 @@ async function requestStructuredCompletion<T>({
   }
 
   throw new SummaryModelRequestError(
-    `Summary generation returned invalid structured JSON. Raw model output: ${compactWhitespace(
-      content
-    ).slice(0, 280)}`
+    `Summary generation returned invalid structured JSON${
+      choice?.finish_reason === "length" ? " because the model output was truncated." : "."
+    } Raw model output: ${compactWhitespace(content).slice(0, 280)}`
   );
 }
 
@@ -2356,11 +2365,13 @@ async function captureSummaryFacts(
 ) {
   const entries = buildSummaryEntries(turns, { chunkLongEntries: true });
   const entryMetadata = new Map(entries.map((entry) => [entry.entryId, entry] as const));
-  const entryChunks = buildSummaryEntryChunks(entries, CAPTURE_PROMPT_TARGET_CHARS);
   const captures: StructuredCaptureFact[] = [];
 
-  for (const chunk of entryChunks) {
-    const rawCapture = await requestStructuredCompletion<StructuredCapture>({
+  async function captureChunk(chunkEntries: SummarySourceEntry[]): Promise<StructuredCaptureFact[]> {
+    const chunk = chunkEntries.map((entry) => entry.text).join("\n\n");
+
+    try {
+      const rawCapture = await requestStructuredCompletion<StructuredCapture>({
       apiKey,
       model,
       schemaName: "caregiver_handoff_structured_capture",
@@ -2372,7 +2383,21 @@ async function captureSummaryFacts(
       maxCompletionTokens: 6000
     });
 
-    captures.push(...normalizeCapture(rawCapture, entryMetadata).facts);
+      return normalizeCapture(rawCapture, entryMetadata).facts;
+    } catch (error) {
+      if (isStructuredJsonParseFailure(error) && chunkEntries.length > 1) {
+        const midpoint = Math.ceil(chunkEntries.length / 2);
+        const left = await captureChunk(chunkEntries.slice(0, midpoint));
+        const right = await captureChunk(chunkEntries.slice(midpoint));
+        return [...left, ...right];
+      }
+
+      throw error;
+    }
+  }
+
+  for (const entryChunk of buildSummaryEntryChunks(entries, CAPTURE_PROMPT_TARGET_CHARS)) {
+    captures.push(...(await captureChunk(entryChunk)));
   }
 
   return {
