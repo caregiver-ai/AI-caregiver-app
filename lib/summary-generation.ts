@@ -35,6 +35,11 @@ type ChatCompletionContentPart = {
   text?: string;
 };
 
+type ChatCompletionMessage = {
+  content?: string | ChatCompletionContentPart[];
+  refusal?: string | null;
+};
+
 type StructuredCaptureFact = {
   factId: string;
   entryId: string;
@@ -857,6 +862,44 @@ function extractChatCompletionText(content?: string | ChatCompletionContentPart[
 
 function compactWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function uniqueNonEmpty(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function extractJsonCandidates(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const codeFenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  const firstBracket = trimmed.indexOf("[");
+  const lastBracket = trimmed.lastIndexOf("]");
+
+  return uniqueNonEmpty([
+    trimmed,
+    codeFenceMatch?.[1] ?? "",
+    firstBrace >= 0 && lastBrace > firstBrace ? trimmed.slice(firstBrace, lastBrace + 1) : "",
+    firstBracket >= 0 && lastBracket > firstBracket
+      ? trimmed.slice(firstBracket, lastBracket + 1)
+      : ""
+  ]);
+}
+
+function parseStructuredJson<T>(value: string) {
+  for (const candidate of extractJsonCandidates(value)) {
+    try {
+      return JSON.parse(candidate) as T;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  return null;
 }
 
 function normalizeSummarySourceText(value: string) {
@@ -2247,26 +2290,33 @@ async function requestStructuredCompletion<T>({
 
   const data = (await response.json()) as {
     choices?: Array<{
-      message?: {
-        content?: string | ChatCompletionContentPart[];
-      };
+      message?: ChatCompletionMessage;
     }>;
   };
 
-  const content = extractChatCompletionText(data.choices?.[0]?.message?.content);
+  const message = data.choices?.[0]?.message;
+  const refusal = compactWhitespace(String(message?.refusal ?? ""));
+  if (refusal) {
+    throw new SummaryModelRequestError(`Model refused structured summary generation: ${refusal}`);
+  }
+
+  const content = extractChatCompletionText(message?.content);
   if (!content) {
     throw new SummaryModelRequestError(
       "Summary generation returned an empty structured response."
     );
   }
 
-  try {
-    return JSON.parse(content) as T;
-  } catch {
-    throw new SummaryModelRequestError(
-      "Summary generation returned invalid structured JSON."
-    );
+  const parsed = parseStructuredJson<T>(content);
+  if (parsed) {
+    return parsed;
   }
+
+  throw new SummaryModelRequestError(
+    `Summary generation returned invalid structured JSON. Raw model output: ${compactWhitespace(
+      content
+    ).slice(0, 280)}`
+  );
 }
 
 async function generateSummaryOneStep(
