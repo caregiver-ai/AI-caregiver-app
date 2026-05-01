@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { summaryToPlainText } from "@/lib/summary";
-import { generateCaregiverSummaryWithQa } from "@/lib/summary-generation";
+import {
+  SummaryModelRequestError,
+  generateCaregiverSummaryWithQa
+} from "@/lib/summary-generation";
 import { createSupabaseServerClient } from "@/lib/supabase";
 import { ConversationTurn } from "@/lib/types";
 
@@ -108,6 +111,15 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ summary, auditReport });
   } catch (error) {
+    if (error instanceof SummaryModelRequestError) {
+      console.error("[summary] model request failed", {
+        message: error.message,
+        kind: error.kind,
+        status: error.status,
+        diagnostics: error.diagnostics
+      });
+    }
+
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Summary generation failed."

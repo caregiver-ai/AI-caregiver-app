@@ -23,8 +23,8 @@ const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_SUMMARY_MODEL = "gpt-5.4";
 const DEFAULT_OPENAI_TIMEOUT_MS = 75_000;
-const CAPTURE_ENTRY_TARGET_CHARS = 2_400;
-const CAPTURE_PROMPT_TARGET_CHARS = 5_000;
+const CAPTURE_ENTRY_TARGET_CHARS = 1_100;
+const CAPTURE_PROMPT_TARGET_CHARS = 2_800;
 
 const SUMMARY_SECTION_TITLES = [...PREFERRED_SUMMARY_SECTION_ORDER];
 
@@ -40,12 +40,35 @@ type ChatCompletionMessage = {
   refusal?: string | null;
 };
 
+type SummaryModelErrorKind =
+  | "timeout"
+  | "transport"
+  | "provider"
+  | "refusal"
+  | "empty"
+  | "parse"
+  | "truncation"
+  | "unexpected";
+
+type SummaryEntrySplitStrategy = "entry" | "paragraph" | "sentence" | "chars";
+
+type RawStructuredCaptureFact = {
+  entryId: string;
+  section: SummarySectionTitle;
+  factKind: StructuredFactKind;
+  statement: string;
+  safetyRelevant: boolean;
+};
+
+type RawStructuredCapture = {
+  facts: RawStructuredCaptureFact[];
+};
+
 type StructuredCaptureFact = {
   factId: string;
   entryId: string;
   section: SummarySectionTitle;
   factKind: StructuredFactKind;
-  subcategory: string;
   statement: string;
   safetyRelevant: boolean;
   conceptKeys: string[];
@@ -101,30 +124,37 @@ export class SummaryQualityError extends Error {
   }
 }
 
-class SummaryModelRequestError extends Error {
+export class SummaryModelRequestError extends Error {
   status?: number;
+  kind: SummaryModelErrorKind;
+  diagnostics: string[];
 
-  constructor(message: string, status?: number) {
+  constructor(
+    message: string,
+    options: {
+      status?: number;
+      kind?: SummaryModelErrorKind;
+      diagnostics?: string[];
+    } = {}
+  ) {
     super(message);
     this.name = "SummaryModelRequestError";
-    this.status = status;
+    this.status = options.status;
+    this.kind = options.kind ?? "unexpected";
+    this.diagnostics = options.diagnostics ?? [];
   }
 }
 
-function isStructuredJsonParseFailure(error: unknown) {
-  return (
-    error instanceof SummaryModelRequestError &&
-    /structured json/i.test(error.message)
-  );
-}
-
 type SummarySourceEntry = {
+  internalEntryId: string;
   entryId: string;
-  text: string;
+  content: string;
   sectionTitle?: string;
   stepId?: ReflectionStepId;
   stepTitle?: string;
   promptLabel?: string;
+  splitDepth: number;
+  splitStrategy: SummaryEntrySplitStrategy;
 };
 
 type RawPromptDefinition = {
@@ -620,9 +650,6 @@ const captureSchema = {
             type: "string",
             enum: STRUCTURED_FACT_KINDS
           },
-          subcategory: {
-            type: "string"
-          },
           statement: {
             type: "string"
           },
@@ -630,7 +657,7 @@ const captureSchema = {
             type: "boolean"
           }
         },
-        required: ["entryId", "section", "factKind", "subcategory", "statement", "safetyRelevant"]
+        required: ["entryId", "section", "factKind", "statement", "safetyRelevant"]
       }
     }
   },
@@ -746,7 +773,6 @@ You must:
 - Preserve the original meaning and wording as much as possible.
 - Assign each fact to the single best section based on meaning, not where it was originally entered.
 - Assign each fact a factKind from the allowed enum. Use the most specific kind.
-- Choose a short internal subcategory label that helps organize related facts.
 - Mark safetyRelevant as true for self-injury, elopement, supervision needs, medical needs, or situations where a caregiver could be harmed.
 
 You must not:
@@ -822,7 +848,6 @@ Output rules:
 - No duplicate information.
 - No run-on sentences.
 - No question fragments, worksheet wording, or filler/noise.
-- Do not expose internal subcategory labels in the final output.
 - The section assignments in the structured capture are authoritative. Keep each fact in its assigned section.
 - The factKind assignments in the structured capture are authoritative. Use them to keep bullets in the right role within each section.
 - Do not move facts into Communication just because they mention an iPad, AAC device, attention, or help.
@@ -871,8 +896,40 @@ function compactWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function renderSummaryEntryText(entry: SummarySourceEntry) {
+  const lines = [
+    entry.entryId,
+    entry.sectionTitle ? `Original main category: ${compactWhitespace(entry.sectionTitle)}` : "",
+    entry.stepTitle && entry.stepTitle !== entry.sectionTitle
+      ? `Original subsection: ${compactWhitespace(entry.stepTitle)}`
+      : "",
+    entry.promptLabel ? `Question asked: ${compactWhitespace(entry.promptLabel)}` : "",
+    `Caregiver input:\n${entry.content}`
+  ].filter(Boolean);
+
+  return lines.join("\n");
+}
+
 function uniqueNonEmpty(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function looksLikeTruncatedStructuredOutput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  const openBraces = (trimmed.match(/{/g) ?? []).length;
+  const closeBraces = (trimmed.match(/}/g) ?? []).length;
+  const openBrackets = (trimmed.match(/\[/g) ?? []).length;
+  const closeBrackets = (trimmed.match(/]/g) ?? []).length;
+
+  if (openBraces > closeBraces || openBrackets > closeBrackets) {
+    return true;
+  }
+
+  return /^[\[{]/.test(trimmed) && !/[\]}]\s*$/.test(trimmed);
 }
 
 function extractJsonCandidates(value: string) {
@@ -1044,20 +1101,6 @@ export function expandTurnsForSummaryCapture(turns: ConversationTurn[]) {
   return expanded;
 }
 
-function buildSummaryEntryText(turn: ConversationTurn, entryId: string, content: string) {
-  const lines = [
-    entryId,
-    turn.sectionTitle ? `Original main category: ${compactWhitespace(turn.sectionTitle)}` : "",
-    turn.stepTitle && turn.stepTitle !== turn.sectionTitle
-      ? `Original subsection: ${compactWhitespace(turn.stepTitle)}`
-      : "",
-    turn.promptLabel ? `Question asked: ${compactWhitespace(turn.promptLabel)}` : "",
-    `Caregiver input:\n${content}`
-  ].filter(Boolean);
-
-  return lines.join("\n");
-}
-
 function splitSummaryEntryContent(content: string, maxChars: number) {
   if (content.length <= maxChars) {
     return [content];
@@ -1136,6 +1179,182 @@ function splitSummaryEntryContent(content: string, maxChars: number) {
   return chunks.filter(Boolean);
 }
 
+function createSummarySourceEntry(
+  turn: Pick<
+    ConversationTurn,
+    "sectionTitle" | "stepId" | "stepTitle" | "promptLabel"
+  >,
+  entryId: string,
+  content: string,
+  options: Partial<Pick<SummarySourceEntry, "internalEntryId" | "splitDepth" | "splitStrategy">> = {}
+): SummarySourceEntry {
+  return {
+    internalEntryId:
+      options.internalEntryId ??
+      `${entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "entry"}-${Math.random().toString(36).slice(2, 8)}`,
+    entryId,
+    content,
+    sectionTitle: turn.sectionTitle,
+    stepId: turn.stepId,
+    stepTitle: turn.stepTitle,
+    promptLabel: turn.promptLabel,
+    splitDepth: options.splitDepth ?? 0,
+    splitStrategy: options.splitStrategy ?? "entry"
+  };
+}
+
+function splitPiecesIntoBalancedGroups(pieces: string[], separator: string) {
+  if (pieces.length < 2) {
+    return null;
+  }
+
+  const totalLength = pieces.reduce((sum, piece) => sum + piece.length, 0);
+  const target = totalLength / 2;
+  let running = 0;
+  let splitIndex = 1;
+
+  for (let index = 0; index < pieces.length - 1; index += 1) {
+    running += pieces[index]?.length ?? 0;
+    if (running >= target) {
+      splitIndex = index + 1;
+      break;
+    }
+  }
+
+  const left = pieces.slice(0, splitIndex).join(separator).trim();
+  const right = pieces.slice(splitIndex).join(separator).trim();
+
+  if (!left || !right) {
+    return null;
+  }
+
+  return [left, right] as const;
+}
+
+function splitEntryByParagraphGroups(entry: SummarySourceEntry) {
+  const paragraphs = entry.content
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const groups = splitPiecesIntoBalancedGroups(paragraphs, "\n\n");
+  if (!groups) {
+    return null;
+  }
+
+  return groups.map((content, index) =>
+    createSummarySourceEntry(entry, entry.entryId, content, {
+      internalEntryId: `${entry.internalEntryId}.p${index + 1}`,
+      splitDepth: entry.splitDepth + 1,
+      splitStrategy: "paragraph"
+    })
+  );
+}
+
+function splitEntryBySentenceGroups(entry: SummarySourceEntry) {
+  const sentences = entry.content
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  const groups = splitPiecesIntoBalancedGroups(sentences, " ");
+  if (!groups) {
+    return null;
+  }
+
+  return groups.map((content, index) =>
+    createSummarySourceEntry(entry, entry.entryId, content, {
+      internalEntryId: `${entry.internalEntryId}.s${index + 1}`,
+      splitDepth: entry.splitDepth + 1,
+      splitStrategy: "sentence"
+    })
+  );
+}
+
+function splitEntryByHardChars(entry: SummarySourceEntry) {
+  const content = entry.content.trim();
+  if (content.length < 2) {
+    return null;
+  }
+
+  const midpoint = Math.floor(content.length / 2);
+  let splitIndex = midpoint;
+
+  for (let offset = 0; offset < Math.min(120, content.length - 1); offset += 1) {
+    const rightIndex = midpoint + offset;
+    if (rightIndex < content.length && /\s/.test(content[rightIndex] ?? "")) {
+      splitIndex = rightIndex;
+      break;
+    }
+
+    const leftIndex = midpoint - offset;
+    if (leftIndex > 0 && /\s/.test(content[leftIndex] ?? "")) {
+      splitIndex = leftIndex;
+      break;
+    }
+  }
+
+  const left = content.slice(0, splitIndex).trim();
+  const right = content.slice(splitIndex).trim();
+  if (!left || !right) {
+    return null;
+  }
+
+  return [left, right].map((piece, index) =>
+    createSummarySourceEntry(entry, entry.entryId, piece, {
+      internalEntryId: `${entry.internalEntryId}.c${index + 1}`,
+      splitDepth: entry.splitDepth + 1,
+      splitStrategy: "chars"
+    })
+  );
+}
+
+type CaptureRetrySplit = {
+  strategy: SummaryEntrySplitStrategy;
+  chunks: SummarySourceEntry[][];
+};
+
+function splitCaptureEntriesForRetry(chunkEntries: SummarySourceEntry[]): CaptureRetrySplit | null {
+  if (chunkEntries.length > 1) {
+    const midpoint = Math.ceil(chunkEntries.length / 2);
+    return {
+      strategy: "entry",
+      chunks: [chunkEntries.slice(0, midpoint), chunkEntries.slice(midpoint)].filter(
+        (chunk) => chunk.length > 0
+      )
+    };
+  }
+
+  const [entry] = chunkEntries;
+  if (!entry) {
+    return null;
+  }
+
+  const paragraphSplit = splitEntryByParagraphGroups(entry);
+  if (paragraphSplit) {
+    return {
+      strategy: "paragraph",
+      chunks: paragraphSplit.map((part) => [part])
+    };
+  }
+
+  const sentenceSplit = splitEntryBySentenceGroups(entry);
+  if (sentenceSplit) {
+    return {
+      strategy: "sentence",
+      chunks: sentenceSplit.map((part) => [part])
+    };
+  }
+
+  const charSplit = splitEntryByHardChars(entry);
+  if (charSplit) {
+    return {
+      strategy: "chars",
+      chunks: charSplit.map((part) => [part])
+    };
+  }
+
+  return null;
+}
+
 function buildSummaryEntries(turns: ConversationTurn[], options?: { chunkLongEntries?: boolean }) {
   return expandTurnsForSummaryCapture(turns)
     .filter((turn) => turn.role === "user" && !turn.skipped)
@@ -1146,14 +1365,13 @@ function buildSummaryEntries(turns: ConversationTurn[], options?: { chunkLongEnt
         ? splitSummaryEntryContent(content, CAPTURE_ENTRY_TARGET_CHARS)
         : [content];
 
-      return parts.map((part) => ({
-        entryId,
-        text: buildSummaryEntryText(turn, entryId, part),
-        sectionTitle: turn.sectionTitle,
-        stepId: turn.stepId,
-        stepTitle: turn.stepTitle,
-        promptLabel: turn.promptLabel
-      }));
+      return parts.map((part, partIndex) =>
+        createSummarySourceEntry(turn, entryId, part, {
+          internalEntryId: `${entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "entry"}-part-${partIndex + 1}`,
+          splitDepth: 0,
+          splitStrategy: "entry"
+        })
+      );
     });
 }
 
@@ -1171,13 +1389,14 @@ function buildSummaryEntryChunks(entries: SummarySourceEntry[], targetChars: num
   };
 
   for (const entry of entries) {
-    const nextLength = currentLength + (current.length > 0 ? 2 : 0) + entry.text.length;
+    const entryText = renderSummaryEntryText(entry);
+    const nextLength = currentLength + (current.length > 0 ? 2 : 0) + entryText.length;
     if (current.length > 0 && nextLength > targetChars) {
       flush();
     }
 
     current.push(entry);
-    currentLength += (current.length > 1 ? 2 : 0) + entry.text.length;
+    currentLength += (current.length > 1 ? 2 : 0) + entryText.length;
   }
 
   flush();
@@ -1428,21 +1647,22 @@ function statementLooksLikeContact(value: string) {
 }
 
 function normalizeCapture(input: unknown, entryMetadata = new Map<string, SummarySourceEntry>()) {
-  const candidate = input as Partial<StructuredCapture> | undefined;
+  const candidate = input as Partial<RawStructuredCapture> | undefined;
   const facts = Array.isArray(candidate?.facts) ? candidate.facts : [];
 
   return {
-      facts: facts
+    facts: facts
       .map((fact, index) => {
         const section = SUMMARY_SECTION_TITLES.find((title) => title === fact.section);
-        const factKind = STRUCTURED_FACT_KINDS.find((kind) => kind === (fact as { factKind?: string }).factKind);
+        const factKind = STRUCTURED_FACT_KINDS.find(
+          (kind) => kind === (fact as { factKind?: string }).factKind
+        );
         const statement = cleanCaptureStatement(String(fact.statement ?? ""));
         if (!section || !factKind || !statement) {
           return null;
         }
 
         const entryId = compactWhitespace(String(fact.entryId ?? "")) || `Entry ${index + 1}`;
-        const subcategory = compactWhitespace(String(fact.subcategory ?? "")) || "General";
         const routing = inferCaptureRouting(statement, section, factKind, entryMetadata.get(entryId));
         const conceptKeys = [...extractCoverageConcepts(statement)].sort();
         const factIdPrefix = entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -1452,7 +1672,6 @@ function normalizeCapture(input: unknown, entryMetadata = new Map<string, Summar
           entryId,
           section: routing.section,
           factKind: routing.factKind,
-          subcategory,
           statement,
           safetyRelevant: Boolean(fact.safetyRelevant),
           conceptKeys,
@@ -1506,14 +1725,10 @@ function dedupeCaptureFacts(facts: StructuredCaptureFact[]) {
       continue;
     }
 
-      deduped.set(key, {
-        ...existing,
-        entryId: existing.entryId || fact.entryId,
-        factKind: existing.factKind,
-        subcategory:
-        existing.subcategory === "General" && fact.subcategory !== "General"
-          ? fact.subcategory
-          : existing.subcategory,
+    deduped.set(key, {
+      ...existing,
+      entryId: existing.entryId || fact.entryId,
+      factKind: existing.factKind,
       safetyRelevant: existing.safetyRelevant || fact.safetyRelevant,
       conceptKeys: [...new Set([...existing.conceptKeys, ...fact.conceptKeys])].sort(),
       sourceEntryIds: [...new Set([...existing.sourceEntryIds, ...fact.sourceEntryIds])]
@@ -1739,32 +1954,27 @@ function formatStructuredCaptureForPrompt(capture: StructuredCapture) {
       return `[${title}]\n- ${NO_INFORMATION_PLACEHOLDER}`;
     }
 
-    const grouped = new Map<StructuredFactKind, Map<string, StructuredCaptureFact[]>>();
+    const grouped = new Map<StructuredFactKind, StructuredCaptureFact[]>();
 
     for (const fact of sectionFacts) {
-      const kindGroups = grouped.get(fact.factKind) ?? new Map<string, StructuredCaptureFact[]>();
-      const items = kindGroups.get(fact.subcategory) ?? [];
+      const items = grouped.get(fact.factKind) ?? [];
       items.push(fact);
-      kindGroups.set(fact.subcategory, items);
-      grouped.set(fact.factKind, kindGroups);
+      grouped.set(fact.factKind, items);
     }
 
     const lines = [`[${title}]`];
 
     for (const factKind of STRUCTURED_FACT_KINDS) {
-      const subcategories = grouped.get(factKind);
-      if (!subcategories) {
+      const factsForKind = grouped.get(factKind);
+      if (!factsForKind) {
         continue;
       }
 
       lines.push(`Fact kind: ${factKind}`);
-      for (const [subcategory, facts] of subcategories.entries()) {
-        lines.push(`Subcategory: ${subcategory}`);
-        for (const fact of facts) {
-          lines.push(
-            `- [${fact.factId}] ${fact.statement}${fact.safetyRelevant ? " [safety]" : ""} (${fact.sourceEntryIds.join(", ")})`
-          );
-        }
+      for (const fact of factsForKind) {
+        lines.push(
+          `- [${fact.factId}] ${fact.statement}${fact.safetyRelevant ? " [safety]" : ""} (${fact.sourceEntryIds.join(", ")})`
+        );
       }
     }
 
@@ -2258,12 +2468,14 @@ async function requestStructuredCompletion<T>({
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === "AbortError") {
       throw new SummaryModelRequestError(
-        "Summary generation timed out while waiting for the model."
+        "Summary generation timed out while waiting for the model.",
+        { kind: "timeout" }
       );
     }
 
     throw new SummaryModelRequestError(
-      "Summary generation could not reach the model provider."
+      "Summary generation could not reach the model provider.",
+      { kind: "transport" }
     );
   }
 
@@ -2292,7 +2504,10 @@ async function requestStructuredCompletion<T>({
       }
     }
 
-    throw new SummaryModelRequestError(message, response.status);
+    throw new SummaryModelRequestError(message, {
+      status: response.status,
+      kind: "provider"
+    });
   }
 
   const data = (await response.json()) as {
@@ -2306,13 +2521,18 @@ async function requestStructuredCompletion<T>({
   const message = choice?.message;
   const refusal = compactWhitespace(String(message?.refusal ?? ""));
   if (refusal) {
-    throw new SummaryModelRequestError(`Model refused structured summary generation: ${refusal}`);
+    throw new SummaryModelRequestError(`Model refused structured summary generation: ${refusal}`, {
+      kind: "refusal"
+    });
   }
 
   const content = extractChatCompletionText(message?.content);
   if (!content) {
     throw new SummaryModelRequestError(
-      "Summary generation returned an empty structured response."
+      "Summary generation returned an empty structured response.",
+      {
+        kind: choice?.finish_reason === "length" ? "truncation" : "empty"
+      }
     );
   }
 
@@ -2321,11 +2541,106 @@ async function requestStructuredCompletion<T>({
     return parsed;
   }
 
+  const truncated =
+    choice?.finish_reason === "length" || looksLikeTruncatedStructuredOutput(content);
+
   throw new SummaryModelRequestError(
     `Summary generation returned invalid structured JSON${
-      choice?.finish_reason === "length" ? " because the model output was truncated." : "."
-    } Raw model output: ${compactWhitespace(content).slice(0, 280)}`
+      truncated ? " because the model output was truncated." : "."
+    } Raw model output: ${compactWhitespace(content).slice(0, 280)}`,
+    {
+      kind: truncated ? "truncation" : "parse"
+    }
   );
+}
+
+function isRetryableCaptureError(error: unknown): error is SummaryModelRequestError {
+  return (
+    error instanceof SummaryModelRequestError &&
+    (error.kind === "truncation" || error.kind === "parse")
+  );
+}
+
+function chunkTextFromEntries(entries: SummarySourceEntry[]) {
+  return entries.map((entry) => renderSummaryEntryText(entry)).join("\n\n");
+}
+
+function chunkCharacterCount(entries: SummarySourceEntry[]) {
+  return chunkTextFromEntries(entries).length;
+}
+
+function formatCaptureRetryDiagnostic(
+  entries: SummarySourceEntry[],
+  depth: number,
+  reason: string,
+  strategy?: SummaryEntrySplitStrategy
+) {
+  return [
+    `[capture-retry]`,
+    `depth=${depth}`,
+    strategy ? `strategy=${strategy}` : "",
+    `reason=${reason}`,
+    `entries=${entries.length}`,
+    `chars=${chunkCharacterCount(entries)}`,
+    `entryIds=${[...new Set(entries.map((entry) => entry.entryId))].join(",")}`
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+type CaptureRequestFn = (chunkText: string) => Promise<RawStructuredCapture>;
+
+async function captureChunkWithRetry(
+  chunkEntries: SummarySourceEntry[],
+  requestCapture: CaptureRequestFn,
+  entryMetadata: Map<string, SummarySourceEntry>,
+  diagnostics: string[],
+  retryDepth = 0
+): Promise<StructuredCaptureFact[]> {
+  const chunk = chunkTextFromEntries(chunkEntries);
+
+  try {
+    const rawCapture = await requestCapture(chunk);
+    return normalizeCapture(rawCapture, entryMetadata).facts;
+  } catch (error) {
+    if (!isRetryableCaptureError(error)) {
+      throw error;
+    }
+
+    const nextSplit = splitCaptureEntriesForRetry(chunkEntries);
+    if (!nextSplit) {
+      const failureDiagnostics = [
+        ...error.diagnostics,
+        formatCaptureRetryDiagnostic(chunkEntries, retryDepth, error.kind)
+      ];
+      throw new SummaryModelRequestError(
+        `Summary capture was still truncated at the smallest retry unit. ${error.message}`,
+        {
+          status: error.status,
+          kind: error.kind,
+          diagnostics: failureDiagnostics
+        }
+      );
+    }
+
+    diagnostics.push(
+      formatCaptureRetryDiagnostic(chunkEntries, retryDepth, error.kind, nextSplit.strategy)
+    );
+
+    const nestedResults = await Promise.all(
+      nextSplit.chunks.map((nextChunk) =>
+        captureChunkWithRetry(
+          nextChunk,
+          requestCapture,
+          entryMetadata,
+          diagnostics,
+          retryDepth + 1
+        )
+      )
+    );
+
+    return nestedResults.flat();
+  }
 }
 
 async function generateSummaryOneStep(
@@ -2364,14 +2679,17 @@ async function captureSummaryFacts(
   turns: ConversationTurn[]
 ) {
   const entries = buildSummaryEntries(turns, { chunkLongEntries: true });
-  const entryMetadata = new Map(entries.map((entry) => [entry.entryId, entry] as const));
+  const entryMetadata = new Map<string, SummarySourceEntry>();
+  for (const entry of entries) {
+    if (!entryMetadata.has(entry.entryId)) {
+      entryMetadata.set(entry.entryId, entry);
+    }
+  }
   const captures: StructuredCaptureFact[] = [];
+  const diagnostics: string[] = [];
 
-  async function captureChunk(chunkEntries: SummarySourceEntry[]): Promise<StructuredCaptureFact[]> {
-    const chunk = chunkEntries.map((entry) => entry.text).join("\n\n");
-
-    try {
-      const rawCapture = await requestStructuredCompletion<StructuredCapture>({
+  const requestCapture = (chunk: string) =>
+    requestStructuredCompletion<RawStructuredCapture>({
       apiKey,
       model,
       schemaName: "caregiver_handoff_structured_capture",
@@ -2383,21 +2701,10 @@ async function captureSummaryFacts(
       maxCompletionTokens: 6000
     });
 
-      return normalizeCapture(rawCapture, entryMetadata).facts;
-    } catch (error) {
-      if (isStructuredJsonParseFailure(error) && chunkEntries.length > 1) {
-        const midpoint = Math.ceil(chunkEntries.length / 2);
-        const left = await captureChunk(chunkEntries.slice(0, midpoint));
-        const right = await captureChunk(chunkEntries.slice(midpoint));
-        return [...left, ...right];
-      }
-
-      throw error;
-    }
-  }
-
   for (const entryChunk of buildSummaryEntryChunks(entries, CAPTURE_PROMPT_TARGET_CHARS)) {
-    captures.push(...(await captureChunk(entryChunk)));
+    captures.push(
+      ...(await captureChunkWithRetry(entryChunk, requestCapture, entryMetadata, diagnostics))
+    );
   }
 
   return {
@@ -2479,8 +2786,16 @@ async function generateSummaryTwoStep(
 }
 
 export function buildSummarySource(turns: ConversationTurn[]) {
-  return buildSummaryEntries(turns).map((entry) => entry.text).join("\n\n");
+  return buildSummaryEntries(turns).map((entry) => renderSummaryEntryText(entry)).join("\n\n");
 }
+
+export const __summaryGenerationTestUtils = {
+  parseStructuredJson,
+  looksLikeTruncatedStructuredOutput,
+  splitCaptureEntriesForRetry,
+  createSummarySourceEntry,
+  captureChunkWithRetry
+};
 
 function finalizeGeneratedSummary(
   summary: StructuredSummary,
@@ -2555,7 +2870,9 @@ export async function generateCaregiverSummaryWithQa(
       throw error;
     }
 
-    throw new SummaryModelRequestError("Summary generation failed unexpectedly.");
+    throw new SummaryModelRequestError("Summary generation failed unexpectedly.", {
+      kind: "unexpected"
+    });
   }
 }
 

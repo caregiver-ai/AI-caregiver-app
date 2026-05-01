@@ -1,6 +1,9 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { generateCaregiverSummaryWithQa } from "@/lib/summary-generation";
+import {
+  SummaryModelRequestError,
+  generateCaregiverSummaryWithQa
+} from "@/lib/summary-generation";
 import { getSummaryFreshness } from "@/lib/summary-structured";
 import { summaryToPlainText } from "@/lib/summary";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
@@ -236,6 +239,15 @@ export async function POST(request: Request) {
       auditReport
     });
   } catch (error) {
+    if (error instanceof SummaryModelRequestError) {
+      console.error("[summary:regenerate] model request failed", {
+        message: error.message,
+        kind: error.kind,
+        status: error.status,
+        diagnostics: error.diagnostics
+      });
+    }
+
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Unable to regenerate the summary."

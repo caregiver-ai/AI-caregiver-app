@@ -5,7 +5,11 @@ import {
   normalizeEditableStructuredSummary
 } from "../lib/summary";
 import { finalizeSummaryWithQa } from "../lib/summary-audit";
-import { expandTurnsForSummaryCapture } from "../lib/summary-generation";
+import {
+  SummaryModelRequestError,
+  __summaryGenerationTestUtils,
+  expandTurnsForSummaryCapture
+} from "../lib/summary-generation";
 import { StructuredSummary } from "../lib/types";
 
 function emptySummary(): StructuredSummary {
@@ -467,16 +471,132 @@ function testSavedSummaryQaRepairsMedicationPlacement() {
   assert.match(sectionText(qaSummary, "Health & Safety"), /Abilify|Aripiprazole/i);
 }
 
-testAuthoritativePlacement();
-testHardTimeDedupes();
-testPreferenceCondensing();
-testNoInventedSupports();
-testRawInputParser();
-testAmPmFormatting();
-testStructuredOverview();
-testPreferredStructuredBlocksUseAuthoritativeCleanup();
-testQaReportWarnsForEditedSummaryWithoutRewritingCards();
-testSavedSummaryQaRebuildsOverviewAndWarns();
-testSavedSummaryQaRepairsMedicationPlacement();
+function testStructuredJsonRecoveryUtilities() {
+  const fenced = `\`\`\`json
+{"facts":[{"entryId":"Entry 1","section":"Communication","factKind":"communication_method","statement":"Gavin is non-speaking.","safetyRelevant":false}]}
+\`\`\``;
+  const parsed = __summaryGenerationTestUtils.parseStructuredJson<{
+    facts: Array<{ statement: string }>;
+  }>(fenced);
 
-console.log("summary pipeline tests passed");
+  assert.equal(parsed?.facts[0]?.statement, "Gavin is non-speaking.");
+  assert.equal(
+    __summaryGenerationTestUtils.looksLikeTruncatedStructuredOutput(
+      '{"facts":[{"entryId":"Entry 1","section":"Communication","factKind":"communication_method"'
+    ),
+    true
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.looksLikeTruncatedStructuredOutput('{"facts":[]}'),
+    false
+  );
+}
+
+async function testSingleEntryCaptureTruncationRetry() {
+  const entry = __summaryGenerationTestUtils.createSummarySourceEntry(
+    {
+      sectionTitle: "Communication",
+      stepId: "communication",
+      stepTitle: "Communication",
+      promptLabel: "How do they communicate?"
+    },
+    "Entry 1",
+    "Gavin is non-speaking. He uses AAC on an iPad. He presses help on his device.",
+    {
+      internalEntryId: "entry-1",
+      splitDepth: 0,
+      splitStrategy: "entry"
+    }
+  );
+  const entryMetadata = new Map([["Entry 1", entry]]);
+  const diagnostics: string[] = [];
+  const chunkRequests: string[] = [];
+  let firstAttempt = true;
+
+  const facts = await __summaryGenerationTestUtils.captureChunkWithRetry(
+    [entry],
+    async (chunk: string) => {
+      chunkRequests.push(chunk);
+
+      if (firstAttempt) {
+        firstAttempt = false;
+        throw new SummaryModelRequestError(
+          'Summary generation returned invalid structured JSON because the model output was truncated. Raw model output: {"facts":[{"entryId":"Entry 1","section":"Communication","factKind":"communication_method","statement":"Gavin is non-speaking."',
+          {
+            kind: "truncation"
+          }
+        );
+      }
+
+      const chunkFacts: Array<{
+        entryId: string;
+        section: "Communication";
+        factKind: "communication_method" | "communication_signal";
+        statement: string;
+        safetyRelevant: boolean;
+      }> = [];
+      if (/non-speaking/i.test(chunk)) {
+        chunkFacts.push({
+          entryId: "Entry 1",
+          section: "Communication",
+          factKind: "communication_method",
+          statement: "Gavin is non-speaking.",
+          safetyRelevant: false
+        });
+      }
+      if (/uses AAC/i.test(chunk)) {
+        chunkFacts.push({
+          entryId: "Entry 1",
+          section: "Communication",
+          factKind: "communication_method",
+          statement: "He uses AAC on an iPad.",
+          safetyRelevant: false
+        });
+      }
+      if (/presses help/i.test(chunk)) {
+        chunkFacts.push({
+          entryId: "Entry 1",
+          section: "Communication",
+          factKind: "communication_signal",
+          statement: "He presses help on his device.",
+          safetyRelevant: false
+        });
+      }
+
+      return { facts: chunkFacts };
+    },
+    entryMetadata,
+    diagnostics
+  );
+
+  assert.ok(chunkRequests.length >= 3);
+  assert.ok(
+    diagnostics.some((line) => /strategy=(paragraph|sentence|chars)/.test(line)),
+    diagnostics.join("\n")
+  );
+  assert.match(facts.map((fact) => fact.statement).join("\n"), /non-speaking/i);
+  assert.match(facts.map((fact) => fact.statement).join("\n"), /presses help/i);
+}
+
+async function main() {
+  testAuthoritativePlacement();
+  testHardTimeDedupes();
+  testPreferenceCondensing();
+  testNoInventedSupports();
+  testRawInputParser();
+  testAmPmFormatting();
+  testStructuredOverview();
+  testPreferredStructuredBlocksUseAuthoritativeCleanup();
+  testQaReportWarnsForEditedSummaryWithoutRewritingCards();
+  testSavedSummaryQaRebuildsOverviewAndWarns();
+  testSavedSummaryQaRepairsMedicationPlacement();
+  testStructuredJsonRecoveryUtilities();
+  await testSingleEntryCaptureTruncationRetry();
+
+  console.log("summary pipeline tests passed");
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
