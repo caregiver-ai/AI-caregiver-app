@@ -85,6 +85,8 @@ export interface StructuredSummary {
 }
 
 export type SummaryAuditStatus = "pass" | "warn";
+export type SummaryAuditSeverity = "hard" | "soft";
+export type SummaryAuditVisibility = "user" | "internal";
 
 export interface SummaryAuditIssue {
   code:
@@ -94,6 +96,9 @@ export interface SummaryAuditIssue {
     | "duplicate_item"
     | "awkward_item";
   message: string;
+  severity?: SummaryAuditSeverity;
+  visibility?: SummaryAuditVisibility;
+  userMessage?: string;
   factId?: string;
   expectedSection?: string;
   actualSection?: string;
@@ -108,9 +113,12 @@ export interface SummaryAuditSectionWarning {
 
 export interface SummaryAuditReport {
   status: SummaryAuditStatus;
+  userStatus: SummaryAuditStatus;
   issues: SummaryAuditIssue[];
+  userVisibleIssues: SummaryAuditIssue[];
   diagnostics: string[];
   sectionWarnings: SummaryAuditSectionWarning[];
+  userSectionWarnings: SummaryAuditSectionWarning[];
 }
 
 export interface SummaryArchive {

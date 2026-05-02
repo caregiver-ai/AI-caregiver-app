@@ -180,6 +180,8 @@ type CompletionCopy = {
   title: string;
   subtitle: string;
   generatedAtLabel: string;
+  auditWarningTitle: string;
+  auditWarningIntro: string;
   backToQuestionsButton: string;
   regenerateHint: string;
   regenerateButton: string;
@@ -728,6 +730,8 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     subtitle:
       "This view shows the final edited summary, allows a PDF download, and collects lightweight feedback.",
     generatedAtLabel: "Summary created",
+    auditWarningTitle: "Summary QA warnings",
+    auditWarningIntro: "The summary was saved, but a few important items still need review.",
     backToQuestionsButton: "Back to questions",
     regenerateHint: "If you remember more details later, go back to the questions, add them, and complete again to regenerate the summary.",
     regenerateButton: "Regenerate from saved answers",
@@ -763,6 +767,8 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     subtitle:
       "Aquí verá el resumen final editado, podrá descargarlo como PDF y dejar comentarios breves.",
     generatedAtLabel: "Resumen creado",
+    auditWarningTitle: "Advertencias de control de calidad",
+    auditWarningIntro: "El resumen se guardó, pero todavía hay algunos puntos importantes que conviene revisar.",
     backToQuestionsButton: "Volver a las preguntas",
     regenerateHint:
       "Si luego recuerda más detalles, vuelva a las preguntas, agréguelos y complete de nuevo para regenerar el resumen.",
@@ -799,6 +805,8 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     title: "摘要已保存",
     subtitle: "这里会显示最终编辑后的摘要，您也可以下载 PDF，并留下简短反馈。",
     generatedAtLabel: "摘要创建时间",
+    auditWarningTitle: "摘要质检提醒",
+    auditWarningIntro: "摘要已保存，但仍有少量重要内容建议再检查一遍。",
     backToQuestionsButton: "返回问题页",
     regenerateHint: "如果之后想起更多细节，可以返回问题页补充内容，然后再次完成以重新生成摘要。",
     regenerateButton: "根据已保存回答重新生成",

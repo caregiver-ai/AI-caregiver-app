@@ -1,11 +1,14 @@
 import {
   PREFERRED_SUMMARY_SECTION_ORDER,
   buildFallbackSummary,
-  inferAuthoritativeSectionTitle,
   normalizeAuthoritativeStructuredSummary,
   normalizeGeneratedSummaryWithOptions
 } from "./summary";
-import { finalizeSummaryWithQa } from "./summary-audit";
+import {
+  collectRepairHintsFromAuditReport,
+  finalizeSummaryWithQa,
+  normalizeSummaryAuditReport
+} from "./summary-audit";
 import {
   SUMMARY_LAYOUT_VERSION,
   SUMMARY_PIPELINE_VERSION,
@@ -23,8 +26,9 @@ const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_SUMMARY_MODEL = "gpt-5.4";
 const DEFAULT_OPENAI_TIMEOUT_MS = 75_000;
-const CAPTURE_ENTRY_TARGET_CHARS = 1_100;
-const CAPTURE_PROMPT_TARGET_CHARS = 2_800;
+const CAPTURE_ENTRY_TARGET_CHARS = 800;
+const HEALTH_AND_SAFETY_TITLE = "Health & Safety";
+const WHO_TO_CONTACT_TITLE = "Who to contact (and when)";
 
 const SUMMARY_SECTION_TITLES = [...PREFERRED_SUMMARY_SECTION_ORDER];
 
@@ -50,7 +54,7 @@ type SummaryModelErrorKind =
   | "truncation"
   | "unexpected";
 
-type SummaryEntrySplitStrategy = "entry" | "paragraph" | "sentence" | "chars";
+type SummaryEntrySplitStrategy = "entry" | "paragraph" | "line" | "sentence" | "chars";
 
 type RawStructuredCaptureFact = {
   entryId: string;
@@ -110,6 +114,11 @@ type FactAuditStatus = {
   status: "covered" | "leaked" | "missing" | "duplicated";
   actualSection?: SummarySectionTitle;
   matchedBullet?: string;
+};
+
+type AuditedSummaryCandidate = {
+  summary: StructuredSummary;
+  report: SummaryAuditReport;
 };
 
 export class SummaryQualityError extends Error {
@@ -184,6 +193,9 @@ type GeneratedSummarySectionField = {
 };
 
 export type SummaryGenerationMode = "one-step" | "two-step";
+type SummaryGenerationOptions = {
+  repairHints?: string[];
+};
 
 const GENERATED_SUMMARY_SECTION_FIELDS: GeneratedSummarySectionField[] = [
   { key: "communication", title: "Communication" },
@@ -869,9 +881,13 @@ Output rules:
 - Keep medications, equipment, contacts, and health conditions as separate bullets.
 - In What helps the day go well, collapse preferred activities into 1-2 concise bullets. Do not repeat the same preference in separate "likes" or "enjoys" bullets.
 - In What helps the day go well, do not produce long runs of one-item preference bullets like "He likes X."
+- In What helps the day go well, if a preferred activity helps regulation or keeps the day steady, phrase it as a support statement such as "Walks and car rides help him regulate," not just "He enjoys walks and car rides."
+- If many favorite activities are listed, collapse them into broad categories instead of an exhaustive inventory. Prefer one concise bullet over a long comma-separated list.
+- Avoid additive filler such as "He also enjoys" at the start of bullets.
 - In Communication, do not repeat the same cue twice in different wording.
 - In Signs they need help, keep only one phrasing per symptom (for example, keep either "Not eating can mean illness" or "Not eating is a sign", not both).
 - In What can upset or overwhelm them, collapse repeated transition or stop-activity triggers into one bullet.
+- In What can upset or overwhelm them, prefer direct trigger wording such as "Crowded settings or too many people can feel overwhelming."
 - In What helps when they are having a hard time, collapse repeated troubleshooting steps into one clean caregiver action bullet.
 - overview must be a short 1-2 sentence summary of the most important themes.
 - If possible, the overview should briefly state how the person communicates and the most important safety or supervision risks.
@@ -1138,6 +1154,33 @@ function splitSummaryEntryContent(content: string, maxChars: number) {
       return;
     }
 
+    const lines = piece
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length > 1) {
+      let lineChunk = "";
+
+      for (const line of lines) {
+        const lineSeparator = lineChunk ? "\n" : "";
+        if ((lineChunk + lineSeparator + line).length <= maxChars) {
+          lineChunk = `${lineChunk}${lineSeparator}${line}`;
+          continue;
+        }
+
+        if (lineChunk) {
+          chunks.push(lineChunk.trim());
+        }
+        lineChunk = line;
+      }
+
+      if (lineChunk.trim()) {
+        current = lineChunk.trim();
+      }
+      return;
+    }
+
     const sentences = piece
       .split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/)
       .map((sentence) => sentence.trim())
@@ -1250,6 +1293,25 @@ function splitEntryByParagraphGroups(entry: SummarySourceEntry) {
   );
 }
 
+function splitEntryByLineGroups(entry: SummarySourceEntry) {
+  const lines = entry.content
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const groups = splitPiecesIntoBalancedGroups(lines, "\n");
+  if (!groups) {
+    return null;
+  }
+
+  return groups.map((content, index) =>
+    createSummarySourceEntry(entry, entry.entryId, content, {
+      internalEntryId: `${entry.internalEntryId}.l${index + 1}`,
+      splitDepth: entry.splitDepth + 1,
+      splitStrategy: "line"
+    })
+  );
+}
+
 function splitEntryBySentenceGroups(entry: SummarySourceEntry) {
   const sentences = entry.content
     .split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/)
@@ -1336,6 +1398,14 @@ function splitCaptureEntriesForRetry(chunkEntries: SummarySourceEntry[]): Captur
     };
   }
 
+  const lineSplit = splitEntryByLineGroups(entry);
+  if (lineSplit) {
+    return {
+      strategy: "line",
+      chunks: lineSplit.map((part) => [part])
+    };
+  }
+
   const sentenceSplit = splitEntryBySentenceGroups(entry);
   if (sentenceSplit) {
     return {
@@ -1373,34 +1443,6 @@ function buildSummaryEntries(turns: ConversationTurn[], options?: { chunkLongEnt
         })
       );
     });
-}
-
-function buildSummaryEntryChunks(entries: SummarySourceEntry[], targetChars: number) {
-  const chunks: SummarySourceEntry[][] = [];
-  let current: SummarySourceEntry[] = [];
-  let currentLength = 0;
-
-  const flush = () => {
-    if (current.length > 0) {
-      chunks.push(current);
-      current = [];
-      currentLength = 0;
-    }
-  };
-
-  for (const entry of entries) {
-    const entryText = renderSummaryEntryText(entry);
-    const nextLength = currentLength + (current.length > 0 ? 2 : 0) + entryText.length;
-    if (current.length > 0 && nextLength > targetChars) {
-      flush();
-    }
-
-    current.push(entry);
-    currentLength += (current.length > 1 ? 2 : 0) + entryText.length;
-  }
-
-  flush();
-  return chunks;
 }
 
 function normalizePromptKey(value?: string) {
@@ -2213,36 +2255,102 @@ function summaryItemsBySection(
   );
 }
 
-function collectDuplicateIssues(summary: StructuredSummary) {
-  const issues: SummaryAuditIssue[] = [];
+function factNeedsUserVisibleWarning(fact: StructuredCaptureFact) {
+  return (
+    fact.safetyRelevant ||
+    fact.factKind === "medication" ||
+    fact.factKind === "contact" ||
+    fact.section === HEALTH_AND_SAFETY_TITLE ||
+    fact.section === WHO_TO_CONTACT_TITLE
+  );
+}
 
-  for (const section of summary.sections) {
-    const title = SUMMARY_SECTION_TITLES.find((candidate) => candidate === section.title);
-    if (!title) {
-      continue;
-    }
-
-    for (let index = 0; index < section.items.length; index += 1) {
-      const item = section.items[index];
-      for (let otherIndex = index + 1; otherIndex < section.items.length; otherIndex += 1) {
-        const otherItem = section.items[otherIndex];
-        if (
-          statementLooksCovered(item, [otherItem]) ||
-          statementLooksCovered(otherItem, [item])
-        ) {
-          issues.push({
-            code: "duplicate_item",
-            message: `${title} contains duplicate or overlapping bullets that should be collapsed.`,
-            expectedSection: title,
-            item
-          });
-          break;
-        }
-      }
-    }
+function buildCaptureIssueUserMessage(
+  fact: StructuredCaptureFact,
+  code: SummaryAuditIssue["code"]
+) {
+  if (fact.factKind === "contact" || fact.section === WHO_TO_CONTACT_TITLE) {
+    return code === "missing_coverage"
+      ? "A contact detail may be missing from the summary."
+      : "A contact detail may be in the wrong section and should be reviewed.";
   }
 
-  return issues;
+  if (fact.factKind === "medication") {
+    return code === "missing_coverage"
+      ? "A medication detail may be missing from the summary."
+      : "A medication detail may be in the wrong section and should be reviewed.";
+  }
+
+  if (
+    fact.section === HEALTH_AND_SAFETY_TITLE ||
+    fact.factKind === "condition" ||
+    fact.factKind === "equipment" ||
+    fact.factKind === "safety_risk"
+  ) {
+    return code === "missing_coverage"
+      ? "A health or safety detail may be missing from the summary."
+      : "A health or safety detail may be in the wrong section and should be reviewed.";
+  }
+
+  if (fact.safetyRelevant) {
+    return code === "missing_coverage"
+      ? "An important safety-related detail may be missing from the summary."
+      : "An important safety-related detail may be in the wrong section and should be reviewed.";
+  }
+
+  return undefined;
+}
+
+function createCaptureAuditIssue(
+  fact: StructuredCaptureFact,
+  code: "missing_coverage" | "section_leakage",
+  options: {
+    message: string;
+    actualSection?: SummarySectionTitle;
+  }
+): SummaryAuditIssue {
+  const visibility = factNeedsUserVisibleWarning(fact) ? "user" : "internal";
+
+  return {
+    code,
+    message: options.message,
+    factId: fact.factId,
+    expectedSection: fact.section,
+    actualSection: options.actualSection,
+    severity: visibility === "user" ? "hard" : "soft",
+    visibility,
+    userMessage:
+      visibility === "user" ? buildCaptureIssueUserMessage(fact, code) : undefined
+  };
+}
+
+function countIssuesBySeverity(report: SummaryAuditReport, severity: "hard" | "soft") {
+  return report.issues.filter((issue) => issue.severity === severity).length;
+}
+
+function auditIssueSummaryLength(report: SummaryAuditReport) {
+  return [...new Set(report.issues.map((issue) => issue.message))].join(" | ").length;
+}
+
+function choosePreferredCandidate(
+  left: AuditedSummaryCandidate,
+  right: AuditedSummaryCandidate
+) {
+  const leftHardCount = countIssuesBySeverity(left.report, "hard");
+  const rightHardCount = countIssuesBySeverity(right.report, "hard");
+  if (leftHardCount !== rightHardCount) {
+    return leftHardCount < rightHardCount ? left : right;
+  }
+
+  const leftSoftCount = countIssuesBySeverity(left.report, "soft");
+  const rightSoftCount = countIssuesBySeverity(right.report, "soft");
+  if (leftSoftCount !== rightSoftCount) {
+    return leftSoftCount < rightSoftCount ? left : right;
+  }
+
+  return auditIssueSummaryLength(left.report) <= auditIssueSummaryLength(right.report)
+    ? left
+    : right;
 }
 
 function auditSummaryAgainstCapture(summary: StructuredSummary, capture: StructuredCapture) {
@@ -2266,53 +2374,48 @@ function auditSummaryAgainstCapture(summary: StructuredSummary, capture: Structu
     });
 
     if (matchedElsewhere) {
-      issues.push({
-        code: "section_leakage",
-        message: `${fact.factId} is only represented in ${matchedElsewhere} but belongs in ${fact.section}.`,
-        factId: fact.factId,
-        expectedSection: fact.section,
-        actualSection: matchedElsewhere
-      });
+      issues.push(
+        createCaptureAuditIssue(fact, "section_leakage", {
+          message: `${fact.factId} is only represented in ${matchedElsewhere} but belongs in ${fact.section}.`,
+          actualSection: matchedElsewhere
+        })
+      );
       continue;
     }
 
-    issues.push({
-      code: "missing_coverage",
-      message: `${fact.factId} is missing from ${fact.section}: ${fact.statement}`,
-      factId: fact.factId,
-      expectedSection: fact.section
-    });
+    issues.push(
+      createCaptureAuditIssue(fact, "missing_coverage", {
+        message: `${fact.factId} is missing from ${fact.section}: ${fact.statement}`
+      })
+    );
   }
 
-  for (const section of summary.sections) {
-    const title = SUMMARY_SECTION_TITLES.find((candidate) => candidate === section.title);
-    if (!title) {
-      continue;
-    }
+  return issues;
+}
 
-    for (const item of section.items) {
-      if (normalizeCoverageText(item) === normalizeCoverageText(NO_INFORMATION_PLACEHOLDER)) {
+function mergeRepairHints(...hintGroups: string[][]) {
+  const merged: string[] = [];
+  const seen = new Set<string>();
+
+  for (const group of hintGroups) {
+    for (const rawHint of group) {
+      const hint = compactWhitespace(String(rawHint ?? ""));
+      const key = hint.toLowerCase();
+
+      if (!hint || seen.has(key)) {
         continue;
       }
 
-      const authoritativeTitle = inferAuthoritativeSectionTitle(item, title);
-      if (authoritativeTitle !== title) {
-        issues.push({
-          code: "wrong_section",
-          message: `A bullet in ${title} belongs in ${authoritativeTitle}: ${item}`,
-          expectedSection: authoritativeTitle,
-          actualSection: title,
-          item
-        });
+      seen.add(key);
+      merged.push(hint);
+
+      if (merged.length >= 8) {
+        return merged;
       }
     }
   }
 
-  return [...issues, ...collectDuplicateIssues(summary)];
-}
-
-function summarizeAuditIssues(issues: SummaryAuditIssue[]) {
-  return [...new Set(issues.map((issue) => issue.message))].slice(0, 8);
+  return merged;
 }
 
 function auditAndFinalizeSummary(
@@ -2323,12 +2426,13 @@ function auditAndFinalizeSummary(
   const composed = composeSummaryFromCapture(summary, capture, nameHint);
   const clusters = buildFactClusters(capture);
   const captureIssues = auditSummaryAgainstCapture(composed, capture);
-  const { summary: normalized, report } = finalizeSummaryWithQa(composed, {
+  const { summary: normalized, report: rawReport } = finalizeSummaryWithQa(composed, {
     source: "generated",
     nameHint,
     issues: captureIssues,
     diagnostics: []
   });
+  const report = normalizeSummaryAuditReport(rawReport);
   const sectionItems = new Map(
     normalized.sections.map((section) => [
       section.title as SummarySectionTitle,
@@ -2398,10 +2502,10 @@ function auditAndFinalizeSummary(
 
   return {
     summary: normalized,
-    report: {
+    report: normalizeSummaryAuditReport({
       ...report,
       diagnostics: [...report.diagnostics, ...buildAuditDiagnostics(statuses)]
-    }
+    })
   };
 }
 
@@ -2701,9 +2805,9 @@ async function captureSummaryFacts(
       maxCompletionTokens: 6000
     });
 
-  for (const entryChunk of buildSummaryEntryChunks(entries, CAPTURE_PROMPT_TARGET_CHARS)) {
+  for (const entry of entries) {
     captures.push(
-      ...(await captureChunkWithRetry(entryChunk, requestCapture, entryMetadata, diagnostics))
+      ...(await captureChunkWithRetry([entry], requestCapture, entryMetadata, diagnostics))
     );
   }
 
@@ -2735,7 +2839,7 @@ async function rewriteStructuredCapture(
     userPrompt: `${summarySchemaDescription}\n\n${stepTwoRewriteRules}\n\n${buildTitleInstruction(
       nameHint
     )}\n\nStructured capture:\n${groupFactsForRewritePrompt(capture)}${repairPrompt}`,
-    temperature: 0.1,
+    temperature: 0,
     maxCompletionTokens: 5000
   });
 
@@ -2753,14 +2857,22 @@ async function generateSummaryTwoStep(
   apiKey: string,
   model: string,
   turns: ConversationTurn[],
-  nameHint?: string
+  nameHint?: string,
+  repairHints: string[] = []
 ) {
   const capture = await captureSummaryFacts(apiKey, model, turns);
   if (capture.facts.length === 0) {
     return null;
   }
 
-  const rewrittenSummary = await rewriteStructuredCapture(apiKey, model, capture, nameHint);
+  const initialRepairHints = mergeRepairHints(repairHints);
+  const rewrittenSummary = await rewriteStructuredCapture(
+    apiKey,
+    model,
+    capture,
+    nameHint,
+    initialRepairHints
+  );
   if (!rewrittenSummary) {
     return null;
   }
@@ -2769,20 +2881,46 @@ async function generateSummaryTwoStep(
   if (firstPass.report.issues.length === 0) {
     return firstPass;
   }
+  const candidates: AuditedSummaryCandidate[] = [firstPass];
 
-  const repairedSummary = await rewriteStructuredCapture(
-    apiKey,
-    model,
-    capture,
-    nameHint,
-    summarizeAuditIssues(firstPass.report.issues)
+  const softRepairHints = mergeRepairHints(
+    collectRepairHintsFromAuditReport(firstPass.report, "soft")
   );
 
-  if (!repairedSummary) {
-    return firstPass;
+  if (softRepairHints.length > 0) {
+    const softRepairedSummary = await rewriteStructuredCapture(
+      apiKey,
+      model,
+      capture,
+      nameHint,
+      softRepairHints
+    );
+
+    if (softRepairedSummary) {
+      candidates.push(auditAndFinalizeSummary(softRepairedSummary, capture, nameHint));
+    }
   }
 
-  return auditAndFinalizeSummary(repairedSummary, capture, nameHint);
+  const bestAfterSoftPass = candidates.reduce(choosePreferredCandidate);
+  const hardRepairHints = mergeRepairHints(
+    collectRepairHintsFromAuditReport(bestAfterSoftPass.report, "hard")
+  );
+
+  if (hardRepairHints.length > 0) {
+    const hardRepairedSummary = await rewriteStructuredCapture(
+      apiKey,
+      model,
+      capture,
+      nameHint,
+      hardRepairHints
+    );
+
+    if (hardRepairedSummary) {
+      candidates.push(auditAndFinalizeSummary(hardRepairedSummary, capture, nameHint));
+    }
+  }
+
+  return candidates.reduce(choosePreferredCandidate);
 }
 
 export function buildSummarySource(turns: ConversationTurn[]) {
@@ -2806,7 +2944,7 @@ function finalizeGeneratedSummary(
   const finalized = existingReport
     ? {
         summary,
-        report: existingReport
+        report: normalizeSummaryAuditReport(existingReport)
       }
     : finalizeSummaryWithQa(summary, {
         source: "generated",
@@ -2829,7 +2967,8 @@ function finalizeGeneratedSummary(
 export async function generateCaregiverSummaryWithQa(
   turns: ConversationTurn[],
   nameHint?: string,
-  mode: SummaryGenerationMode = "two-step"
+  mode: SummaryGenerationMode = "two-step",
+  options: SummaryGenerationOptions = {}
 ): Promise<{ summary: StructuredSummary; auditReport: SummaryAuditReport }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -2850,7 +2989,13 @@ export async function generateCaregiverSummaryWithQa(
       return finalizeGeneratedSummary(summary, turns, nameHint);
     }
 
-    const result = await generateSummaryTwoStep(apiKey, model, turns, nameHint);
+    const result = await generateSummaryTwoStep(
+      apiKey,
+      model,
+      turns,
+      nameHint,
+      options.repairHints ?? []
+    );
     if (!result) {
       throw new SummaryQualityError(
         "Summary generation returned no structured two-step summary.",

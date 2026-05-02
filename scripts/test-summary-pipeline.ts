@@ -4,13 +4,17 @@ import {
   normalizeAuthoritativeStructuredSummary,
   normalizeEditableStructuredSummary
 } from "../lib/summary";
-import { finalizeSummaryWithQa } from "../lib/summary-audit";
+import {
+  collectRepairHintsFromAuditReport,
+  finalizeSummaryWithQa,
+  summarizeSummaryAuditReport
+} from "../lib/summary-audit";
 import {
   SummaryModelRequestError,
   __summaryGenerationTestUtils,
   expandTurnsForSummaryCapture
 } from "../lib/summary-generation";
-import { StructuredSummary } from "../lib/types";
+import { StructuredSummary, SummaryAuditReport } from "../lib/types";
 
 function emptySummary(): StructuredSummary {
   return {
@@ -471,6 +475,149 @@ function testSavedSummaryQaRepairsMedicationPlacement() {
   assert.match(sectionText(qaSummary, "Health & Safety"), /Abilify|Aripiprazole/i);
 }
 
+function testSavedSummaryQaAllowsConciseSupportAndTriggerBullets() {
+  const summary = emptySummary();
+  summary.sections = summary.sections.map((section) =>
+    section.title === "What helps the day go well"
+      ? {
+          ...section,
+          items: ["He enjoys walks and car rides."]
+        }
+      : section.title === "What can upset or overwhelm them"
+        ? {
+            ...section,
+            items: ["Too many people can feel overwhelming."]
+          }
+        : section
+  );
+
+  const { report } = finalizeSummaryWithQa(summary, { source: "saved" });
+
+  assert.doesNotMatch(
+    report.issues.map((issue) => issue.message).join("\n"),
+    /walks and car rides|Too many people can feel overwhelming/i
+  );
+}
+
+function testSavedSummaryQaStillWarnsOnLongPreferenceInventory() {
+  const summary = emptySummary();
+  summary.sections = summary.sections.map((section) =>
+    section.title === "What helps the day go well"
+      ? {
+          ...section,
+          items: [
+            "He also enjoys books, animals, farms, dinosaurs, cars, trucks, YouTube, drums, guitar, piano, sensory toys, and sweets."
+          ]
+        }
+      : section
+  );
+
+  const { report } = finalizeSummaryWithQa(summary, { source: "saved" });
+
+  assert.match(
+    report.issues.map((issue) => issue.message).join("\n"),
+    /low-signal or awkward bullet/i
+  );
+  assert.equal(report.userStatus, "pass");
+  assert.equal(report.userVisibleIssues.length, 0);
+}
+
+function testAuditClassificationAndUserFiltering() {
+  const summary = emptySummary();
+  const report = finalizeSummaryWithQa(summary, {
+    source: "saved",
+    issues: [
+      {
+        code: "missing_coverage",
+        message: "entry-1-fact-1 is missing from Health & Safety: Keep meds locked.",
+        factId: "entry-1-fact-1",
+        expectedSection: "Health & Safety"
+      },
+      {
+        code: "missing_coverage",
+        message: "entry-1-fact-2 is missing from Communication: He gets close for attention.",
+        factId: "entry-1-fact-2",
+        expectedSection: "Communication"
+      },
+      {
+        code: "awkward_item",
+        message: "What helps the day go well contains a low-signal or awkward bullet: He also enjoys books, animals, and sweets.",
+        sectionTitle: "What helps the day go well",
+        item: "He also enjoys books, animals, and sweets."
+      }
+    ]
+  }).report;
+
+  const healthIssue = report.issues.find((issue) => issue.factId === "entry-1-fact-1");
+  const communicationIssue = report.issues.find((issue) => issue.factId === "entry-1-fact-2");
+  const awkwardIssue = report.issues.find((issue) => issue.code === "awkward_item");
+
+  assert.equal(report.status, "warn");
+  assert.equal(report.userStatus, "warn");
+  assert.equal(report.userVisibleIssues.length, 1);
+  assert.equal(healthIssue?.severity, "hard");
+  assert.equal(healthIssue?.visibility, "user");
+  assert.ok(healthIssue?.userMessage);
+  assert.doesNotMatch(healthIssue?.userMessage ?? "", /entry-1-fact-1/i);
+  assert.equal(communicationIssue?.severity, "soft");
+  assert.equal(communicationIssue?.visibility, "internal");
+  assert.equal(awkwardIssue?.severity, "soft");
+  assert.equal(awkwardIssue?.visibility, "internal");
+  assert.doesNotMatch(
+    summarizeSummaryAuditReport(report).join("\n"),
+    /entry-1-fact-2|books, animals, and sweets/i
+  );
+}
+
+function testRepairHintSelectionSkipsSoftCoverageNoise() {
+  const report: SummaryAuditReport = {
+    status: "warn",
+    userStatus: "warn",
+    issues: [
+      {
+        code: "missing_coverage",
+        message: "entry-1-fact-1 is missing from Communication: He gets close for attention.",
+        factId: "entry-1-fact-1",
+        expectedSection: "Communication",
+        severity: "soft",
+        visibility: "internal"
+      },
+      {
+        code: "awkward_item",
+        message: "What helps the day go well contains a low-signal or awkward bullet: He also enjoys books, animals, and sweets.",
+        sectionTitle: "What helps the day go well",
+        item: "He also enjoys books, animals, and sweets.",
+        severity: "soft",
+        visibility: "internal"
+      },
+      {
+        code: "missing_coverage",
+        message: "entry-1-fact-3 is missing from Health & Safety: Keep medications locked.",
+        factId: "entry-1-fact-3",
+        expectedSection: "Health & Safety",
+        severity: "hard",
+        visibility: "user",
+        userMessage: "A medication detail may be missing from the summary."
+      }
+    ],
+    userVisibleIssues: [],
+    diagnostics: [],
+    sectionWarnings: [],
+    userSectionWarnings: []
+  };
+
+  assert.deepEqual(collectRepairHintsFromAuditReport(report, "soft"), [
+    "What helps the day go well contains a low-signal or awkward bullet: He also enjoys books, animals, and sweets."
+  ]);
+  assert.deepEqual(collectRepairHintsFromAuditReport(report, "hard"), [
+    "entry-1-fact-3 is missing from Health & Safety: Keep medications locked."
+  ]);
+  assert.deepEqual(collectRepairHintsFromAuditReport(report, "all"), [
+    "What helps the day go well contains a low-signal or awkward bullet: He also enjoys books, animals, and sweets.",
+    "entry-1-fact-3 is missing from Health & Safety: Keep medications locked."
+  ]);
+}
+
 function testStructuredJsonRecoveryUtilities() {
   const fenced = `\`\`\`json
 {"facts":[{"entryId":"Entry 1","section":"Communication","factKind":"communication_method","statement":"Gavin is non-speaking.","safetyRelevant":false}]}
@@ -489,6 +636,35 @@ function testStructuredJsonRecoveryUtilities() {
   assert.equal(
     __summaryGenerationTestUtils.looksLikeTruncatedStructuredOutput('{"facts":[]}'),
     false
+  );
+}
+
+function testCaptureRetryPrefersLineSplitForListStyleEntries() {
+  const entry = __summaryGenerationTestUtils.createSummarySourceEntry(
+    {
+      sectionTitle: "Daily Needs & Routines",
+      stepId: "daily_schedule",
+      stepTitle: "Daily Schedule",
+      promptLabel: "What routines matter most?"
+    },
+    "Entry 1",
+    "Bathroom every 2 hours\nSnack before school\nWater bottle in van",
+    {
+      internalEntryId: "entry-1",
+      splitDepth: 0,
+      splitStrategy: "entry"
+    }
+  );
+
+  const split = __summaryGenerationTestUtils.splitCaptureEntriesForRetry([entry]);
+
+  assert.equal(split?.strategy, "line");
+  assert.equal(split?.chunks.length, 2);
+  assert.equal(
+    split?.chunks
+      .map((chunk) => chunk[0]?.content ?? "")
+      .join("\n"),
+    "Bathroom every 2 hours\nSnack before school\nWater bottle in van"
   );
 }
 
@@ -571,7 +747,7 @@ async function testSingleEntryCaptureTruncationRetry() {
 
   assert.ok(chunkRequests.length >= 3);
   assert.ok(
-    diagnostics.some((line) => /strategy=(paragraph|sentence|chars)/.test(line)),
+    diagnostics.some((line) => /strategy=(paragraph|line|sentence|chars)/.test(line)),
     diagnostics.join("\n")
   );
   assert.match(facts.map((fact) => fact.statement).join("\n"), /non-speaking/i);
@@ -590,7 +766,12 @@ async function main() {
   testQaReportWarnsForEditedSummaryWithoutRewritingCards();
   testSavedSummaryQaRebuildsOverviewAndWarns();
   testSavedSummaryQaRepairsMedicationPlacement();
+  testSavedSummaryQaAllowsConciseSupportAndTriggerBullets();
+  testSavedSummaryQaStillWarnsOnLongPreferenceInventory();
+  testAuditClassificationAndUserFiltering();
+  testRepairHintSelectionSkipsSoftCoverageNoise();
   testStructuredJsonRecoveryUtilities();
+  testCaptureRetryPrefersLineSplitForListStyleEntries();
   await testSingleEntryCaptureTruncationRetry();
 
   console.log("summary pipeline tests passed");

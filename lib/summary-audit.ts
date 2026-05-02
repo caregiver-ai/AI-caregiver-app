@@ -4,9 +4,18 @@ import {
   normalizeAuthoritativeStructuredSummary,
   normalizeEditableStructuredSummary
 } from "@/lib/summary";
-import { StructuredSummary, SummaryAuditIssue, SummaryAuditReport } from "@/lib/types";
+import {
+  StructuredSummary,
+  SummaryAuditIssue,
+  SummaryAuditReport,
+  SummaryAuditSectionWarning,
+  SummaryAuditSeverity,
+  SummaryAuditVisibility
+} from "@/lib/types";
 
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
+const HEALTH_AND_SAFETY_TITLE = "Health & Safety";
+const WHO_TO_CONTACT_TITLE = "Who to contact (and when)";
 
 export type SummaryAuditSource = "generated" | "edited" | "saved";
 
@@ -15,6 +24,12 @@ type SummaryAuditOptions = {
   nameHint?: string;
   issues?: SummaryAuditIssue[];
   diagnostics?: string[];
+};
+
+type SummaryAuditIssueClassification = {
+  severity: SummaryAuditSeverity;
+  visibility: SummaryAuditVisibility;
+  userMessage?: string;
 };
 
 function normalizeAuditText(value: string) {
@@ -69,8 +84,37 @@ function isMeaningfulItem(item: string) {
   return normalizeAuditText(item) !== normalizeAuditText(NO_INFORMATION_PLACEHOLDER);
 }
 
+function usesSupportLanguage(item: string) {
+  return /\b(help|helps|support|supports|routine|visual|timer|schedule|food|quiet|low-light|low light|prevent|structured|regulat|calm|sooth|settle|engag)\b/i.test(
+    item
+  );
+}
+
+function isShortRegulationSupport(item: string, sectionTitle: string) {
+  return (
+    sectionTitle === "What helps the day go well" &&
+    /\b(walks?|car rides?|car ride)\b/i.test(item) &&
+    /^(?:he|she|they|gavin)\s+(?:enjoys?|likes?)\b/i.test(item) &&
+    !(item.match(/,/g) ?? []).length
+  );
+}
+
+function isLongPreferenceInventory(item: string, sectionTitle: string) {
+  if (
+    sectionTitle !== "What helps the day go well" ||
+    !/^(?:mom|he|she|they|gavin)\b/i.test(item)
+  ) {
+    return false;
+  }
+
+  const commaCount = (item.match(/,/g) ?? []).length;
+  const andCount = (item.match(/\band\b/gi) ?? []).length;
+
+  return commaCount >= 3 || (commaCount >= 1 && andCount >= 2) || item.length >= 140;
+}
+
 function isAwkwardLowSignalItem(item: string, sectionTitle: string) {
-  if (/^(?:also|and|but|too)\b/i.test(item)) {
+  if (/^(?:also|and|but)\b/i.test(item)) {
     return true;
   }
 
@@ -87,12 +131,14 @@ function isAwkwardLowSignalItem(item: string, sectionTitle: string) {
     return true;
   }
 
+  if (isShortRegulationSupport(item, sectionTitle)) {
+    return false;
+  }
+
   if (
     sectionTitle === "What helps the day go well" &&
-    !/\b(help|supports?|routine|visual|timer|schedule|food|quiet|low-light|low light|prevent|structured|regulat)\b/i.test(
-      item
-    ) &&
-    /^(?:mom|he|she|they|gavin)\b/i.test(item)
+    !usesSupportLanguage(item) &&
+    isLongPreferenceInventory(item, sectionTitle)
   ) {
     return true;
   }
@@ -107,6 +153,9 @@ function dedupeIssues(issues: SummaryAuditIssue[]) {
     const key = [
       issue.code,
       issue.message,
+      issue.severity ?? "",
+      issue.visibility ?? "",
+      issue.userMessage ?? "",
       issue.factId ?? "",
       issue.expectedSection ?? "",
       issue.actualSection ?? "",
@@ -123,9 +172,163 @@ function dedupeIssues(issues: SummaryAuditIssue[]) {
   });
 }
 
+function isHighStakesSection(sectionTitle?: string) {
+  return sectionTitle === HEALTH_AND_SAFETY_TITLE || sectionTitle === WHO_TO_CONTACT_TITLE;
+}
+
+function buildDefaultUserMessage(issue: SummaryAuditIssue) {
+  const relevantSection =
+    issue.expectedSection && isHighStakesSection(issue.expectedSection)
+      ? issue.expectedSection
+      : issue.actualSection && isHighStakesSection(issue.actualSection)
+        ? issue.actualSection
+        : issue.sectionTitle && isHighStakesSection(issue.sectionTitle)
+          ? issue.sectionTitle
+          : issue.expectedSection || issue.actualSection || issue.sectionTitle;
+
+  if (relevantSection === WHO_TO_CONTACT_TITLE) {
+    return issue.code === "missing_coverage"
+      ? "A contact detail may be missing from the summary."
+      : "A contact detail may be in the wrong section and should be reviewed.";
+  }
+
+  if (relevantSection === HEALTH_AND_SAFETY_TITLE) {
+    return issue.code === "missing_coverage"
+      ? "A health or safety detail may be missing from the summary."
+      : "A health or safety detail may be in the wrong section and should be reviewed.";
+  }
+
+  return "An important detail may need review before sharing.";
+}
+
+function classifyIssue(issue: SummaryAuditIssue): SummaryAuditIssueClassification {
+  if (issue.severity && issue.visibility) {
+    return {
+      severity: issue.severity,
+      visibility: issue.visibility,
+      userMessage:
+        issue.userMessage ??
+        (issue.visibility === "user" ? buildDefaultUserMessage(issue) : undefined)
+    };
+  }
+
+  if (issue.code === "awkward_item" || issue.code === "duplicate_item") {
+    return {
+      severity: "soft",
+      visibility: "internal"
+    };
+  }
+
+  if (
+    isHighStakesSection(issue.expectedSection) ||
+    isHighStakesSection(issue.actualSection) ||
+    isHighStakesSection(issue.sectionTitle)
+  ) {
+    return {
+      severity: "hard",
+      visibility: "user",
+      userMessage: issue.userMessage ?? buildDefaultUserMessage(issue)
+    };
+  }
+
+  return {
+    severity: "soft",
+    visibility: "internal"
+  };
+}
+
+function normalizeIssue(issue: SummaryAuditIssue): SummaryAuditIssue {
+  const classification = classifyIssue(issue);
+
+  return {
+    ...issue,
+    severity: classification.severity,
+    visibility: classification.visibility,
+    userMessage: classification.userMessage
+  };
+}
+
+function buildSectionWarnings(
+  issues: SummaryAuditIssue[],
+  visibility?: SummaryAuditVisibility
+): SummaryAuditSectionWarning[] {
+  const sectionWarningCounts = new Map<string, number>();
+
+  for (const issue of issues) {
+    if (visibility && issue.visibility !== visibility) {
+      continue;
+    }
+
+    const sectionTitle = issue.actualSection ?? issue.sectionTitle ?? issue.expectedSection;
+    if (!sectionTitle) {
+      continue;
+    }
+
+    sectionWarningCounts.set(sectionTitle, (sectionWarningCounts.get(sectionTitle) ?? 0) + 1);
+  }
+
+  return [...sectionWarningCounts.entries()]
+    .sort((left, right) => {
+      const leftIndex = PREFERRED_SUMMARY_SECTION_ORDER.indexOf(left[0] as (typeof PREFERRED_SUMMARY_SECTION_ORDER)[number]);
+      const rightIndex = PREFERRED_SUMMARY_SECTION_ORDER.indexOf(right[0] as (typeof PREFERRED_SUMMARY_SECTION_ORDER)[number]);
+
+      if (leftIndex !== rightIndex) {
+        return leftIndex - rightIndex;
+      }
+
+      return left[0].localeCompare(right[0]);
+    })
+    .map(([sectionTitle, count]) => ({ sectionTitle, count }));
+}
+
+export function normalizeSummaryAuditReport(report: SummaryAuditReport): SummaryAuditReport {
+  const normalizedIssues = dedupeIssues((report.issues ?? []).map(normalizeIssue));
+  const userVisibleIssues = normalizedIssues.filter((issue) => issue.visibility === "user");
+
+  return {
+    status: normalizedIssues.length > 0 ? "warn" : "pass",
+    userStatus: userVisibleIssues.length > 0 ? "warn" : "pass",
+    issues: normalizedIssues,
+    userVisibleIssues,
+    diagnostics: report.diagnostics ?? [],
+    sectionWarnings: buildSectionWarnings(normalizedIssues),
+    userSectionWarnings: buildSectionWarnings(userVisibleIssues, "user")
+  };
+}
+
+export function collectRepairHintsFromAuditReport(
+  report: SummaryAuditReport,
+  scope: "all" | "soft" | "hard" = "all"
+) {
+  const normalized = normalizeSummaryAuditReport(report);
+  const issues = normalized.issues.filter((issue) => {
+    if (scope === "hard") {
+      return issue.severity === "hard";
+    }
+
+    if (scope === "soft") {
+      return (
+        issue.severity === "soft" &&
+        (issue.code === "awkward_item" || issue.code === "duplicate_item")
+      );
+    }
+
+    return (
+      issue.severity === "hard" ||
+      (issue.severity === "soft" &&
+        (issue.code === "awkward_item" || issue.code === "duplicate_item"))
+    );
+  });
+
+  return [...new Set(issues.map((issue) => issue.message.trim()).filter(Boolean))].slice(0, 8);
+}
+
 export function summarizeSummaryAuditReport(report: SummaryAuditReport) {
-  const issueMessages = [...new Set(report.issues.map((issue) => issue.message))].slice(0, 3);
-  const sectionMessages = report.sectionWarnings
+  const normalized = normalizeSummaryAuditReport(report);
+  const issueMessages = [...new Set(
+    normalized.userVisibleIssues.map((issue) => issue.userMessage ?? issue.message)
+  )].slice(0, 3);
+  const sectionMessages = normalized.userSectionWarnings
     .slice(0, 3)
     .map((warning) => `${warning.count} warning${warning.count === 1 ? "" : "s"} in ${warning.sectionTitle}.`);
 
@@ -152,7 +355,15 @@ export function finalizeSummaryWithQa(input: unknown, options: SummaryAuditOptio
           expectedSection: authoritativeTitle,
           actualSection: title,
           sectionTitle: title,
-          item
+          item,
+          ...(classifyIssue({
+            code: "wrong_section",
+            message: "",
+            expectedSection: authoritativeTitle,
+            actualSection: title,
+            sectionTitle: title,
+            item
+          }))
         });
       }
 
@@ -161,7 +372,9 @@ export function finalizeSummaryWithQa(input: unknown, options: SummaryAuditOptio
           code: "awkward_item",
           message: `${title} contains a low-signal or awkward bullet: ${item}`,
           sectionTitle: title,
-          item
+          item,
+          severity: "soft",
+          visibility: "internal"
         });
       }
     }
@@ -175,7 +388,9 @@ export function finalizeSummaryWithQa(input: unknown, options: SummaryAuditOptio
             code: "duplicate_item",
             message: `${title} contains duplicate or overlapping bullets that should be collapsed.`,
             sectionTitle: title,
-            item
+            item,
+            severity: "soft",
+            visibility: "internal"
           });
           break;
         }
@@ -183,37 +398,15 @@ export function finalizeSummaryWithQa(input: unknown, options: SummaryAuditOptio
     }
   }
 
-  const dedupedIssues = dedupeIssues(issues);
-  const sectionWarningCounts = new Map<string, number>();
-
-  for (const issue of dedupedIssues) {
-    const sectionTitle = issue.actualSection ?? issue.sectionTitle ?? issue.expectedSection;
-    if (!sectionTitle) {
-      continue;
-    }
-
-    sectionWarningCounts.set(sectionTitle, (sectionWarningCounts.get(sectionTitle) ?? 0) + 1);
-  }
-
-  const sectionWarnings = [...sectionWarningCounts.entries()]
-    .sort((left, right) => {
-      const leftIndex = PREFERRED_SUMMARY_SECTION_ORDER.indexOf(left[0] as (typeof PREFERRED_SUMMARY_SECTION_ORDER)[number]);
-      const rightIndex = PREFERRED_SUMMARY_SECTION_ORDER.indexOf(right[0] as (typeof PREFERRED_SUMMARY_SECTION_ORDER)[number]);
-
-      if (leftIndex !== rightIndex) {
-        return leftIndex - rightIndex;
-      }
-
-      return left[0].localeCompare(right[0]);
-    })
-    .map(([sectionTitle, count]) => ({ sectionTitle, count }));
-
-  const report: SummaryAuditReport = {
-    status: dedupedIssues.length > 0 ? "warn" : "pass",
-    issues: dedupedIssues,
+  const report = normalizeSummaryAuditReport({
+    status: "pass",
+    userStatus: "pass",
+    issues,
+    userVisibleIssues: [],
     diagnostics: options.diagnostics ?? [],
-    sectionWarnings
-  };
+    sectionWarnings: [],
+    userSectionWarnings: []
+  });
 
   return {
     summary,

@@ -4,6 +4,7 @@ import {
   SummaryModelRequestError,
   generateCaregiverSummaryWithQa
 } from "@/lib/summary-generation";
+import { collectRepairHintsFromAuditReport, normalizeSummaryAuditReport } from "@/lib/summary-audit";
 import { getSummaryFreshness } from "@/lib/summary-structured";
 import { summaryToPlainText } from "@/lib/summary";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
@@ -18,6 +19,19 @@ type SessionRow = {
   care_recipient_preferred_name: string | null;
   draft_json?: SessionDraft | null;
 };
+
+function collectStoredRepairHints(draft?: SessionDraft | null) {
+  const reports = [
+    draft?.editedSummaryAudit,
+    draft?.structuredSummaryAudit
+  ].filter(Boolean);
+
+  const messages = reports.flatMap((report) =>
+    collectRepairHintsFromAuditReport(normalizeSummaryAuditReport(report!), "all")
+  );
+
+  return [...new Set(messages.map((message) => message.trim()).filter(Boolean))].slice(0, 8);
+}
 
 function isUsefulNameHint(value: string) {
   const trimmed = value.trim();
@@ -159,7 +173,14 @@ export async function POST(request: Request) {
         .join(" ")
         .trim();
     const nameHint = isUsefulNameHint(rawNameHint) ? rawNameHint : "";
-    const generated = await generateCaregiverSummaryWithQa(turns, nameHint || undefined, "two-step");
+    const generated = await generateCaregiverSummaryWithQa(
+      turns,
+      nameHint || undefined,
+      "two-step",
+      {
+        repairHints: collectStoredRepairHints(ownedSession.draft_json)
+      }
+    );
     const summary = {
       ...generated.summary,
       generatedAt: new Date().toISOString()

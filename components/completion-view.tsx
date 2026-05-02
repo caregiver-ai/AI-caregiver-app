@@ -20,7 +20,12 @@ import {
   getOverviewLines
 } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
-import { SessionDraft, StructuredSummary, SummaryFreshness, UiLanguage } from "@/lib/types";
+import {
+  SessionDraft,
+  StructuredSummary,
+  SummaryFreshness,
+  UiLanguage
+} from "@/lib/types";
 
 function deriveFreshness(draft: SessionDraft, remoteFreshness?: SummaryFreshness | null) {
   if (remoteFreshness) {
