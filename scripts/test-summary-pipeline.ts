@@ -668,6 +668,76 @@ function testCaptureRetryPrefersLineSplitForListStyleEntries() {
   );
 }
 
+function testMedicationPortalDumpIsCompacted() {
+  const normalized = __summaryGenerationTestUtils.normalizeSummarySourceText(`Medications
+
+Current Medications
+You can report new medications, request to remove medications from your list, and in certain cases request medication renewal here. How to request refills and renewals:
+If you need a refill, contact the pharmacy as you may have an active prescription with refills available.
+Click "Request renewal" if your prescription has no refills left or has expired.
+Need to update your list of pharmacies? Go to Manage My Pharmacies.
+
+clindamycin 1 % gel
+Commonly known as: CLEOCIN T
+Learn more
+APPLY THIN LAYER TOPICALLY TO THE AFFECTED AREA TWICE DAILY AS NEEDED FOR REDNESS OR INFECTION
+1 refill before March 27, 2027
+Prescription Details
+PrescribedMarch 27, 2026
+Approved byJocelyn Ronda, MD
+Quantity
+60 g
+Pharmacy Details
+Walgreens Drugstore #17728 - EVERETT, MA - 405 BROADWAY AT NEC OF BROADWAY & 2ND ST
+405 BROADWAY, EVERETT MA 02149-3435
+617-387-0005
+Map
+
+melatonin 3 mg Tab
+Learn more
+Take 1 tablet (3 mg total) by mouth nightly at bedtime.
+3 refills before March 17, 2027
+Prescription Details
+Day supply90
+Pharmacy Details
+Walgreens Drugstore #17728 - EVERETT, MA - 405 BROADWAY AT NEC OF BROADWAY & 2ND ST
+Map`);
+
+  assert.match(normalized, /clindamycin 1 % gel/i);
+  assert.match(normalized, /melatonin 3 mg Tab/i);
+  assert.match(normalized, /Take 1 tablet \(3 mg total\) by mouth nightly at bedtime\./i);
+  assert.doesNotMatch(normalized, /Request renewal|Pharmacy Details|Walgreens Drugstore|Map/i);
+  assert.ok(normalized.length < 260);
+}
+
+function testCaptureBatchingGroupsSmallEntries() {
+  const entries = Array.from({ length: 4 }, (_, index) =>
+    __summaryGenerationTestUtils.createSummarySourceEntry(
+      {
+        sectionTitle: "Communication",
+        stepId: "communication",
+        stepTitle: "Communication",
+        promptLabel: `Prompt ${index + 1}`
+      },
+      `Entry ${index + 1}`,
+      `Signal ${index + 1}: ${"help ".repeat(45).trim()}`,
+      {
+        internalEntryId: `entry-${index + 1}`,
+        splitDepth: 0,
+        splitStrategy: "entry"
+      }
+    )
+  );
+
+  const batches = __summaryGenerationTestUtils.buildCaptureEntryBatches(entries);
+
+  assert.ok(batches.length < entries.length);
+  assert.equal(
+    batches.flatMap((batch) => batch.map((entry) => entry.internalEntryId)).join(","),
+    entries.map((entry) => entry.internalEntryId).join(",")
+  );
+}
+
 async function testSingleEntryCaptureTruncationRetry() {
   const entry = __summaryGenerationTestUtils.createSummarySourceEntry(
     {
@@ -772,6 +842,8 @@ async function main() {
   testRepairHintSelectionSkipsSoftCoverageNoise();
   testStructuredJsonRecoveryUtilities();
   testCaptureRetryPrefersLineSplitForListStyleEntries();
+  testMedicationPortalDumpIsCompacted();
+  testCaptureBatchingGroupsSmallEntries();
   await testSingleEntryCaptureTruncationRetry();
 
   console.log("summary pipeline tests passed");

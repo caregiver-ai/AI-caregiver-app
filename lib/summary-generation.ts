@@ -27,10 +27,45 @@ const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 const DEFAULT_SUMMARY_MODEL = "gpt-5.4";
 const DEFAULT_OPENAI_TIMEOUT_MS = 75_000;
 const CAPTURE_ENTRY_TARGET_CHARS = 800;
+const CAPTURE_BATCH_TARGET_CHARS = 3200;
 const HEALTH_AND_SAFETY_TITLE = "Health & Safety";
 const WHO_TO_CONTACT_TITLE = "Who to contact (and when)";
 
 const SUMMARY_SECTION_TITLES = [...PREFERRED_SUMMARY_SECTION_ORDER];
+
+const MEDICATION_PORTAL_MARKERS = [
+  /\bcurrent medications\b/i,
+  /\brequest refills and renewals\b/i,
+  /\bif you need a refill\b/i,
+  /\brequest renewal\b/i,
+  /\bmanage my pharmacies\b/i,
+  /\bprescription details\b/i,
+  /\bpharmacy details\b/i,
+  /\blearn more\b/i
+];
+
+const MEDICATION_PORTAL_IGNORED_LINE_PATTERNS = [
+  /^medications$/i,
+  /^current medications$/i,
+  /^you can report new medications/i,
+  /^how to request refills and renewals:?$/i,
+  /^if you need a refill/i,
+  /^click "request renewal"/i,
+  /^if your medication cannot be renewed/i,
+  /^need to update your list of pharmacies\?/i,
+  /^go to manage my pharmacies\.?$/i,
+  /^learn more$/i,
+  /^prescription details$/i,
+  /^prescribed/i,
+  /^approved by/i,
+  /^quantity$/i,
+  /^day supply/i,
+  /^pharmacy details$/i,
+  /^map$/i,
+  /^\d+\s+refills?\s+before\b/i,
+  /^\d+\s*(?:g|mg|mcg|mL|ml|tablets?|tabs?|capsules?|caps?)$/i,
+  /^\d{3}-\d{3}-\d{4}$/i
+];
 
 type SummarySectionTitle = (typeof SUMMARY_SECTION_TITLES)[number];
 
@@ -983,13 +1018,61 @@ function parseStructuredJson<T>(value: string) {
 }
 
 function normalizeSummarySourceText(value: string) {
-  return value
+  const normalized = value
     .replace(/\r/g, "\n")
     .split("\n")
     .map((line) => (line.trim() ? compactWhitespace(line) : ""))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  return compactMedicationPortalDump(normalized);
+}
+
+function looksLikeMedicationPortalDump(value: string) {
+  const markerHits = MEDICATION_PORTAL_MARKERS.reduce(
+    (count, pattern) => count + (pattern.test(value) ? 1 : 0),
+    0
+  );
+
+  return markerHits >= 3;
+}
+
+function isMedicationPortalIgnoredLine(line: string) {
+  if (MEDICATION_PORTAL_IGNORED_LINE_PATTERNS.some((pattern) => pattern.test(line))) {
+    return true;
+  }
+
+  if (/\b(?:walgreens|cvs|rite aid|pharmacy|drugstore)\b/i.test(line)) {
+    return true;
+  }
+
+  if (
+    /^\d+\s+.+\b(?:street|st|road|rd|avenue|ave|boulevard|blvd|drive|dr|lane|ln|way|ma)\b/i.test(
+      line
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function compactMedicationPortalDump(value: string) {
+  if (!looksLikeMedicationPortalDump(value)) {
+    return value;
+  }
+
+  const lines = value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const cleaned = lines.filter((line) => !isMedicationPortalIgnoredLine(line)).join("\n").trim();
+  if (!cleaned) {
+    return value;
+  }
+
+  return /^current medications\b/i.test(cleaned) ? cleaned : `Current medications\n${cleaned}`;
 }
 
 function escapeRegex(value: string) {
@@ -2673,6 +2756,33 @@ function chunkCharacterCount(entries: SummarySourceEntry[]) {
   return chunkTextFromEntries(entries).length;
 }
 
+function buildCaptureEntryBatches(entries: SummarySourceEntry[]) {
+  const batches: SummarySourceEntry[][] = [];
+  let currentBatch: SummarySourceEntry[] = [];
+  let currentBatchChars = 0;
+
+  for (const entry of entries) {
+    const entryChars = renderSummaryEntryText(entry).length;
+    const nextBatchChars = currentBatchChars + (currentBatch.length > 0 ? 2 : 0) + entryChars;
+
+    if (currentBatch.length > 0 && nextBatchChars > CAPTURE_BATCH_TARGET_CHARS) {
+      batches.push(currentBatch);
+      currentBatch = [entry];
+      currentBatchChars = entryChars;
+      continue;
+    }
+
+    currentBatch.push(entry);
+    currentBatchChars = nextBatchChars;
+  }
+
+  if (currentBatch.length > 0) {
+    batches.push(currentBatch);
+  }
+
+  return batches;
+}
+
 function formatCaptureRetryDiagnostic(
   entries: SummarySourceEntry[],
   depth: number,
@@ -2805,9 +2915,9 @@ async function captureSummaryFacts(
       maxCompletionTokens: 6000
     });
 
-  for (const entry of entries) {
+  for (const batch of buildCaptureEntryBatches(entries)) {
     captures.push(
-      ...(await captureChunkWithRetry([entry], requestCapture, entryMetadata, diagnostics))
+      ...(await captureChunkWithRetry(batch, requestCapture, entryMetadata, diagnostics))
     );
   }
 
@@ -2930,7 +3040,9 @@ export function buildSummarySource(turns: ConversationTurn[]) {
 export const __summaryGenerationTestUtils = {
   parseStructuredJson,
   looksLikeTruncatedStructuredOutput,
+  normalizeSummarySourceText,
   splitCaptureEntriesForRetry,
+  buildCaptureEntryBatches,
   createSummarySourceEntry,
   captureChunkWithRetry
 };
