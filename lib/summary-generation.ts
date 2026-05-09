@@ -2603,6 +2603,10 @@ type StructuredCompletionRequest = {
   maxCompletionTokens: number;
 };
 
+function supportsCustomTemperature(model: string) {
+  return !/^gpt-5\.5(?:$|-)/i.test(model.trim());
+}
+
 async function requestStructuredCompletion<T>({
   apiKey,
   model,
@@ -2615,6 +2619,30 @@ async function requestStructuredCompletion<T>({
 }: StructuredCompletionRequest) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), summaryRequestTimeoutMs());
+  const requestBody = {
+    model,
+    store: false,
+    ...(supportsCustomTemperature(model) ? { temperature } : {}),
+    max_completion_tokens: maxCompletionTokens,
+    messages: [
+      {
+        role: "system",
+        content: systemPrompt
+      },
+      {
+        role: "user",
+        content: userPrompt
+      }
+    ],
+    response_format: {
+      type: "json_schema" as const,
+      json_schema: {
+        name: schemaName,
+        strict: true,
+        schema
+      }
+    }
+  };
 
   let response: Response;
 
@@ -2625,30 +2653,7 @@ async function requestStructuredCompletion<T>({
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model,
-        store: false,
-        temperature,
-        max_completion_tokens: maxCompletionTokens,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: userPrompt
-          }
-        ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: schemaName,
-            strict: true,
-            schema
-          }
-        }
-      }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal
     });
   } catch (error) {
