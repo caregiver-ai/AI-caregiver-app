@@ -25,7 +25,7 @@ import {
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_SUMMARY_MODEL = "gpt-5.5";
-const DEFAULT_OPENAI_TIMEOUT_MS = 75_000;
+const DEFAULT_OPENAI_TIMEOUT_MS = 600_000;
 const CAPTURE_ENTRY_TARGET_CHARS = 800;
 const CAPTURE_BATCH_TARGET_CHARS = 3200;
 const HEALTH_AND_SAFETY_TITLE = "Health & Safety";
