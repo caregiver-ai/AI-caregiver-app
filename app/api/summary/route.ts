@@ -7,6 +7,8 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase";
 import { ConversationTurn } from "@/lib/types";
 
+export const maxDuration = 800;
+
 function isUsefulNameHint(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {

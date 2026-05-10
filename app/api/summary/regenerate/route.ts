@@ -10,6 +10,8 @@ import { summaryToPlainText } from "@/lib/summary";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
 import { SessionDraft } from "@/lib/types";
 
+export const maxDuration = 800;
+
 type SessionRow = {
   id: string;
   user_id: string | null;
