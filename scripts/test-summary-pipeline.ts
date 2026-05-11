@@ -14,7 +14,7 @@ import {
   __summaryGenerationTestUtils,
   expandTurnsForSummaryCapture
 } from "../lib/summary-generation";
-import { StructuredSummary, SummaryAuditReport } from "../lib/types";
+import { StructuredSummary, StructuredSummaryFact, SummaryAuditReport } from "../lib/types";
 
 function emptySummary(): StructuredSummary {
   return {
@@ -267,7 +267,8 @@ function testStructuredOverview() {
   const overviewLines = getOverviewLines(normalized.overview);
 
   assert.equal(overviewLines.length, 5);
-  assert.match(overviewLines[0] ?? "", /^Communication:\s+Non-speaking, uses AAC \(TouchChat on iPad\)$/i);
+  assert.match(overviewLines[0] ?? "", /^Communication:\s+/i);
+  assert.match(overviewLines[0] ?? "", /TouchChat|AAC|iPad/i);
   assert.match(overviewLines[1] ?? "", /^Key Needs:\s+/i);
   assert.match(overviewLines[2] ?? "", /^Top Risks:\s+/i);
   assert.match(overviewLines[3] ?? "", /^Best Supports:\s+/i);
@@ -618,6 +619,65 @@ function testRepairHintSelectionSkipsSoftCoverageNoise() {
   ]);
 }
 
+function testIndexedRepairHintsRouteBySection() {
+  const indexed = __summaryGenerationTestUtils.indexRepairHintsBySection([
+    "entry-1-fact-3 is missing from Health & Safety: Keep medications locked.",
+    "Keep the final summary concise."
+  ]);
+
+  assert.deepEqual(indexed.bySection.get("Health & Safety"), [
+    "entry-1-fact-3 is missing from Health & Safety: Keep medications locked."
+  ]);
+  assert.deepEqual(indexed.global, ["Keep the final summary concise."]);
+}
+
+function testSectionRepairHintsTargetOnlyImpactedSections() {
+  const report: SummaryAuditReport = {
+    status: "warn",
+    userStatus: "warn",
+    issues: [
+      {
+        code: "section_leakage",
+        message:
+          "entry-1-fact-7 is only represented in Communication but belongs in Health & Safety.",
+        factId: "entry-1-fact-7",
+        expectedSection: "Health & Safety",
+        actualSection: "Communication",
+        severity: "hard",
+        visibility: "user",
+        userMessage: "A health or safety detail may be in the wrong section and should be reviewed."
+      },
+      {
+        code: "awkward_item",
+        message:
+          "What helps the day go well contains a low-signal or awkward bullet: He also enjoys books and trucks.",
+        sectionTitle: "What helps the day go well",
+        item: "He also enjoys books and trucks.",
+        severity: "soft",
+        visibility: "internal"
+      }
+    ],
+    userVisibleIssues: [],
+    diagnostics: [],
+    sectionWarnings: [],
+    userSectionWarnings: []
+  };
+
+  const hardHints = __summaryGenerationTestUtils.collectSectionRepairHints(report, "hard");
+  const softHints = __summaryGenerationTestUtils.collectSectionRepairHints(report, "soft");
+
+  assert.deepEqual(hardHints.get("Communication"), [
+    "entry-1-fact-7 is only represented in Communication but belongs in Health & Safety."
+  ]);
+  assert.deepEqual(hardHints.get("Health & Safety"), [
+    "entry-1-fact-7 is only represented in Communication but belongs in Health & Safety."
+  ]);
+  assert.deepEqual(softHints.get("What helps the day go well"), [
+    "What helps the day go well contains a low-signal or awkward bullet: He also enjoys books and trucks."
+  ]);
+  assert.deepEqual(softHints.get("Communication"), []);
+}
+
 function testStructuredJsonRecoveryUtilities() {
   const fenced = `\`\`\`json
 {"facts":[{"entryId":"Entry 1","section":"Communication","factKind":"communication_method","statement":"Gavin is non-speaking.","safetyRelevant":false}]}
@@ -708,6 +768,37 @@ Map`);
   assert.match(normalized, /Take 1 tablet \(3 mg total\) by mouth nightly at bedtime\./i);
   assert.doesNotMatch(normalized, /Request renewal|Pharmacy Details|Walgreens Drugstore|Map/i);
   assert.ok(normalized.length < 260);
+}
+
+function testLongAnswerCompressionPreservesKeyFacts() {
+  const raw = `Ashley responds best to enthusiasm and affirmation. ${
+    "You know what I mean? ".repeat(80)
+  }She has to have food in her stomach before morning medications. ${
+    "That totally makes sense. ".repeat(30)
+  }If she starts limping, get her leg up and check her ankle. Call Laurie any time at 617-555-1212. Weighted blanket or a snack may help when she starts to rage. ${
+    "This part is repetitive and not useful. ".repeat(60)
+  }`;
+
+  const compressed = __summaryGenerationTestUtils.compressLongSummaryAnswer(raw);
+
+  assert.ok(compressed.length < raw.length);
+  assert.match(compressed, /food in her stomach before morning medications/i);
+  assert.match(compressed, /limping, get her leg up and check her ankle/i);
+  assert.match(compressed, /617-555-1212/);
+  assert.match(compressed, /Weighted blanket or a snack may help/i);
+  assert.doesNotMatch(compressed, /you know what i mean/i);
+  assert.doesNotMatch(compressed, /that totally makes sense/i);
+}
+
+function testLongAnswerCompressionPrefersMoreSpecificOverlap() {
+  const raw = `Call Laurie. Call Laurie at 617-555-1212. ${
+    "You know what I mean? ".repeat(180)
+  }`;
+
+  const compressed = __summaryGenerationTestUtils.compressLongSummaryAnswer(raw);
+
+  assert.match(compressed, /Call Laurie at 617-555-1212\./);
+  assert.doesNotMatch(compressed, /^Call Laurie\.$/m);
 }
 
 function testCaptureBatchingGroupsSmallEntries() {
@@ -824,6 +915,547 @@ async function testSingleEntryCaptureTruncationRetry() {
   assert.match(facts.map((fact) => fact.statement).join("\n"), /presses help/i);
 }
 
+async function testMapWithConcurrencyPreservesOrder() {
+  const results = await __summaryGenerationTestUtils.mapWithConcurrency(
+    [0, 1, 2, 3],
+    2,
+    async (value: number) => {
+      await new Promise((resolve) => setTimeout(resolve, (4 - value) * 5));
+      return `item-${value}`;
+    }
+  );
+
+  assert.deepEqual(results, ["item-0", "item-1", "item-2", "item-3"]);
+}
+
+async function testMapWithConcurrencyStopsQueueAfterFirstError() {
+  const started: number[] = [];
+
+  await assert.rejects(() =>
+    __summaryGenerationTestUtils.mapWithConcurrency([0, 1, 2, 3], 2, async (value: number) => {
+      started.push(value);
+
+      if (value === 0) {
+        throw new Error("boom");
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return value;
+    })
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.ok(started.includes(0));
+  assert.ok(started.includes(1));
+  assert.ok(!started.includes(2), `Unexpected work started after failure: ${started.join(",")}`);
+  assert.ok(!started.includes(3), `Unexpected work started after failure: ${started.join(",")}`);
+}
+
+function testDedupeCaptureFactsReindexesDuplicateIds() {
+  const facts = __summaryGenerationTestUtils.dedupeCaptureFacts([
+    {
+      factId: "entry-1-fact-1",
+      entryId: "Entry 1",
+      section: "Communication",
+      factKind: "communication_method",
+      statement: "Ashley uses spoken language.",
+      safetyRelevant: false,
+      conceptKeys: ["spoken language"],
+      sourceEntryIds: ["Entry 1"]
+    },
+    {
+      factId: "entry-1-fact-1",
+      entryId: "Entry 1",
+      section: "Communication",
+      factKind: "communication_signal",
+      statement: "When upset, she shouts and flares her arms.",
+      safetyRelevant: false,
+      conceptKeys: ["shouts", "flares arms"],
+      sourceEntryIds: ["Entry 1"]
+    },
+    {
+      factId: "entry-1-fact-2",
+      entryId: "Entry 1",
+      section: "Health & Safety",
+      factKind: "medication",
+      statement: "Melatonin is given at bedtime.",
+      safetyRelevant: true,
+      conceptKeys: ["melatonin", "bedtime"],
+      sourceEntryIds: ["Entry 1"]
+    }
+  ]);
+
+  assert.equal(facts.length, 3);
+  assert.equal(new Set(facts.map((fact) => fact.factId)).size, 3);
+  assert.deepEqual(facts.map((fact) => fact.factId), [
+    "entry-1-fact-1",
+    "entry-1-fact-2",
+    "entry-1-fact-3"
+  ]);
+}
+
+function testPersistedFactRoundTripKeepsRouting() {
+  const inputFacts: StructuredSummaryFact[] = [
+    {
+      factId: "entry-1-fact-1",
+      entryId: "Entry 1",
+      sectionTitle: "Health & Safety",
+      factKind: "medication",
+      statement: "Melatonin is given at bedtime.",
+      safetyRelevant: true,
+      conceptKeys: ["melatonin", "bedtime"],
+      sourceEntryIds: ["Entry 1"],
+      sourceTurnsHash: "turn-hash"
+    },
+    {
+      factId: "entry-2-fact-1",
+      entryId: "Entry 2",
+      sectionTitle: "Who to contact (and when)",
+      factKind: "contact",
+      statement: "Contact Laurie at (617) 555-1212.",
+      safetyRelevant: true,
+      conceptKeys: ["laurie", "6175551212"],
+      sourceEntryIds: ["Entry 2"],
+      sourceTurnsHash: "turn-hash"
+    }
+  ];
+
+  const capture = __summaryGenerationTestUtils.captureFromPersistedFacts(inputFacts);
+  const roundTrip = __summaryGenerationTestUtils.persistedFactsFromCapture(capture, "turn-hash");
+
+  assert.deepEqual(
+    roundTrip.map((fact) => ({
+      factId: fact.factId,
+      sectionTitle: fact.sectionTitle,
+      factKind: fact.factKind,
+      statement: fact.statement
+    })),
+    inputFacts.map((fact) => ({
+      factId: fact.factId,
+      sectionTitle: fact.sectionTitle,
+      factKind: fact.factKind,
+      statement: fact.statement
+    }))
+  );
+}
+
+function testSectionSummaryArtifactsMirrorFinalSummary() {
+  const summary = emptySummary();
+  summary.sections = summary.sections.map((section) =>
+    section.title === "Health & Safety"
+      ? {
+          ...section,
+          items: ["Melatonin is given at bedtime.", "Close overnight supervision is required."]
+        }
+      : section.title === "Who to contact (and when)"
+        ? {
+            ...section,
+            items: ["Contact Laurie at (617) 555-1212."]
+          }
+        : section
+  );
+
+  const sectionSummaries = __summaryGenerationTestUtils.sectionSummariesFromSummary(
+    summary,
+    "turn-hash"
+  );
+
+  assert.equal(sectionSummaries.length, 8);
+  assert.ok(sectionSummaries.every((section) => section.sourceTurnsHash === "turn-hash"));
+  assert.deepEqual(
+    sectionSummaries.find((section) => section.sectionTitle === "Health & Safety")?.items,
+    ["Melatonin is given at bedtime.", "Close overnight supervision is required."]
+  );
+  assert.deepEqual(
+    sectionSummaries.find((section) => section.sectionTitle === "Who to contact (and when)")?.items,
+    ["Contact Laurie at (617) 555-1212."]
+  );
+}
+
+function testRetryableRewriteErrors() {
+  assert.equal(
+    __summaryGenerationTestUtils.isRetryableRewriteError(
+      new SummaryModelRequestError("temporary empty", { kind: "empty" })
+    ),
+    true
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.isRetryableRewriteError(
+      new SummaryModelRequestError("temporary provider failure", {
+        kind: "provider",
+        status: 502
+      })
+    ),
+    true
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.isRetryableRewriteError(
+      new SummaryModelRequestError("rate limited", {
+        kind: "provider",
+        status: 429
+      })
+    ),
+    true
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.isRetryableRewriteError(
+      new SummaryModelRequestError("bad request", {
+        kind: "provider",
+        status: 400
+      })
+    ),
+    false
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.isRetryableRewriteError(
+      new SummaryModelRequestError("parse failure", { kind: "parse" })
+    ),
+    true
+  );
+}
+
+function testAuthoritativeGeneratedItemsStayIntact() {
+  const summary = emptySummary();
+  summary.sections = summary.sections.map((section) =>
+    section.title === "Communication"
+      ? {
+          ...section,
+          items: ["She uses spoken language; ask her to slow down and speak louder."]
+        }
+      : section
+  );
+
+  const normalized = normalizeAuthoritativeStructuredSummary(summary, "Ashley");
+  const items = sectionItems(normalized, "Communication");
+
+  assert.ok(items.length <= 2);
+  assert.match(items.join(" "), /spoken language/i);
+  assert.match(items.join(" "), /slow down and speak louder/i);
+}
+
+function testOverviewPrefersRealRiskAndContactContent() {
+  const summary = emptySummary();
+  summary.sections = summary.sections.map((section) =>
+    section.title === "Health & Safety"
+      ? {
+          ...section,
+          items: [
+            "Close overnight supervision is required because she may leave the house at night.",
+            "Compression stockings are required on both legs."
+          ]
+        }
+      : section.title === "Who to contact (and when)"
+        ? {
+            ...section,
+            items: ["Contact Laurie at (617) 555-1212."]
+          }
+        : section.title === "Communication"
+          ? {
+              ...section,
+              items: ["She uses spoken language, but others may need to ask her to repeat herself."]
+            }
+          : section
+  );
+
+  const normalized = normalizeAuthoritativeStructuredSummary(summary, "Ashley");
+  const overviewLines = getOverviewLines(normalized.overview);
+
+  assert.doesNotMatch(overviewLines[2] ?? "", /^Top Risks:\s+Not provided$/i);
+  assert.match(overviewLines[2] ?? "", /overnight supervision|leave the house|compression stockings/i);
+  assert.match(overviewLines[4] ?? "", /^Emergency Contact:\s+Laurie/i);
+}
+
+function testOverviewPrefersMajorHealthRiskOverMinorSign() {
+  const summary = emptySummary();
+  summary.sections = summary.sections.map((section) =>
+    section.title === "Health & Safety"
+      ? {
+          ...section,
+          items: [
+            "She has a history of vein thrombosis and a double pulmonary embolism.",
+            "Compression stockings are required on both legs."
+          ]
+        }
+      : section.title === "Signs they need help"
+        ? {
+            ...section,
+            items: ["Limping or low energy can signal that she does not feel well."]
+          }
+        : section
+  );
+
+  const normalized = normalizeAuthoritativeStructuredSummary(summary, "Ashley");
+  const overviewLines = getOverviewLines(normalized.overview);
+
+  assert.match(overviewLines[2] ?? "", /thrombosis|pulmonary embolism|compression stockings/i);
+}
+
+function testAuthoritativeRoutingKeepsHealthAndContactOutOfHardTime() {
+  const summary = emptySummary();
+  summary.sections = summary.sections.map((section) =>
+    section.title === "Signs they need help"
+      ? {
+          ...section,
+          items: ["Visual schedules are nice reinforcements."]
+        }
+      : section.title === "What helps when they are having a hard time"
+        ? {
+            ...section,
+            items: [
+              "Use transport tape instead of Band-Aids.",
+              "Do not hesitate to call for help when needed.",
+              "Offer only two choices when you want a meaningful answer.",
+              "Use direct, concrete prompts such as asking whether she wants scrambled eggs or to listen to her music class song."
+            ]
+          }
+        : section
+  );
+
+  const normalized = normalizeAuthoritativeStructuredSummary(summary, "Ashley");
+
+  assert.doesNotMatch(sectionText(normalized, "Signs they need help"), /visual schedules?/i);
+  assert.match(sectionText(normalized, "What helps the day go well"), /visual schedules?/i);
+  assert.doesNotMatch(sectionText(normalized, "What helps when they are having a hard time"), /transport tape|Band-Aids?|call for help/i);
+  assert.match(sectionText(normalized, "Health & Safety"), /transport tape|Band-Aids?/i);
+  assert.match(sectionText(normalized, "Who to contact \(and when\)"), /call for help when needed/i);
+  assert.match(sectionText(normalized, "Communication"), /two choices|scrambled eggs|music class song/i);
+}
+
+function testTieredCaptureAuditDoesNotForceTierThreeCoverage() {
+  const capture = {
+    facts: [
+      {
+        factId: "entry-1-fact-1",
+        entryId: "Entry 1",
+        section: "What helps the day go well",
+        factKind: "preference",
+        statement: "She enjoys spa days.",
+        safetyRelevant: false,
+        conceptKeys: ["spa days"],
+        sourceEntryIds: ["Entry 1"]
+      },
+      {
+        factId: "entry-2-fact-1",
+        entryId: "Entry 2",
+        section: "Health & Safety",
+        factKind: "safety_risk",
+        statement: "Close overnight supervision is required because she may leave the house at night.",
+        safetyRelevant: true,
+        conceptKeys: ["overnight supervision", "leave the house"],
+        sourceEntryIds: ["Entry 2"]
+      }
+    ]
+  } as any;
+
+  const summary = emptySummary();
+  const issues = __summaryGenerationTestUtils.auditSummaryAgainstCapture(summary, capture);
+
+  assert.ok(
+    issues.some(
+      (issue) => issue.expectedSection === "Health & Safety" && issue.code === "missing_coverage"
+    )
+  );
+  assert.ok(
+    !issues.some(
+      (issue) =>
+        issue.expectedSection === "What helps the day go well" && issue.code === "missing_coverage"
+    )
+  );
+}
+
+function testRejectedBulletReasonsCatchNoisePatterns() {
+  const capture = {
+    facts: [
+      {
+        factId: "entry-1-fact-1",
+        entryId: "Entry 1",
+        section: "Communication",
+        factKind: "communication_method",
+        statement: "Ashley uses spoken language.",
+        safetyRelevant: false,
+        conceptKeys: ["spoken language"],
+        sourceEntryIds: ["Entry 1"]
+      },
+      {
+        factId: "entry-2-fact-1",
+        entryId: "Entry 2",
+        section: "Signs they need help",
+        factKind: "help_sign",
+        statement: "When upset, she yells and swears.",
+        safetyRelevant: false,
+        conceptKeys: ["yells", "swears"],
+        sourceEntryIds: ["Entry 2"]
+      }
+    ]
+  } as any;
+
+  assert.equal(
+    __summaryGenerationTestUtils.rejectedBulletReason(
+      "Signs they need help",
+      "Ask what happened and offer a drink.",
+      capture,
+      ["Ask what happened and offer a drink."]
+    ),
+    "signs_shape"
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.rejectedBulletReason(
+      "Communication",
+      'She almost always says "yeah.',
+      capture,
+      ['She almost always says "yeah.']
+    ),
+    "unmatched_quotes"
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.rejectedBulletReason(
+      "What helps when they are having a hard time",
+      "She is yelling and swearing.",
+      capture,
+      ["She is yelling and swearing."]
+    ),
+    "hard_time_shape"
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.rejectedBulletReason(
+      "Communication",
+      "Helping him find items on his iPad can prevent frustration.",
+      capture,
+      ["Helping him find items on his iPad can prevent frustration."]
+    ),
+    "pronoun_contamination"
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.rejectedBulletReason(
+      "What helps when they are having a hard time",
+      "Use transport tape instead of Band-Aids.",
+      capture,
+      ["Use transport tape instead of Band-Aids."]
+    ),
+    "hard_time_shape"
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.rejectedBulletReason(
+      "What can upset or overwhelm them",
+      "Her teeth are crowded and she is not a big flosser.",
+      capture,
+      ["Her teeth are crowded and she is not a big flosser."]
+    ),
+    "trigger_shape"
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.rejectedBulletReason(
+      "Signs they need help",
+      "Sometimes she can respond when dysregulated.",
+      capture,
+      ["Sometimes she can respond when dysregulated."]
+    ),
+    "signs_shape"
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.rejectedBulletReason(
+      "What helps when they are having a hard time",
+      "Do not hesitate to call.",
+      capture,
+      ["Do not hesitate to call."]
+    ),
+    "hard_time_shape"
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.rejectedBulletReason(
+      "What helps the day go well",
+      "On very hard angry or frustrated days, she may swear or hit herself in the head.",
+      capture,
+      ["On very hard angry or frustrated days, she may swear or hit herself in the head."]
+    ),
+    "day_shape"
+  );
+}
+
+function testSectionFactAdmissibilityStripsShapeLeaks() {
+  assert.equal(
+    __summaryGenerationTestUtils.sectionFactIsAdmissible({
+      factId: "entry-1-fact-1",
+      entryId: "Entry 1",
+      section: "Signs they need help",
+      factKind: "help_sign",
+      statement:
+        "Her caretakers need to see if they can pick up any antecedents or cues from her environment when her behavior changes.",
+      safetyRelevant: false,
+      conceptKeys: ["antecedents", "cues"],
+      sourceEntryIds: ["Entry 1"]
+    } as any),
+    false
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.sectionFactIsAdmissible({
+      factId: "entry-2-fact-1",
+      entryId: "Entry 2",
+      section: "What helps when they are having a hard time",
+      factKind: "caregiver_action",
+      statement: "Use transport tape instead of Band-Aids.",
+      safetyRelevant: false,
+      conceptKeys: ["transport tape", "Band-Aids"],
+      sourceEntryIds: ["Entry 2"]
+    } as any),
+    false
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.sectionFactIsAdmissible({
+      factId: "entry-3-fact-1",
+      entryId: "Entry 3",
+      section: "What can upset or overwhelm them",
+      factKind: "trigger",
+      statement: "Her teeth are crowded and she is not a big flosser.",
+      safetyRelevant: false,
+      conceptKeys: ["teeth", "flosser"],
+      sourceEntryIds: ["Entry 3"]
+    } as any),
+    false
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.sectionFactIsAdmissible({
+      factId: "entry-4-fact-1",
+      entryId: "Entry 4",
+      section: "What can upset or overwhelm them",
+      factKind: "trigger",
+      statement:
+        "When her self-directed plans get canceled because of weather or car problems, she can get very upset and tailspin.",
+      safetyRelevant: false,
+      conceptKeys: ["plans", "weather", "car problems", "tailspin"],
+      sourceEntryIds: ["Entry 4"]
+    } as any),
+    true
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.sectionFactIsAdmissible({
+      factId: "entry-5-fact-1",
+      entryId: "Entry 5",
+      section: "Signs they need help",
+      factKind: "help_sign",
+      statement: "Sometimes she can respond when dysregulated.",
+      safetyRelevant: false,
+      conceptKeys: ["respond"],
+      sourceEntryIds: ["Entry 5"]
+    } as any),
+    false
+  );
+  assert.equal(
+    __summaryGenerationTestUtils.sectionFactIsAdmissible({
+      factId: "entry-6-fact-1",
+      entryId: "Entry 6",
+      section: "What helps when they are having a hard time",
+      factKind: "caregiver_action",
+      statement: "Do not hesitate to call.",
+      safetyRelevant: false,
+      conceptKeys: ["call"],
+      sourceEntryIds: ["Entry 6"]
+    } as any),
+    false
+  );
+}
+
 async function main() {
   testAuthoritativePlacement();
   testHardTimeDedupes();
@@ -840,11 +1472,28 @@ async function main() {
   testSavedSummaryQaStillWarnsOnLongPreferenceInventory();
   testAuditClassificationAndUserFiltering();
   testRepairHintSelectionSkipsSoftCoverageNoise();
+  testIndexedRepairHintsRouteBySection();
+  testSectionRepairHintsTargetOnlyImpactedSections();
   testStructuredJsonRecoveryUtilities();
   testCaptureRetryPrefersLineSplitForListStyleEntries();
   testMedicationPortalDumpIsCompacted();
+  testLongAnswerCompressionPreservesKeyFacts();
+  testLongAnswerCompressionPrefersMoreSpecificOverlap();
   testCaptureBatchingGroupsSmallEntries();
+  testDedupeCaptureFactsReindexesDuplicateIds();
+  testPersistedFactRoundTripKeepsRouting();
+  testSectionSummaryArtifactsMirrorFinalSummary();
+  testRetryableRewriteErrors();
+  testAuthoritativeGeneratedItemsStayIntact();
+  testOverviewPrefersRealRiskAndContactContent();
+  testOverviewPrefersMajorHealthRiskOverMinorSign();
+  testAuthoritativeRoutingKeepsHealthAndContactOutOfHardTime();
+  testTieredCaptureAuditDoesNotForceTierThreeCoverage();
+  testRejectedBulletReasonsCatchNoisePatterns();
+  testSectionFactAdmissibilityStripsShapeLeaks();
   await testSingleEntryCaptureTruncationRetry();
+  await testMapWithConcurrencyPreservesOrder();
+  await testMapWithConcurrencyStopsQueueAfterFirstError();
 
   console.log("summary pipeline tests passed");
 }

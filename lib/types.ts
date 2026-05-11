@@ -84,6 +84,49 @@ export interface StructuredSummary {
   sourceTurnsHash: string;
 }
 
+export type SummarySectionTitle =
+  | "Communication"
+  | "Daily Needs & Routines"
+  | "What helps the day go well"
+  | "What can upset or overwhelm them"
+  | "Signs they need help"
+  | "What helps when they are having a hard time"
+  | "Health & Safety"
+  | "Who to contact (and when)";
+
+export type StructuredFactKind =
+  | "communication_method"
+  | "communication_signal"
+  | "support_strategy"
+  | "routine"
+  | "trigger"
+  | "help_sign"
+  | "caregiver_action"
+  | "condition"
+  | "medication"
+  | "equipment"
+  | "safety_risk"
+  | "contact"
+  | "preference";
+
+export interface StructuredSummaryFact {
+  factId: string;
+  entryId: string;
+  sectionTitle: SummarySectionTitle;
+  factKind: StructuredFactKind;
+  statement: string;
+  safetyRelevant: boolean;
+  conceptKeys: string[];
+  sourceEntryIds: string[];
+  sourceTurnsHash: string;
+}
+
+export interface StructuredSectionSummary {
+  sectionTitle: SummarySectionTitle;
+  items: string[];
+  sourceTurnsHash: string;
+}
+
 export type SummaryAuditStatus = "pass" | "warn";
 export type SummaryAuditSeverity = "hard" | "soft";
 export type SummaryAuditVisibility = "user" | "internal";

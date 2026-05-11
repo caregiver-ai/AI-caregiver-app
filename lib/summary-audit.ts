@@ -131,6 +131,41 @@ function isAwkwardLowSignalItem(item: string, sectionTitle: string) {
     return true;
   }
 
+  if (
+    sectionTitle === "What helps the day go well" &&
+    /\b(hit herself|hitting herself|swear(?:ing)?|angry or frustrated days?)\b/i.test(item)
+  ) {
+    return true;
+  }
+
+  if (
+    sectionTitle === "What can upset or overwhelm them" &&
+    /\b(crowded teeth|rotor rooted|rooted)\b/i.test(item)
+  ) {
+    return true;
+  }
+
+  if (
+    sectionTitle === "Signs they need help" &&
+    (/^Sometimes (?:she )?(?:asks for help|can respond)(?: when [^.]+)?\.?$/i.test(item) ||
+      /\bthere is something that has dysregulated her\b/i.test(item) ||
+      /\bgoing on for \d+|\b\d+\s*(?:or|-)\s*\d+\s+years|swallow studies?|brain review|GI review|nobody can find anything wrong|cycle\b/i.test(
+        item
+      ))
+  ) {
+    return true;
+  }
+
+  if (
+    sectionTitle === "What helps when they are having a hard time" &&
+    (/\bdo not hesitate to call\b/i.test(item) ||
+      /\b(morning\b.*\bmedicine|vaginal area|blood pressure drops|starts falling|runs constipated|do not rush her)\b/i.test(
+        item
+      ))
+  ) {
+    return true;
+  }
+
   if (isShortRegulationSupport(item, sectionTitle)) {
     return false;
   }

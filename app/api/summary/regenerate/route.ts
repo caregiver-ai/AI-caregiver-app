@@ -2,11 +2,17 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import {
   SummaryModelRequestError,
-  generateCaregiverSummaryWithQa
+  generateCaregiverSummaryArtifactsFromFactsWithQa,
+  generateCaregiverSummaryArtifactsWithQa
 } from "@/lib/summary-generation";
 import { collectRepairHintsFromAuditReport, normalizeSummaryAuditReport } from "@/lib/summary-audit";
-import { getSummaryFreshness } from "@/lib/summary-structured";
+import { computeTurnsHash, getSummaryFreshness } from "@/lib/summary-structured";
 import { summaryToPlainText } from "@/lib/summary";
+import {
+  loadSummaryFactsForSession,
+  replaceSummaryFactsForSession,
+  replaceSummarySectionSummariesForSession
+} from "@/lib/summary-persistence";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
 import { SessionDraft } from "@/lib/types";
 
@@ -175,19 +181,43 @@ export async function POST(request: Request) {
         .join(" ")
         .trim();
     const nameHint = isUsefulNameHint(rawNameHint) ? rawNameHint : "";
-    const generated = await generateCaregiverSummaryWithQa(
-      turns,
-      nameHint || undefined,
-      "two-step",
-      {
-        repairHints: collectStoredRepairHints(ownedSession.draft_json)
-      }
-    );
+    const sourceTurnsHash = computeTurnsHash(turns);
+    const persistedFacts = await loadSummaryFactsForSession(supabase, ownedSession.id);
+    const canReuseFacts =
+      persistedFacts.length > 0 &&
+      persistedFacts.every((fact) => fact.sourceTurnsHash === sourceTurnsHash);
+    const repairHints = collectStoredRepairHints(ownedSession.draft_json);
+    const generated = canReuseFacts
+      ? await generateCaregiverSummaryArtifactsFromFactsWithQa(
+          persistedFacts,
+          turns,
+          nameHint || undefined,
+          {
+            repairHints
+          }
+        )
+      : await generateCaregiverSummaryArtifactsWithQa(
+          turns,
+          nameHint || undefined,
+          "two-step",
+          {
+            repairHints
+          }
+        );
     const summary = {
       ...generated.summary,
       generatedAt: new Date().toISOString()
     };
     const auditReport = generated.auditReport;
+
+    if (!canReuseFacts) {
+      await replaceSummaryFactsForSession(supabase, ownedSession.id, generated.facts);
+    }
+    await replaceSummarySectionSummariesForSession(
+      supabase,
+      ownedSession.id,
+      generated.sectionSummaries
+    );
 
     const nextDraft: SessionDraft = {
       ...(ownedSession.draft_json ?? {
