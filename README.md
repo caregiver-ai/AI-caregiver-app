@@ -1,38 +1,66 @@
 # Caregiver Handoff
 
-Caregiver Handoff is a guided intake app that helps caregivers capture what matters most, save progress, and turn responses into a clear English handoff summary for the next caregiver.
+Caregiver Handoff is a guided intake app that helps family caregivers capture practical care knowledge, save progress across sessions, and produce a caregiver-ready handoff summary in English for the next person supporting the care recipient.
 
 ## Tech stack
 
 - Next.js 14 App Router
-- React + TypeScript
+- React 18 + TypeScript
 - Tailwind CSS
 - Supabase Auth + Postgres
 - OpenAI API for transcription, translation, and summary generation
+- Resend for summary email delivery
 - Vercel hosting with native Git deployments
 
-## Current workflow
+## Product flow
 
-1. Caregiver signs in with email and password.
-2. The intake page collects caregiver and care recipient basics, plus preferred site language.
-3. Progress is saved as a draft in Supabase so the user can come back later.
-4. The reflection flow asks guided questions in English, Spanish, or Mandarin.
+1. The caregiver signs in with email and password.
+2. The intake screen collects caregiver details, care recipient details, consent, and preferred site language.
+3. Draft state is saved locally and, when authenticated, synced to Supabase.
+4. The reflection flow asks guided caregiver questions in English, Spanish, or Mandarin.
 5. Responses can be typed or recorded with audio.
-6. Audio can be transcribed and, for Spanish or Mandarin, translated into English before saving.
-7. Users can go back to earlier prompts, edit saved answers, or fill in skipped prompts later.
-8. The app generates an English summary for review and editing through a two-step AI pipeline: structured capture, then clean rewrite.
-9. The final summary and feedback are saved in Supabase.
+6. Audio is transcribed and, for Spanish or Mandarin, normalized into English before entering the summary pipeline.
+7. The caregiver can revisit earlier prompts, edit responses, and continue an in-progress draft later.
+8. The review step generates a structured summary, runs QA cleanup, and allows inline editing plus regeneration from the saved answers.
+9. The completion step collects feedback and can email the finalized summary.
+
+## Current summary pipeline
+
+The current pipeline is no longer just a simple rewrite pass. It is a structured artifact pipeline with persistence and QA:
+
+1. Source turns are read from `sessions.draft_json.turns`.
+2. The model generates a structured caregiver handoff in the fixed 8-section format.
+3. The app normalizes and audits the output for section placement, duplicate/noisy bullets, title quality, and missing critical details.
+4. The server persists:
+   - the rendered summary in `summaries`
+   - atomic facts in `summary_facts`
+   - section item groups in `summary_section_summaries`
+5. Regeneration can reuse persisted facts when they still match the current `source_turns_hash`.
+6. The caregiver can edit the summary before final confirmation.
+
+The current output format is a structured JSON summary with:
+
+- `title`
+- `overview`
+- `sections`
+- `generatedAt`
+- `layoutVersion`
+- `pipelineVersion`
+- `sourceTurnsHash`
 
 ## Features
 
-- Auth-backed resume flow
-- Autosaved intake and reflection drafts
+- Email/password authentication with resumable drafts
+- Local draft storage plus auth-backed server sync
 - Multilingual UI: English, Spanish, Mandarin
-- Audio recording with OpenAI transcription
-- English-normalized transcript input for summary generation
-- Two-step caregiver summary pipeline for capture + rewrite
-- Editable review step before final save
-- Supabase-backed persistence for sessions, turns, summaries, and feedback
+- Typed and recorded responses
+- OpenAI transcription with English normalization for supported non-English audio
+- Structured 8-section caregiver handoff generation
+- Summary QA and freshness checks
+- Review, edit, and regenerate flow
+- Completion flow with feedback capture
+- Email delivery of the finalized summary
+- Supabase-backed persistence for sessions, summaries, feedback, facts, and section summaries
 
 ## Local setup
 
@@ -73,9 +101,13 @@ Also supported:
 SUPABASE_SERVICE_ROLE_KEY=
 OPENAI_MODEL=gpt-5.4
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=
 ```
 
 `SUPABASE_SECRET_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are interchangeable in the current server code. Only one is required.
+
+If `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are missing, the app still runs, but summary email sending is disabled.
 
 ## Supabase
 
@@ -83,18 +115,33 @@ Supabase handles:
 
 - email/password authentication
 - resumable draft storage
-- sessions
-- conversation turns
-- generated and edited summaries
+- session metadata
+- `draft_json` snapshots, including raw turns and saved summaries
+- finalized summary records
+- summary facts and section summaries
 - feedback
+
+Core tables:
+
+- `users`
+- `sessions`
+- `summaries`
+- `feedback`
+- `summary_facts`
+- `summary_section_summaries`
+
+Notes:
+
+- The raw source input used by regeneration lives in `sessions.draft_json.turns`.
+- `conversation_turns` still exists in the schema, but the current summary regeneration path reads from `draft_json.turns`.
 
 For a new project:
 
 1. Create a Supabase project.
-2. Apply the bootstrap schema in `supabase/schema.sql`, or run the migrations in `supabase/migrations/`.
+2. Apply `supabase/schema.sql`, or run the migrations in `supabase/migrations/`.
 3. Add the Supabase env vars to `.env.local`.
 
-If Supabase is not configured, the app can still keep a local browser draft, but auth-backed persistence and shared resume behavior require Supabase.
+If Supabase is not configured, the app can still keep a local browser draft, but auth-backed resume behavior and shared persistence require Supabase.
 
 ## OpenAI
 
@@ -102,31 +149,34 @@ OpenAI handles:
 
 - audio transcription
 - Spanish and Mandarin speech translation into English
-- structured summary generation
+- caregiver summary generation
 
 If `OPENAI_API_KEY` is missing, the summary route falls back to a lightweight heuristic summary so the app can still run locally.
 
-The summary pipeline uses the same `OPENAI_MODEL` for both steps:
-
-1. structured capture of atomic caregiver facts
-2. caregiver-ready rewrite into the final 8-section handoff
-
-To run the local benchmark fixture set against both the legacy one-step flow and the current two-step flow:
+## Scripts
 
 ```bash
+npm run dev
+npm run build
+npm run start
+npm run lint
+npm run typecheck
+npm run summary:test
 npm run summary:benchmark
 ```
 
-The benchmark runner loads `.env.local`, uses the same server-side summary pipeline as production, and prints per-fixture pass/fail checks for completeness, section placement, banned noise, and duplicate bullets.
+`summary:test` exercises the summary pipeline logic directly.
+
+`summary:benchmark` runs the benchmark fixture set against the current server-side summary flow and reports checks for completeness, section placement, duplicate bullets, and transcription noise.
 
 ## Deployments
 
-Vercel deploys this app through its native Git integration:
+Vercel deploys the app through native Git integration:
 
 - pushes to `main` create production deploys
 - pull requests can create preview deploys
 
-GitHub Actions is only used for Supabase migrations:
+GitHub Actions is used for Supabase migrations:
 
 - `.github/workflows/supabase-migrations.yml`
 
@@ -141,23 +191,51 @@ Use the Supabase session-pooler Postgres connection string for `SUPABASE_DB_URL`
 For schema changes:
 
 1. Add a new timestamped SQL file under `supabase/migrations/`.
-2. Keep `supabase/schema.sql` in sync with the latest schema snapshot.
-3. Push to `main`.
+2. Keep `supabase/schema.sql` aligned with the latest schema snapshot.
+3. Push the migration through the normal Git flow.
 4. GitHub Actions applies the new migration to Supabase.
 
 Changing only `supabase/schema.sql` is not enough for production.
 
-## Key files
+## Key pages and routes
 
-- `app/page.tsx`: entry page
-- `app/reflection/page.tsx`: guided reflection
-- `app/review/page.tsx`: review and edit
-- `app/complete/page.tsx`: completion and feedback
+Pages:
+
+- `app/page.tsx`: intake, auth, and resume entry
+- `app/reflection/page.tsx`: guided reflection flow
+- `app/review/page.tsx`: summary review and editing
+- `app/complete/page.tsx`: completion, feedback, and email send
+- `app/update-password/page.tsx`: password reset completion
+
+API routes:
+
+- `app/api/session/route.ts`: initial session creation
 - `app/api/draft/route.ts`: auth-backed draft load/save
-- `app/api/transcribe/route.ts`: OpenAI audio transcription
-- `app/api/summary/route.ts`: summary generation
-- `lib/summary-generation.ts`: one-step and two-step summary pipeline
-- `components/welcome-form.tsx`: intake and sign-in flow
-- `components/reflection-chat.tsx`: editable guided reflection flow
-- `benchmarks/summary/fixtures/`: summary benchmark inputs and expectations
+- `app/api/transcribe/route.ts`: transcription and English normalization
+- `app/api/summary/route.ts`: initial summary generation and persistence
+- `app/api/summary/regenerate/route.ts`: regenerate from saved turns and persisted facts
+- `app/api/summary/save/route.ts`: confirm edited summary and mark the session completed
+- `app/api/summary/email/route.ts`: email the finalized summary
+- `app/api/feedback/route.ts`: save completion feedback
+- `app/api/auth/signup/route.ts`: server-side signup
+- `app/api/auth/confirm-existing/route.ts`: confirm an existing auth user
+
+Core client components:
+
+- `components/welcome-form.tsx`: auth, intake, and resume behavior
+- `components/reflection-chat.tsx`: guided reflection experience
+- `components/review-editor.tsx`: regenerate, edit, and save summary
+- `components/completion-view.tsx`: final review, feedback, and email send
+
+Core server logic:
+
+- `lib/summary-generation.ts`: summary generation, normalization, QA, and artifact creation
+- `lib/summary-audit.ts`: summary audit and repair helpers
+- `lib/summary-persistence.ts`: `summary_facts` and `summary_section_summaries` persistence
+- `lib/draft-api.ts`: authenticated browser-to-server draft sync
+- `lib/supabase.ts`: server-side Supabase clients and auth token verification
+
+Reference data:
+
+- `benchmarks/summary/fixtures/`: benchmark inputs and expectations
 - `supabase/migrations/`: database migrations
