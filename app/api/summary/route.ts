@@ -108,6 +108,17 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ summary, auditReport });
   } catch (error) {
+    console.error("[summary:route] generation failed", {
+      sessionId: body.sessionId,
+      turnCount: body.turns.length,
+      sourceChars: body.turns.reduce((total, turn) => total + turn.content.length, 0),
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : "Unknown summary error",
+      errorCode:
+        error && typeof error === "object" && "code" in error
+          ? String(error.code)
+          : undefined
+    });
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Summary generation failed."

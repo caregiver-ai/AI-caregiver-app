@@ -261,6 +261,14 @@ export async function POST(request: Request) {
       auditReport
     });
   } catch (error) {
+    console.error("[summary:regenerate] generation failed", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : "Unknown summary error",
+      errorCode:
+        error && typeof error === "object" && "code" in error
+          ? String(error.code)
+          : undefined
+    });
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Unable to regenerate the summary."

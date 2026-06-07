@@ -25,7 +25,8 @@ const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 const DEFAULT_SUMMARY_MODEL = "gpt-5.4";
 const DEFAULT_OPENAI_TIMEOUT_MS = 75_000;
 const CAPTURE_ENTRY_TARGET_CHARS = 2_400;
-const CAPTURE_PROMPT_TARGET_CHARS = 7_200;
+const CAPTURE_PROMPT_TARGET_CHARS = 3_200;
+const CAPTURE_CONCURRENCY_LIMIT = 3;
 
 const SUMMARY_SECTION_TITLES = [...PREFERRED_SUMMARY_SECTION_ORDER];
 
@@ -100,11 +101,31 @@ export class SummaryQualityError extends Error {
 
 class SummaryModelRequestError extends Error {
   status?: number;
+  code?: string;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, code?: string) {
     super(message);
     this.name = "SummaryModelRequestError";
     this.status = status;
+    this.code = code;
+  }
+}
+
+class SummaryModelTruncationError extends SummaryModelRequestError {
+  schemaName: string;
+  maxCompletionTokens: number;
+  contentLength: number;
+
+  constructor(schemaName: string, maxCompletionTokens: number, contentLength: number) {
+    super(
+      "Summary generation was cut off while reading the structured model response.",
+      undefined,
+      "truncated"
+    );
+    this.name = "SummaryModelTruncationError";
+    this.schemaName = schemaName;
+    this.maxCompletionTokens = maxCompletionTokens;
+    this.contentLength = contentLength;
   }
 }
 
@@ -794,6 +815,12 @@ function extractChatCompletionText(content?: string | ChatCompletionContentPart[
     .trim();
 }
 
+export function parseStructuredCompletionContent<T>(content: string) {
+  const trimmed = content.trim();
+  const fencedMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return JSON.parse((fencedMatch?.[1] ?? trimmed).trim()) as T;
+}
+
 function compactWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -1047,14 +1074,14 @@ function buildSummaryEntries(turns: ConversationTurn[], options?: { chunkLongEnt
     });
 }
 
-function buildSummaryEntryChunks(entries: SummarySourceEntry[], targetChars: number) {
-  const chunks: string[] = [];
-  let current: string[] = [];
+function buildSummaryEntryBatches(entries: SummarySourceEntry[], targetChars: number) {
+  const batches: SummarySourceEntry[][] = [];
+  let current: SummarySourceEntry[] = [];
   let currentLength = 0;
 
   const flush = () => {
     if (current.length > 0) {
-      chunks.push(current.join("\n\n"));
+      batches.push(current);
       current = [];
       currentLength = 0;
     }
@@ -1066,12 +1093,12 @@ function buildSummaryEntryChunks(entries: SummarySourceEntry[], targetChars: num
       flush();
     }
 
-    current.push(entry.text);
+    current.push(entry);
     currentLength += (current.length > 1 ? 2 : 0) + entry.text.length;
   }
 
   flush();
-  return chunks;
+  return batches;
 }
 
 function normalizePromptKey(value?: string) {
@@ -2422,24 +2449,56 @@ async function requestStructuredCompletion<T>({
 
   const data = (await response.json()) as {
     choices?: Array<{
+      finish_reason?: string | null;
       message?: {
         content?: string | ChatCompletionContentPart[];
+        refusal?: string | null;
       };
     }>;
   };
 
-  const content = extractChatCompletionText(data.choices?.[0]?.message?.content);
+  const choice = data.choices?.[0];
+  const content = extractChatCompletionText(choice?.message?.content);
+  if (choice?.finish_reason === "length") {
+    console.error("[summary:model] structured response truncated", {
+      schemaName,
+      model,
+      maxCompletionTokens,
+      contentLength: content.length
+    });
+    throw new SummaryModelTruncationError(schemaName, maxCompletionTokens, content.length);
+  }
+
+  if (choice?.message?.refusal) {
+    throw new SummaryModelRequestError(
+      "Summary generation could not process the provided answers.",
+      undefined,
+      "refusal"
+    );
+  }
+
   if (!content) {
     throw new SummaryModelRequestError(
-      "Summary generation returned an empty structured response."
+      "Summary generation returned an empty structured response.",
+      undefined,
+      "empty_response"
     );
   }
 
   try {
-    return JSON.parse(content) as T;
-  } catch {
+    return parseStructuredCompletionContent<T>(content);
+  } catch (error) {
+    console.error("[summary:model] invalid structured response", {
+      schemaName,
+      model,
+      finishReason: choice?.finish_reason ?? null,
+      contentLength: content.length,
+      parseError: error instanceof Error ? error.message : "Unknown parse error"
+    });
     throw new SummaryModelRequestError(
-      "Summary generation returned invalid structured JSON."
+      "Summary generation returned invalid structured JSON.",
+      undefined,
+      "invalid_json"
     );
   }
 }
@@ -2481,24 +2540,59 @@ async function captureSummaryFacts(
 ) {
   const entries = buildSummaryEntries(turns, { chunkLongEntries: true });
   const entryMetadata = new Map(entries.map((entry) => [entry.entryId, entry] as const));
-  const entryChunks = buildSummaryEntryChunks(entries, CAPTURE_PROMPT_TARGET_CHARS);
-  const captures: StructuredCaptureFact[] = [];
+  const entryBatches = buildSummaryEntryBatches(entries, CAPTURE_PROMPT_TARGET_CHARS);
+  const capturedBatches = new Array<StructuredCaptureFact[]>(entryBatches.length);
+  let nextBatchIndex = 0;
 
-  for (const chunk of entryChunks) {
-    const rawCapture = await requestStructuredCompletion<StructuredCapture>({
-      apiKey,
-      model,
-      schemaName: "caregiver_handoff_structured_capture",
-      schema: captureSchema,
-      systemPrompt:
-        "You are a structured capture step for caregiver handoff notes. Preserve facts, split them into atomic statements, assign each one to the best section, and never drop meaningful care information.",
-      userPrompt: `${sevenSectionCaptureRules}\n\nCaregiver input:\n${chunk}`,
-      temperature: 0.1,
-      maxCompletionTokens: 6000
-    });
+  const captureBatch = async (
+    batch: SummarySourceEntry[]
+  ): Promise<StructuredCaptureFact[]> => {
+    try {
+      const rawCapture = await requestStructuredCompletion<StructuredCapture>({
+        apiKey,
+        model,
+        schemaName: "caregiver_handoff_structured_capture",
+        schema: captureSchema,
+        systemPrompt:
+          "You are a structured capture step for caregiver handoff notes. Preserve facts, split them into atomic statements, assign each one to the best section, and never drop meaningful care information.",
+        userPrompt: `${sevenSectionCaptureRules}\n\nCaregiver input:\n${batch
+          .map((entry) => entry.text)
+          .join("\n\n")}`,
+        temperature: 0.1,
+        maxCompletionTokens: 6000
+      });
 
-    captures.push(...normalizeCapture(rawCapture, entryMetadata).facts);
-  }
+      return normalizeCapture(rawCapture, entryMetadata).facts;
+    } catch (error) {
+      if (error instanceof SummaryModelTruncationError && batch.length > 1) {
+        const midpoint = Math.ceil(batch.length / 2);
+        const [left, right] = await Promise.all([
+          captureBatch(batch.slice(0, midpoint)),
+          captureBatch(batch.slice(midpoint))
+        ]);
+        return [...left, ...right];
+      }
+
+      throw error;
+    }
+  };
+
+  const captureWorker = async () => {
+    while (nextBatchIndex < entryBatches.length) {
+      const batchIndex = nextBatchIndex;
+      nextBatchIndex += 1;
+      capturedBatches[batchIndex] = await captureBatch(entryBatches[batchIndex]);
+    }
+  };
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(CAPTURE_CONCURRENCY_LIMIT, entryBatches.length) },
+      () => captureWorker()
+    )
+  );
+
+  const captures = capturedBatches.flat();
 
   return {
     facts: dedupeCaptureFacts([...captures, ...deterministicCommunicationFacts(entries)])

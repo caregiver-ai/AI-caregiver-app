@@ -17,7 +17,11 @@ import {
   summaryToPlainText,
 } from "../lib/summary";
 import { buildSummaryEmailHtml } from "../lib/summary-pdf";
-import { expandTurnsForSummaryCapture } from "../lib/summary-generation";
+import {
+  expandTurnsForSummaryCapture,
+  generateCaregiverSummaryWithQa,
+  parseStructuredCompletionContent,
+} from "../lib/summary-generation";
 import {
   SUMMARY_LAYOUT_VERSION,
   SUMMARY_PIPELINE_VERSION,
@@ -165,6 +169,104 @@ function testQuestionnaireContract() {
       ),
       `${language} instructions and examples`,
     );
+  }
+}
+
+function testStructuredCompletionParsing() {
+  assert.deepEqual(parseStructuredCompletionContent('{"facts":[]}'), { facts: [] });
+  assert.deepEqual(
+    parseStructuredCompletionContent('```json\n{"facts":[]}\n```'),
+    { facts: [] },
+  );
+  assert.throws(() => parseStructuredCompletionContent('{"facts":['), SyntaxError);
+}
+
+async function testSummaryCaptureBatchingWithMockedModel() {
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+  let captureCalls = 0;
+
+  process.env.OPENAI_API_KEY = "test-summary-key";
+  globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+      response_format?: { json_schema?: { name?: string } };
+      messages?: Array<{ content?: string }>;
+    };
+    const schemaName = requestBody.response_format?.json_schema?.name;
+
+    if (schemaName === "caregiver_handoff_structured_capture") {
+      captureCalls += 1;
+      const prompt = String(requestBody.messages?.at(-1)?.content ?? "");
+      const entryIds = [...new Set([...prompt.matchAll(/\bEntry \d+\b/g)].map((match) => match[0]))];
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  facts: entryIds.map((entryId) => ({
+                    entryId,
+                    section: "Communication",
+                    factKind: "communication_method",
+                    subcategory: "General",
+                    statement: `${entryId} includes a communication detail.`,
+                    safetyRelevant: false,
+                  })),
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    assert.equal(schemaName, "caregiver_handoff_summary");
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: JSON.stringify({
+                title: "Caring for Mock",
+                overview: "Mock communicates with support.",
+                communication: ["Mock communicates with support."],
+                understandingAndLearning: ["(No information provided)"],
+                dailySchedule: ["(No information provided)"],
+                activitiesAndPreferences: ["(No information provided)"],
+                signsTheyAreHavingAHardTime: ["(No information provided)"],
+                whatHelpsWhenTheyAreHavingAHardTime: ["(No information provided)"],
+                healthAndSafety: ["(No information provided)"],
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const longAnswer = "Uses short words, gestures, and a communication device. ".repeat(35);
+    const turns = [
+      ...responseTurns("mock-1", "How do they communicate?", longAnswer, "2026-06-01T12:00:00.000Z"),
+      ...responseTurns("mock-2", "What helps?", longAnswer, "2026-06-01T12:01:00.000Z"),
+      ...responseTurns("mock-3", "What do signs mean?", longAnswer, "2026-06-01T12:02:00.000Z"),
+      ...responseTurns("mock-4", "What else?", longAnswer, "2026-06-01T12:03:00.000Z"),
+    ];
+
+    const result = await generateCaregiverSummaryWithQa(turns, "Mock", "two-step");
+    assert.equal(result.summary.sections.length, 7);
+    assert.ok(captureCalls > 1, "expected large capture input to be split across model calls");
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousApiKey;
+    }
   }
 }
 
@@ -1020,6 +1122,8 @@ async function testRecordingStopSequence() {
 
 async function main() {
   testQuestionnaireContract();
+  testStructuredCompletionParsing();
+  await testSummaryCaptureBatchingWithMockedModel();
   testEveryLegacyPromptMapping();
   testLegacyDraftMigration();
   testHealthMappingAndSkippedMigration();
