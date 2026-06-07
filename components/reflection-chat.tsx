@@ -7,6 +7,8 @@ import { StatusBanner } from "@/components/status-banner";
 import {
   AudioRecorderController,
   isAudioRecordingSupported,
+  prepareRecordingEndChime,
+  RecordingEndChimeController,
   startWavRecording
 } from "@/lib/audio";
 import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draft-api";
@@ -19,10 +21,11 @@ import {
   getResponsesFromTurns,
   getStepOrder
 } from "@/lib/reflection";
+import { processStoppedRecording } from "@/lib/recording";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import { ReflectionStepId, SessionDraft, UiLanguage } from "@/lib/types";
 
-const MAX_RECORDING_MS = 45 * 1000;
+const MAX_RECORDING_MS = 60 * 1000;
 const MAX_TRANSCRIPTION_UPLOAD_BYTES = 4 * 1024 * 1024;
 const SPOKEN_LANGUAGE_OPTIONS: UiLanguage[] = ["english", "spanish", "mandarin"];
 const EXAMPLE_LABELS: Record<UiLanguage, string> = {
@@ -81,6 +84,7 @@ function formatPromptExamples(examples: string[], language: UiLanguage) {
 export function ReflectionChat() {
   const router = useRouter();
   const [sessionId, setSessionId] = useState("");
+  const [careRecipientName, setCareRecipientName] = useState("");
   const [responses, setResponses] = useState<Record<string, ReflectionResponse>>({});
   const [activePromptId, setActivePromptId] = useState("");
   const [currentStepId, setCurrentStepId] = useState<ReflectionStepId>("communication");
@@ -99,6 +103,7 @@ export function ReflectionChat() {
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
   const [audioLanguage, setAudioLanguage] = useState<UiLanguage>("english");
   const recorderRef = useRef<AudioRecorderController | null>(null);
+  const recordingEndChimeRef = useRef<RecordingEndChimeController | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const recordingTimeoutRef = useRef<number | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
@@ -153,6 +158,10 @@ export function ReflectionChat() {
           promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : promptSequence.length - 1];
 
         setSessionId(localDraft.sessionId);
+        setCareRecipientName(
+          localDraft.intakeDetails.careRecipientPreferredName.trim() ||
+            localDraft.intakeDetails.careRecipientFirstName.trim()
+        );
         setResponses(localResponses);
         setUiLanguage(preferredLanguage);
         setAudioLanguage(preferredLanguage);
@@ -193,6 +202,10 @@ export function ReflectionChat() {
         promptSequence[firstIncompleteIndex >= 0 ? firstIncompleteIndex : promptSequence.length - 1];
 
       setSessionId(draft.sessionId);
+      setCareRecipientName(
+        draft.intakeDetails.careRecipientPreferredName.trim() ||
+          draft.intakeDetails.careRecipientFirstName.trim()
+      );
       setResponses(remoteResponses);
       setUiLanguage(preferredLanguage);
       setAudioLanguage(preferredLanguage);
@@ -245,6 +258,12 @@ export function ReflectionChat() {
       recorderRef.current = null;
       if (recorder) {
         void recorder.cancel();
+      }
+
+      const chime = recordingEndChimeRef.current;
+      recordingEndChimeRef.current = null;
+      if (chime) {
+        void chime.close();
       }
     };
   }, []);
@@ -383,7 +402,7 @@ export function ReflectionChat() {
     return nextResponses;
   }
 
-  async function transcribeAudio(audioBlob: Blob) {
+  async function transcribeAudio(audioBlob: Blob, transcribingStatus?: string) {
     if (!currentPrompt) {
       return;
     }
@@ -398,11 +417,12 @@ export function ReflectionChat() {
     setTranscribing(true);
     setError("");
     setStatusMessage(
-      getAudioPanelCopy({
-        recordingState: false,
-        transcribingState: true,
-        durationMs: recordingDurationMs
-      })
+      transcribingStatus ??
+        getAudioPanelCopy({
+          recordingState: false,
+          transcribingState: true,
+          durationMs: recordingDurationMs
+        })
     );
     setStatusTone("info");
 
@@ -447,7 +467,17 @@ export function ReflectionChat() {
       }
 
       if (!response.ok) {
-        throw new Error(data.error ?? "Audio transcription failed.");
+        const normalizedError = (data.error ?? rawResponse).trim().toLowerCase();
+        if (
+          response.status === 413 ||
+          normalizedError.includes("request entity too large") ||
+          normalizedError.includes("body exceeded") ||
+          normalizedError.includes("too large")
+        ) {
+          throw new Error(reflectionCopy.recordingTooLarge);
+        }
+
+        throw new Error(reflectionCopy.unableToTranscribe);
       }
 
       const transcriptText = data.transcript?.trim() ?? "";
@@ -493,6 +523,12 @@ export function ReflectionChat() {
     setRecordingDurationMs(0);
 
     try {
+      const previousChime = recordingEndChimeRef.current;
+      recordingEndChimeRef.current = prepareRecordingEndChime();
+      if (previousChime) {
+        void previousChime.close();
+      }
+
       const recorder = await startWavRecording();
       recorderRef.current = recorder;
       recordingStartedAtRef.current = performance.now();
@@ -524,41 +560,57 @@ export function ReflectionChat() {
       return;
     }
 
+    const chime = recordingEndChimeRef.current;
+    recordingEndChimeRef.current = null;
     recorderRef.current = null;
     clearRecordingTimers();
     setRecording(false);
     recordingStartedAtRef.current = null;
+    const cutoffStatus = autoStopped
+      ? reflectionCopy.audioLimitReached(
+          getLanguageLabel(audioLanguage, uiLanguage),
+          audioLanguage === "english"
+        )
+      : undefined;
 
     try {
-      const recordedAudio = await recorder.stop();
-      setRecordingDurationMs(recordedAudio.durationMs);
+      const result = await processStoppedRecording({
+        recorder,
+        chime,
+        autoStopped,
+        onRecordingStopped(recordedAudio) {
+          setRecordingDurationMs(recordedAudio.durationMs);
+          setStatusMessage(
+            recordedAudio.durationMs < 500
+              ? reflectionCopy.recordingTooShort
+              : autoStopped
+                ? cutoffStatus ?? ""
+                : getAudioPanelCopy({
+                    recordingState: false,
+                    transcribingState: true,
+                    durationMs: recordedAudio.durationMs
+                  })
+          );
+          setStatusTone("info");
+        },
+        transcribe: (audioBlob) => transcribeAudio(audioBlob, cutoffStatus)
+      });
 
-      if (recordedAudio.durationMs < 500) {
-        setStatusMessage(reflectionCopy.recordingTooShort);
-        setStatusTone("info");
+      if (result === "too_short") {
         return;
       }
-
-      setStatusMessage(
-        autoStopped
-          ? reflectionCopy.audioLimitReached(
-              getLanguageLabel(audioLanguage, uiLanguage),
-              audioLanguage === "english"
-            )
-          : getAudioPanelCopy({
-              recordingState: false,
-              transcribingState: true,
-              durationMs: recordedAudio.durationMs
-            })
-      );
-      setStatusTone("info");
-      await transcribeAudio(recordedAudio.blob);
     } catch (recordingError) {
       setError(
         recordingError instanceof Error
           ? recordingError.message
           : reflectionCopy.unableToFinishRecording
       );
+    } finally {
+      if (chime) {
+        void chime.close().catch(() => {
+          // Releasing the sound context is best-effort.
+        });
+      }
     }
   }
 
@@ -712,6 +764,11 @@ export function ReflectionChat() {
         }
       >
         <div className="space-y-5">
+          {careRecipientName ? (
+            <div className="text-sm font-semibold text-accent">
+              {reflectionCopy.caringFor(careRecipientName)}
+            </div>
+          ) : null}
           <div className="rounded-2xl border border-border bg-canvas px-4 py-3 text-sm text-slate-700">
             {reflectionCopy.sectionCounter(currentStepIndex + 1, stepOrder.length)}
           </div>

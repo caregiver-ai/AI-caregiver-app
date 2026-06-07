@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
 import { getSummaryFreshness } from "@/lib/summary-structured";
+import { migrateSessionDraftQuestionnaire } from "@/lib/questionnaire-migration";
 import { SessionDraft, SessionIntakeDetails } from "@/lib/types";
 
 type SessionRow = {
@@ -38,15 +39,15 @@ function buildEmptyIntakeDetails(): SessionIntakeDetails {
 
 function buildDraftFromSessionRow(row: SessionRow, email: string): SessionDraft {
   if (row.draft_json) {
-    return {
+    return migrateSessionDraftQuestionnaire({
       ...row.draft_json,
       sessionId: row.id,
       email,
       consented: row.draft_json.consented ?? row.consented
-    };
+    });
   }
 
-  return {
+  return migrateSessionDraftQuestionnaire({
     sessionId: row.id,
     email,
     consented: row.consented,
@@ -63,7 +64,7 @@ function buildDraftFromSessionRow(row: SessionRow, email: string): SessionDraft 
       preferredLanguage: "english"
     },
     turns: []
-  };
+  });
 }
 
 async function resolvePublicUser(authUser: { id: string; email?: string | null }) {
@@ -309,10 +310,12 @@ export async function POST(request: Request) {
       }
     }
 
-    const normalizedDraft: SessionDraft = {
+    const normalizedDraft = migrateSessionDraftQuestionnaire({
       sessionId: incomingSessionId ?? existingSession?.id ?? randomUUID(),
       email,
       consented: body.draft.consented ?? existingSession?.consented ?? false,
+      questionnaireVersion:
+        body.draft.questionnaireVersion ?? existingSession?.draft_json?.questionnaireVersion,
       intakeDetails: {
         ...buildEmptyIntakeDetails(),
         ...(existingSession ? buildDraftFromSessionRow(existingSession, email).intakeDetails : {}),
@@ -328,7 +331,7 @@ export async function POST(request: Request) {
         body.draft.editedSummaryAudit ?? existingSession?.draft_json?.editedSummaryAudit,
       summaryArchives: body.draft.summaryArchives ?? existingSession?.draft_json?.summaryArchives,
       feedback: body.draft.feedback ?? existingSession?.draft_json?.feedback
-    };
+    } satisfies SessionDraft);
 
     const { error } = await supabase.from("sessions").upsert(buildSessionRecord(
       publicUserId,

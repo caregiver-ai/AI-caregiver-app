@@ -4,6 +4,7 @@ import { summaryHasContent } from "@/lib/summary-display";
 import { getSummaryFreshness } from "@/lib/summary-structured";
 import { normalizeEditableStructuredSummary, summaryToPlainText } from "@/lib/summary";
 import { finalizeSummaryWithQa } from "@/lib/summary-audit";
+import { migrateSessionDraftQuestionnaire } from "@/lib/questionnaire-migration";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
 import { SessionDraft, StructuredSummary } from "@/lib/types";
 
@@ -153,16 +154,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: summaryLookupError.message }, { status: 500 });
     }
 
+    const savedDraft = (sessionRow as SessionRow).draft_json;
+    const migratedDraft = savedDraft ? migrateSessionDraftQuestionnaire(savedDraft) : null;
     const generatedSummary = normalizeEditableStructuredSummary(
-      (summaryRow as SummaryRow | null)?.summary_json ?? (sessionRow as SessionRow).draft_json?.structuredSummary
+      (summaryRow as SummaryRow | null)?.summary_json ?? migratedDraft?.structuredSummary
     );
     const editedSummary = normalizeEditableStructuredSummary(
       (summaryRow as SummaryRow | null)?.edited_json ??
-        (sessionRow as SessionRow).draft_json?.editedSummary ??
+        migratedDraft?.editedSummary ??
         generatedSummary
     );
     const freshness = getSummaryFreshness(
-      (sessionRow as SessionRow).draft_json?.turns ?? [],
+      migratedDraft?.turns ?? [],
       generatedSummary,
       editedSummary
     );

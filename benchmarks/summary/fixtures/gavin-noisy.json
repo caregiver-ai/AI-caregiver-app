@@ -86,13 +86,12 @@
   "expectations": {
     "sectionTitles": [
       "Communication",
-      "Daily Needs & Routines",
-      "What helps the day go well",
-      "What can upset or overwhelm them",
-      "Signs they need help",
+      "Understanding and Learning",
+      "Daily Schedule",
+      "Activities & Preferences",
+      "Signs They Are Having a Hard Time",
       "What helps when they are having a hard time",
-      "Health & Safety",
-      "Who to contact (and when)"
+      "Health & Safety"
     ],
     "sectionChecks": {
       "Communication": [
@@ -121,7 +120,18 @@
           ]
         }
       ],
-      "Daily Needs & Routines": [
+      "Understanding and Learning": [
+        {
+          "label": "learning and processing support",
+          "anyOf": [
+            "two-step",
+            "first this, then that",
+            "more than two steps",
+            "visual choices"
+          ]
+        }
+      ],
+      "Daily Schedule": [
         {
           "label": "bathroom prompting",
           "anyOf": [
@@ -147,27 +157,20 @@
           ]
         }
       ],
-      "What helps the day go well": [
+      "Activities & Preferences": [
         {
-          "label": "visual and two-step supports",
+          "label": "favorite activities and outings",
           "anyOf": [
-            "visual",
-            "two-step",
-            "first this, then that"
-          ]
-        },
-        {
-          "label": "preventive supports",
-          "anyOf": [
-            "food",
-            "walks can help",
-            "car rides can help",
-            "visual timer",
-            "visual schedule"
+            "ipad",
+            "music",
+            "horseback",
+            "car ride",
+            "walking",
+            "exploring"
           ]
         }
       ],
-      "What can upset or overwhelm them": [
+      "Signs They Are Having a Hard Time": [
         {
           "label": "sensory/environment triggers",
           "anyOf": [
@@ -184,9 +187,7 @@
             "hunger",
             "hungry"
           ]
-        }
-      ],
-      "Signs they need help": [
+        },
         {
           "label": "behavioral escalation signs",
           "anyOf": [
@@ -274,9 +275,7 @@
             "pullups",
             "white cane"
           ]
-        }
-      ],
-      "Who to contact (and when)": [
+        },
         {
           "label": "contact retention",
           "anyOf": [

@@ -86,22 +86,34 @@
   "expectations": {
     "sectionTitles": [
       "Communication",
-      "Daily Needs & Routines",
-      "What helps the day go well",
-      "What can upset or overwhelm them",
-      "Signs they need help",
+      "Understanding and Learning",
+      "Daily Schedule",
+      "Activities & Preferences",
+      "Signs They Are Having a Hard Time",
       "What helps when they are having a hard time",
-      "Health & Safety",
-      "Who to contact (and when)"
+      "Health & Safety"
     ],
     "sectionChecks": {
       "Communication": [
         {
-          "label": "non-speaking aac communication",
+          "label": "non-speaking communication",
           "anyOf": [
-            "non-speaking",
+            "non-speaking"
+          ]
+        },
+        {
+          "label": "aac identity",
+          "anyOf": [
             "aac",
             "touchchat"
+          ]
+        },
+        {
+          "label": "aac requests",
+          "anyOf": [
+            "ask for help",
+            "request car rides",
+            "wants his ipad"
           ]
         },
         {
@@ -111,14 +123,39 @@
             "lead you",
             "sit close"
           ]
+        },
+        {
+          "label": "does not report needs",
+          "anyOf": [
+            "does not tell",
+            "does not communicate pain",
+            "needs the bathroom"
+          ]
         }
       ],
-      "Daily Needs & Routines": [
+      "Understanding and Learning": [
+        {
+          "label": "learning and processing support",
+          "anyOf": [
+            "two-step",
+            "first this, then that",
+            "more than two steps",
+            "visual choices"
+          ]
+        }
+      ],
+      "Daily Schedule": [
         {
           "label": "bathroom supports",
           "anyOf": [
             "prompted every hour",
-            "does not initiate",
+            "every hour",
+            "does not initiate"
+          ]
+        },
+        {
+          "label": "bowel routine",
+          "anyOf": [
             "pull-up"
           ]
         },
@@ -131,47 +168,94 @@
           ]
         }
       ],
-      "What helps the day go well": [
+      "Activities & Preferences": [
         {
-          "label": "preventive supports",
+          "label": "favorite activities and outings",
           "anyOf": [
-            "visual choices",
-            "two-step",
-            "food",
-            "structured routine"
+            "ipad",
+            "music",
+            "horseback",
+            "car ride",
+            "walking",
+            "exploring"
           ]
         }
       ],
-      "What can upset or overwhelm them": [
+      "Signs They Are Having a Hard Time": [
         {
-          "label": "trigger coverage",
+          "label": "sensory trigger coverage",
           "anyOf": [
             "loud noise",
+            "crowds",
+            "crowded",
+            "bright"
+          ]
+        },
+        {
+          "label": "transition and hunger triggers",
+          "anyOf": [
             "bright",
             "hunger",
+            "hard transitions",
             "too many demands"
           ]
-        }
-      ],
-      "Signs they need help": [
+        },
         {
-          "label": "signs coverage",
+          "label": "physical signs coverage",
+          "anyOf": [
+            "limping",
+            "not eating",
+            "not drinking",
+            "low energy"
+          ]
+        },
+        {
+          "label": "behavior signs coverage",
           "anyOf": [
             "eloping",
             "hand biting",
-            "limping",
+            "angry vocalizations"
+          ]
+        },
+        {
+          "label": "communication and bowel signs",
+          "anyOf": [
+            "hiding",
+            "grunting",
             "pressing help"
           ]
         }
       ],
       "What helps when they are having a hard time": [
         {
-          "label": "response coverage",
+          "label": "early calming prompts",
           "anyOf": [
             "squeeze and release",
+            "deep breaths",
+            "counting to 10"
+          ]
+        },
+        {
+          "label": "escalation response",
+          "anyOf": [
             "give space",
-            "do not physically stop",
-            "car ride"
+            "reduce noise",
+            "reduce stimulation"
+          ]
+        },
+        {
+          "label": "hand biting warning",
+          "anyOf": [
+            "do not block",
+            "may bite you"
+          ]
+        },
+        {
+          "label": "reset strategies",
+          "anyOf": [
+            "car ride",
+            "quiet environments",
+            "time alone"
           ]
         }
       ],
@@ -184,6 +268,13 @@
             "elopement",
             "self-injury"
           ]
+        },
+        {
+          "label": "outing staffing",
+          "anyOf": [
+            "two adults",
+            "two caregivers"
+          ]
         }
       ]
     },
@@ -191,6 +282,15 @@
       "um, yeah.",
       "what do they communicate"
     ],
+    "sectionBannedPhrases": {
+      "Daily Schedule": [
+        "car rides work best as resets",
+        "quiet environments work best as resets"
+      ],
+      "Activities & Preferences": [
+        "lead a caregiver to what he needs"
+      ]
+    },
     "maxDuplicateItems": 2,
     "maxDuplicateItemsBySection": {
       "Communication": 1,

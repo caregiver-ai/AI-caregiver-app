@@ -8,6 +8,7 @@ import { getCurrentAuthUser, loadRemoteDraft, saveRemoteDraft } from "@/lib/draf
 import { UI_LANGUAGE_OPTIONS, getWelcomeCopy } from "@/lib/localization";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { clearDraft, loadDraft, saveDraft } from "@/lib/storage";
+import { QUESTIONNAIRE_VERSION } from "@/lib/questionnaire";
 import { SessionDraft, SessionIntakeDetails, UiLanguage } from "@/lib/types";
 
 type AuthMode = "signin" | "signup";
@@ -308,10 +309,14 @@ export function WelcomeForm() {
       sessionId: matchingExistingDraft?.sessionId || sessionId || crypto.randomUUID(),
       email: normalizedEmail,
       consented,
+      questionnaireVersion: QUESTIONNAIRE_VERSION,
       intakeDetails,
       turns: matchingExistingDraft?.turns ?? [],
       structuredSummary: matchingExistingDraft?.structuredSummary,
       editedSummary: matchingExistingDraft?.editedSummary,
+      structuredSummaryAudit: matchingExistingDraft?.structuredSummaryAudit,
+      editedSummaryAudit: matchingExistingDraft?.editedSummaryAudit,
+      summaryArchives: matchingExistingDraft?.summaryArchives,
       feedback: matchingExistingDraft?.feedback
     };
 

@@ -29,7 +29,7 @@ Caregiver Handoff is a guided intake app that helps family caregivers capture pr
 The current pipeline is no longer just a simple rewrite pass. It is a structured artifact pipeline with persistence and QA:
 
 1. Source turns are read from `sessions.draft_json.turns`.
-2. The model generates a structured caregiver handoff in the fixed 8-section format.
+2. The model generates a structured caregiver handoff in the fixed 7-section format.
 3. The app normalizes and audits the output for section placement, duplicate/noisy bullets, title quality, and missing critical details.
 4. The server persists:
    - the rendered summary in `summaries`
@@ -55,7 +55,10 @@ The current output format is a structured JSON summary with:
 - Multilingual UI: English, Spanish, Mandarin
 - Typed and recorded responses
 - OpenAI transcription with English normalization for supported non-English audio
-- Structured 8-section caregiver handoff generation
+- Versioned 7-section, 25-question caregiver questionnaire
+- Automatic migration of legacy JSON drafts
+- Structured 7-section caregiver handoff generation
+- One-minute recordings with an automatic cutoff chime
 - Summary QA and freshness checks
 - Review, edit, and regenerate flow
 - Completion flow with feedback capture
@@ -165,7 +168,7 @@ npm run summary:test
 npm run summary:benchmark
 ```
 
-`summary:test` exercises the summary pipeline logic directly.
+`summary:test` exercises the questionnaire contract, legacy draft migration, summary routing, and freshness logic directly.
 
 `summary:benchmark` runs the benchmark fixture set against the current server-side summary flow and reports checks for completeness, section placement, duplicate bullets, and transcription noise.
 
@@ -175,6 +178,8 @@ Vercel deploys the app through native Git integration:
 
 - pushes to `main` create production deploys
 - pull requests can create preview deploys
+
+Release the questionnaire update through a preview deployment first. Production promotion requires human review of the Spanish and Mandarin translations plus participant-style UAT, including the full one-minute recording flow on iPhone Safari, Android Chrome, and desktop Chrome.
 
 GitHub Actions is used for Supabase migrations:
 

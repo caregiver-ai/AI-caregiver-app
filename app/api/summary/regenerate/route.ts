@@ -1,8 +1,14 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { generateCaregiverSummaryWithQa } from "@/lib/summary-generation";
+import { finalizeSummaryWithQa } from "@/lib/summary-audit";
 import { getSummaryFreshness } from "@/lib/summary-structured";
+import { migrateSessionDraftQuestionnaire } from "@/lib/questionnaire-migration";
 import { summaryToPlainText } from "@/lib/summary";
+import {
+  applyReviewedSummaryEdits,
+  archiveDraftSummaries
+} from "@/lib/summary-versioning";
 import { createSupabaseServerClient, getSupabaseAuthUserFromRequest } from "@/lib/supabase";
 import { SessionDraft } from "@/lib/types";
 
@@ -140,7 +146,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unable to find that saved summary." }, { status: 404 });
     }
 
-    const turns = ownedSession.draft_json?.turns ?? [];
+    const migratedDraft = ownedSession.draft_json
+      ? migrateSessionDraftQuestionnaire(ownedSession.draft_json)
+      : null;
+    const turns = migratedDraft?.turns ?? [];
     if (turns.length === 0) {
       return NextResponse.json(
         { error: "No saved caregiver answers are available for regeneration." },
@@ -157,14 +166,24 @@ export async function POST(request: Request) {
         .trim();
     const nameHint = isUsefulNameHint(rawNameHint) ? rawNameHint : "";
     const generated = await generateCaregiverSummaryWithQa(turns, nameHint || undefined, "two-step");
+    const reviewedSummary = applyReviewedSummaryEdits(
+      generated.summary,
+      migratedDraft?.structuredSummary,
+      migratedDraft?.editedSummary,
+      nameHint || undefined
+    );
+    const finalized = finalizeSummaryWithQa(reviewedSummary, {
+      source: "saved",
+      nameHint: nameHint || undefined
+    });
     const summary = {
-      ...generated.summary,
+      ...finalized.summary,
       generatedAt: new Date().toISOString()
     };
-    const auditReport = generated.auditReport;
+    const auditReport = finalized.report;
 
-    const nextDraft: SessionDraft = {
-      ...(ownedSession.draft_json ?? {
+    const migratedBaseDraft: SessionDraft = {
+      ...(migratedDraft ?? {
         sessionId: ownedSession.id,
         email: user.email?.trim().toLowerCase() ?? "",
         consented: false,
@@ -182,23 +201,29 @@ export async function POST(request: Request) {
         turns
       }),
       sessionId: ownedSession.id,
-      turns,
-      summaryArchives: [
-        ...(ownedSession.draft_json?.summaryArchives ?? []),
-        {
-          structuredSummary: ownedSession.draft_json?.structuredSummary,
-          editedSummary: ownedSession.draft_json?.editedSummary,
-          archivedAt: new Date().toISOString(),
-          reason: "stale_regeneration" as const
-        }
-      ].filter(
-        (archive) => archive.structuredSummary || archive.editedSummary
-      ),
+      turns
+    };
+    const archivedDraft = archiveDraftSummaries(migratedBaseDraft);
+    const nextDraft: SessionDraft = {
+      ...archivedDraft,
       structuredSummary: summary,
       editedSummary: summary,
       structuredSummaryAudit: auditReport,
       editedSummaryAudit: auditReport
     };
+
+    const { error: archiveUpdateError } = await supabase
+      .from("sessions")
+      .update({
+        draft_json: archivedDraft,
+        updated_at: new Date().toISOString(),
+        status: ownedSession.status
+      })
+      .eq("id", ownedSession.id);
+
+    if (archiveUpdateError) {
+      return NextResponse.json({ error: archiveUpdateError.message }, { status: 500 });
+    }
 
     const { error: summaryUpsertError } = await supabase.from("summaries").upsert(
       {

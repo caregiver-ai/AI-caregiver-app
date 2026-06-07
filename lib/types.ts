@@ -1,4 +1,12 @@
 export type ReflectionSectionId =
+  | "communication"
+  | "understanding_learning"
+  | "daily_schedule"
+  | "activities_preferences"
+  | "signs_hard_time"
+  | "hard_time_support"
+  | "health_safety"
+  // Legacy section identifiers remain valid while saved drafts are migrated.
   | "what_helps_the_day_go_well"
   | "what_can_upset_or_overwhelm_them"
   | "signs_they_may_need_help"
@@ -6,6 +14,7 @@ export type ReflectionSectionId =
   | "who_to_contact_and_when";
 export type ReflectionStepId =
   | "communication"
+  | "understanding_learning"
   | "health_safety"
   | "daily_schedule"
   | "activities_preferences"
@@ -142,6 +151,7 @@ export interface SessionDraft {
   sessionId: string;
   email: string;
   consented: boolean;
+  questionnaireVersion?: string;
   intakeDetails: SessionIntakeDetails;
   turns: ConversationTurn[];
   structuredSummary?: StructuredSummary;

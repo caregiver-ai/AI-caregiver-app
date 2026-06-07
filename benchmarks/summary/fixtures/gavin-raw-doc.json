@@ -14,13 +14,12 @@
   "expectations": {
     "sectionTitles": [
       "Communication",
-      "Daily Needs & Routines",
-      "What helps the day go well",
-      "What can upset or overwhelm them",
-      "Signs they need help",
+      "Understanding and Learning",
+      "Daily Schedule",
+      "Activities & Preferences",
+      "Signs They Are Having a Hard Time",
       "What helps when they are having a hard time",
-      "Health & Safety",
-      "Who to contact (and when)"
+      "Health & Safety"
     ],
     "sectionChecks": {
       "Communication": [
@@ -49,7 +48,18 @@
           ]
         }
       ],
-      "Daily Needs & Routines": [
+      "Understanding and Learning": [
+        {
+          "label": "learning and processing support",
+          "anyOf": [
+            "two-step",
+            "first this, then that",
+            "more than two steps",
+            "visual choices"
+          ]
+        }
+      ],
+      "Daily Schedule": [
         {
           "label": "toileting routine",
           "anyOf": [
@@ -76,26 +86,20 @@
           ]
         }
       ],
-      "What helps the day go well": [
+      "Activities & Preferences": [
         {
-          "label": "core supports",
+          "label": "favorite activities and outings",
           "anyOf": [
-            "visual",
-            "two-step",
-            "structured routine",
-            "regular access to food"
-          ]
-        },
-        {
-          "label": "preventive iPad support",
-          "anyOf": [
-            "search history",
-            "find items on his iPad",
-            "prevent frustration"
+            "ipad",
+            "music",
+            "horseback",
+            "car ride",
+            "walking",
+            "exploring"
           ]
         }
       ],
-      "What can upset or overwhelm them": [
+      "Signs They Are Having a Hard Time": [
         {
           "label": "trigger coverage",
           "anyOf": [
@@ -105,9 +109,7 @@
             "shades",
             "hunger"
           ]
-        }
-      ],
-      "Signs they need help": [
+        },
         {
           "label": "behavior signs",
           "anyOf": [
@@ -214,9 +216,7 @@
           "anyOf": [
             "may bite you"
           ]
-        }
-      ],
-      "Who to contact (and when)": [
+        },
         {
           "label": "contact list",
           "anyOf": [
@@ -244,7 +244,7 @@
         "polyethylene glycol",
         "miralax"
       ],
-      "Signs they need help": [
+      "Signs They Are Having a Hard Time": [
         "abilify",
         "aripiprazole",
         "polyethylene glycol",
@@ -258,9 +258,9 @@
     "maxDuplicateItemsBySection": {
       "Communication": 0,
       "Health & Safety": 0,
-      "Signs they need help": 0,
+      "Signs They Are Having a Hard Time": 0,
       "What helps when they are having a hard time": 0,
-      "What helps the day go well": 0
+      "Activities & Preferences": 0
     }
   }
 }

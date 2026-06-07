@@ -5,6 +5,7 @@ import {
   normalizeAuthoritativeStructuredSummary,
   normalizeGeneratedSummaryWithOptions
 } from "./summary";
+import { getQuestionnairePrompts } from "./questionnaire";
 import { finalizeSummaryWithQa } from "./summary-audit";
 import {
   SUMMARY_LAYOUT_VERSION,
@@ -54,6 +55,7 @@ type StructuredCapture = {
 type StructuredFactKind =
   | "communication_method"
   | "communication_signal"
+  | "learning"
   | "support_strategy"
   | "routine"
   | "trigger"
@@ -109,6 +111,7 @@ class SummaryModelRequestError extends Error {
 type SummarySourceEntry = {
   entryId: string;
   text: string;
+  content: string;
   sectionTitle?: string;
   stepId?: ReflectionStepId;
   stepTitle?: string;
@@ -131,13 +134,12 @@ type EntryPromptRouting = {
 type GeneratedSummarySectionField = {
   key:
     | "communication"
-    | "dailyNeedsRoutines"
-    | "whatHelpsTheDayGoWell"
-    | "whatCanUpsetOrOverwhelmThem"
-    | "signsTheyNeedHelp"
+    | "understandingAndLearning"
+    | "dailySchedule"
+    | "activitiesAndPreferences"
+    | "signsTheyAreHavingAHardTime"
     | "whatHelpsWhenTheyAreHavingAHardTime"
-    | "healthAndSafety"
-    | "whoToContactAndWhen";
+    | "healthAndSafety";
   title: SummarySectionTitle;
 };
 
@@ -145,16 +147,15 @@ export type SummaryGenerationMode = "one-step" | "two-step";
 
 const GENERATED_SUMMARY_SECTION_FIELDS: GeneratedSummarySectionField[] = [
   { key: "communication", title: "Communication" },
-  { key: "dailyNeedsRoutines", title: "Daily Needs & Routines" },
-  { key: "whatHelpsTheDayGoWell", title: "What helps the day go well" },
-  { key: "whatCanUpsetOrOverwhelmThem", title: "What can upset or overwhelm them" },
-  { key: "signsTheyNeedHelp", title: "Signs they need help" },
+  { key: "understandingAndLearning", title: "Understanding and Learning" },
+  { key: "dailySchedule", title: "Daily Schedule" },
+  { key: "activitiesAndPreferences", title: "Activities & Preferences" },
+  { key: "signsTheyAreHavingAHardTime", title: "Signs They Are Having a Hard Time" },
   {
     key: "whatHelpsWhenTheyAreHavingAHardTime",
     title: "What helps when they are having a hard time"
   },
-  { key: "healthAndSafety", title: "Health & Safety" },
-  { key: "whoToContactAndWhen", title: "Who to contact (and when)" }
+  { key: "healthAndSafety", title: "Health & Safety" }
 ];
 
 const RAW_SECTION_PATTERNS: Array<{
@@ -176,28 +177,34 @@ const RAW_SECTION_PATTERNS: Array<{
     aliases: ["Health & Safety", "Health and Safety"]
   },
   {
-    sectionTitle: "Daily Needs & Routines",
+    sectionTitle: "Understanding and Learning",
+    stepId: "understanding_learning",
+    stepTitle: "Understanding and Learning",
+    aliases: ["Understanding and Learning", "Learning and Understanding"]
+  },
+  {
+    sectionTitle: "Daily Schedule",
     stepId: "daily_schedule",
     stepTitle: "Daily Schedule",
     aliases: ["Daily Schedule", "Daily Needs & Routines"]
   },
   {
-    sectionTitle: "What helps the day go well",
+    sectionTitle: "Activities & Preferences",
     stepId: "activities_preferences",
     stepTitle: "Activities & Preferences",
-    aliases: ["Activities & Preferences", "Activities and Preferences"]
+    aliases: ["Activities & Preferences", "Activities and Preferences", "What helps the day go well"]
   },
   {
-    sectionTitle: "What can upset or overwhelm them",
+    sectionTitle: "Signs They Are Having a Hard Time",
     stepId: "upset_overwhelm",
     stepTitle: "What Can Upset or Overwhelm Them",
     aliases: ["What Can Upset or Overwhelm Them", "What changes in plans or routine tend to upset or overwhelm them"]
   },
   {
-    sectionTitle: "Signs they need help",
+    sectionTitle: "Signs They Are Having a Hard Time",
     stepId: "signs_need_help",
-    stepTitle: "Signs They May Need Help",
-    aliases: ["Signs They May Need Help", "Signs they need help"]
+    stepTitle: "Signs They Are Having a Hard Time",
+    aliases: ["Signs They Are Having a Hard Time", "Signs They May Need Help", "Signs they need help"]
   },
   {
     sectionTitle: "What helps when they are having a hard time",
@@ -206,14 +213,14 @@ const RAW_SECTION_PATTERNS: Array<{
     aliases: ["What Helps When They Are Having a Hard Time"]
   },
   {
-    sectionTitle: "Who to contact (and when)",
+    sectionTitle: "Health & Safety",
     stepId: "who_to_contact",
     stepTitle: "Who To Contact",
     aliases: ["Who To Contact", "Who to contact", "Emergency contacts", "Emergency Contacts"]
   }
 ];
 
-const RAW_PROMPT_DEFINITIONS: RawPromptDefinition[] = [
+const LEGACY_RAW_PROMPT_DEFINITIONS: RawPromptDefinition[] = [
   {
     sectionTitle: "Communication",
     stepId: "communication",
@@ -414,47 +421,121 @@ const RAW_PROMPT_DEFINITIONS: RawPromptDefinition[] = [
   }
 ];
 
-const PROMPT_ROUTING_BY_LABEL = new Map<string, EntryPromptRouting>([
+function canonicalRawSectionTitle(title: string): SummarySectionTitle {
+  if (/understanding|learning/i.test(title)) return "Understanding and Learning";
+  if (/daily/i.test(title)) return "Daily Schedule";
+  if (/activities|preferences|day go well/i.test(title)) return "Activities & Preferences";
+  if (/what helps when/i.test(title)) return "What helps when they are having a hard time";
+  if (/upset|overwhelm|signs/i.test(title)) return "Signs They Are Having a Hard Time";
+  if (/health|safety|contact/i.test(title)) return "Health & Safety";
+  return "Communication";
+}
+
+function canonicalLegacyPromptSection(prompt: RawPromptDefinition): SummarySectionTitle {
+  const label = prompt.promptLabel.toLowerCase();
+
+  if (label.includes("helps with transitions")) {
+    return "What helps when they are having a hard time";
+  }
+  if (
+    label.includes("like to do") ||
+    label.includes("enjoy") ||
+    label.includes("quiet or downtime")
+  ) {
+    return "Activities & Preferences";
+  }
+  if (
+    label.includes("upset or overwhelm") ||
+    label.includes("feel overwhelming") ||
+    label.includes("show they need help") ||
+    label.includes("tell when they need help")
+  ) {
+    return "Signs They Are Having a Hard Time";
+  }
+  if (label.includes("contact") || label.includes("emergency contacts")) {
+    return "Health & Safety";
+  }
+  if (label.includes("helps you communicate")) {
+    return "Communication";
+  }
+
+  return canonicalRawSectionTitle(prompt.sectionTitle);
+}
+
+const RAW_PROMPT_DEFINITIONS: RawPromptDefinition[] = [
+  ...getQuestionnairePrompts("english").map((prompt) => ({
+    sectionTitle: prompt.sectionTitle,
+    stepId: prompt.stepId,
+    stepTitle: prompt.stepTitle,
+    promptLabel: prompt.promptLabel,
+    aliases: [prompt.question]
+  })),
+  ...LEGACY_RAW_PROMPT_DEFINITIONS.map((prompt) => {
+    const sectionTitle = canonicalLegacyPromptSection(prompt);
+    return {
+      ...prompt,
+      sectionTitle,
+      stepTitle: sectionTitle
+    };
+  })
+];
+
+const PROMPT_ROUTING_BY_LABEL = new Map<string, EntryPromptRouting>();
+
+const CURRENT_PROMPT_ROUTING: Array<[string, EntryPromptRouting]> = [
   ["how do they communicate?", { preferredSection: "Communication", defaultFactKind: "communication_method" }],
-  [
-    "are there things they say or do that mean something specific? what do they mean?",
-    { preferredSection: "Communication", defaultFactKind: "communication_signal" }
-  ],
-  ["what helps you communicate with them?", { preferredSection: "What helps the day go well", defaultFactKind: "support_strategy" }],
-  [
-    "how can you tell when they need help, and what should you check first?",
-    { preferredSection: "Signs they need help", defaultFactKind: "help_sign" }
-  ],
-  ["are there any allergies?", { preferredSection: "Health & Safety", defaultFactKind: "condition" }],
-  ["do they have any health conditions?", { preferredSection: "Health & Safety", defaultFactKind: "condition" }],
-  ["do they take any medication? what should others know?", { preferredSection: "Health & Safety", defaultFactKind: "medication" }],
-  ["do they use any equipment or supports?", { preferredSection: "Health & Safety", defaultFactKind: "equipment" }],
-  ["what is their typical morning routine?", { preferredSection: "Daily Needs & Routines", defaultFactKind: "routine" }],
-  ["what are meals and snacks like?", { preferredSection: "Daily Needs & Routines", defaultFactKind: "routine" }],
-  ["what helps with transitions during the day?", { preferredSection: "What helps the day go well", defaultFactKind: "support_strategy" }],
-  ["what do they like to do during the day?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
-  ["what is their bedtime routine?", { preferredSection: "Daily Needs & Routines", defaultFactKind: "routine" }],
-  ["what do they enjoy doing during the day?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
-  ["what do they enjoy doing outside the home?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
-  ["what activities do they enjoy most?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
-  ["who do they enjoy spending time with?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
-  ["what does quiet or downtime look like for them?", { preferredSection: "What helps the day go well", defaultFactKind: "preference" }],
-  ["what changes in plans or routine tend to upset or overwhelm them?", { preferredSection: "What can upset or overwhelm them", defaultFactKind: "trigger" }],
-  ["what places or things around them can feel overwhelming?", { preferredSection: "What can upset or overwhelm them", defaultFactKind: "trigger" }],
-  ["what things like hunger, tiredness, or not feeling well can affect them?", { preferredSection: "What can upset or overwhelm them", defaultFactKind: "trigger" }],
-  ["what signs in their body show they need help?", { preferredSection: "Signs they need help", defaultFactKind: "help_sign" }],
-  ["what changes in their behavior show they need help?", { preferredSection: "Signs they need help", defaultFactKind: "help_sign" }],
-  ["what changes in how they communicate show they need help?", { preferredSection: "Signs they need help", defaultFactKind: "help_sign" }],
+  ["what helps you communicate with them?", { preferredSection: "Communication", defaultFactKind: "support_strategy" }],
+  ["are there things they say or do that mean something specific? what do they mean?", { preferredSection: "Communication", defaultFactKind: "communication_signal" }],
+  ["how do they learn, understand, and process information?", { preferredSection: "Understanding and Learning", defaultFactKind: "learning" }],
+  ["what can they read, write, and understand?", { preferredSection: "Understanding and Learning", defaultFactKind: "learning" }],
+  ["what would surprise people about what they can and cannot do?", { preferredSection: "Understanding and Learning", defaultFactKind: "learning" }],
+  ["how much support do they need in daily life?", { preferredSection: "Daily Schedule", defaultFactKind: "routine" }],
+  ["what is their typical morning routine?", { preferredSection: "Daily Schedule", defaultFactKind: "routine" }],
+  ["what are meals and snacks like?", { preferredSection: "Daily Schedule", defaultFactKind: "routine" }],
+  ["what is their bedtime routine?", { preferredSection: "Daily Schedule", defaultFactKind: "routine" }],
+  ["what activities do they enjoy most?", { preferredSection: "Activities & Preferences", defaultFactKind: "preference" }],
+  ["what do they enjoy doing outside the home?", { preferredSection: "Activities & Preferences", defaultFactKind: "preference" }],
+  ["who do they enjoy spending time with?", { preferredSection: "Activities & Preferences", defaultFactKind: "preference" }],
+  ["what situations or changes can make things harder for them?", { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "trigger" }],
+  ["what signs in their body show they may need help?", { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "help_sign" }],
+  ["what changes in their behavior or communication show they may need help?", { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "help_sign" }],
   ["what changes to the environment help?", { preferredSection: "What helps when they are having a hard time", defaultFactKind: "caregiver_action" }],
   ["what calming items help them?", { preferredSection: "What helps when they are having a hard time", defaultFactKind: "caregiver_action" }],
+  ["what helps with transitions?", { preferredSection: "What helps when they are having a hard time", defaultFactKind: "caregiver_action" }],
+  ["what diagnoses, disabilities, or conditions should others know about?", { preferredSection: "Health & Safety", defaultFactKind: "condition" }],
+  ["are there any allergies?", { preferredSection: "Health & Safety", defaultFactKind: "condition" }],
+  ["do they take any medication and what should others know about it?", { preferredSection: "Health & Safety", defaultFactKind: "medication" }],
+  ["do they use any equipment or supports?", { preferredSection: "Health & Safety", defaultFactKind: "equipment" }],
+  ["do they need supervision for safety?", { preferredSection: "Health & Safety", defaultFactKind: "safety_risk" }],
+  ["if something happens, who should be contacted and what should others know about when to call?", { preferredSection: "Health & Safety", defaultFactKind: "contact" }],
+  ["how can you tell when they need help, and what should you check first?", { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "help_sign" }],
+  ["what helps with transitions during the day?", { preferredSection: "What helps when they are having a hard time", defaultFactKind: "caregiver_action" }],
+  ["what do they like to do during the day?", { preferredSection: "Activities & Preferences", defaultFactKind: "preference" }],
+  ["what do they enjoy doing during the day?", { preferredSection: "Activities & Preferences", defaultFactKind: "preference" }],
+  ["what does quiet or downtime look like for them?", { preferredSection: "Activities & Preferences", defaultFactKind: "preference" }],
+  ["what changes in plans or routine tend to upset or overwhelm them?", { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "trigger" }],
+  ["what places or things around them can feel overwhelming?", { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "trigger" }],
+  ["what things like hunger, tiredness, or not feeling well can affect them?", { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "trigger" }],
+  ["what signs in their body show they need help?", { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "help_sign" }],
+  ["what changes in their behavior show they need help?", { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "help_sign" }],
+  ["what changes in how they communicate show they need help?", { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "help_sign" }],
   ["what can you do in the moment to help?", { preferredSection: "What helps when they are having a hard time", defaultFactKind: "caregiver_action" }],
-  ["who should be contacted in an emergency?", { preferredSection: "Who to contact (and when)", defaultFactKind: "contact" }],
-  ["emergency contacts:", { preferredSection: "Who to contact (and when)", defaultFactKind: "contact" }]
-]);
+  ["do they have any health conditions?", { preferredSection: "Health & Safety", defaultFactKind: "condition" }],
+  ["do they take any medication? what should others know?", { preferredSection: "Health & Safety", defaultFactKind: "medication" }],
+  ["who should be contacted in an emergency?", { preferredSection: "Health & Safety", defaultFactKind: "contact" }],
+  ["who should be contacted in non-emergencies?", { preferredSection: "Health & Safety", defaultFactKind: "contact" }],
+  ["is there anything important others should know about when to call or not call?", { preferredSection: "Health & Safety", defaultFactKind: "contact" }],
+  ["emergency contacts:", { preferredSection: "Health & Safety", defaultFactKind: "contact" }]
+];
+
+for (const [label, routing] of CURRENT_PROMPT_ROUTING) {
+  PROMPT_ROUTING_BY_LABEL.set(label, routing);
+}
 
 const STRUCTURED_FACT_KINDS: StructuredFactKind[] = [
   "communication_method",
   "communication_signal",
+  "learning",
   "support_strategy",
   "routine",
   "trigger",
@@ -487,9 +568,17 @@ const STOPWORDS = new Set([
   "at",
   "be",
   "by",
+  "calm",
+  "can",
+  "caregivers",
+  "day",
   "for",
   "from",
+  "gavin",
+  "good",
   "he",
+  "help",
+  "helps",
   "her",
   "him",
   "his",
@@ -502,7 +591,13 @@ const STOPWORDS = new Set([
   "of",
   "on",
   "or",
+  "prompt",
+  "reset",
   "she",
+  "should",
+  "sign",
+  "still",
+  "somewhat",
   "that",
   "the",
   "their",
@@ -510,7 +605,14 @@ const STOPWORDS = new Set([
   "they",
   "this",
   "to",
+  "upset",
+  "overwhelm",
+  "well",
+  "when",
   "with",
+  "work",
+  "works",
+  "best",
   "you"
 ]);
 
@@ -530,25 +632,25 @@ const summarySchema = {
         type: "string"
       }
     },
-    dailyNeedsRoutines: {
+    understandingAndLearning: {
       type: "array",
       items: {
         type: "string"
       }
     },
-    whatHelpsTheDayGoWell: {
+    dailySchedule: {
       type: "array",
       items: {
         type: "string"
       }
     },
-    whatCanUpsetOrOverwhelmThem: {
+    activitiesAndPreferences: {
       type: "array",
       items: {
         type: "string"
       }
     },
-    signsTheyNeedHelp: {
+    signsTheyAreHavingAHardTime: {
       type: "array",
       items: {
         type: "string"
@@ -566,24 +668,17 @@ const summarySchema = {
         type: "string"
       }
     },
-    whoToContactAndWhen: {
-      type: "array",
-      items: {
-        type: "string"
-      }
-    }
   },
   required: [
     "title",
     "overview",
     "communication",
-    "dailyNeedsRoutines",
-    "whatHelpsTheDayGoWell",
-    "whatCanUpsetOrOverwhelmThem",
-    "signsTheyNeedHelp",
+    "understandingAndLearning",
+    "dailySchedule",
+    "activitiesAndPreferences",
+    "signsTheyAreHavingAHardTime",
     "whatHelpsWhenTheyAreHavingAHardTime",
-    "healthAndSafety",
-    "whoToContactAndWhen"
+    "healthAndSafety"
   ]
 } as const;
 
@@ -630,215 +725,59 @@ const summarySchemaDescription = `Return JSON with exactly these keys and no oth
   "title": "string",
   "overview": "string",
   "communication": ["string"],
-  "dailyNeedsRoutines": ["string"],
-  "whatHelpsTheDayGoWell": ["string"],
-  "whatCanUpsetOrOverwhelmThem": ["string"],
-  "signsTheyNeedHelp": ["string"],
+  "understandingAndLearning": ["string"],
+  "dailySchedule": ["string"],
+  "activitiesAndPreferences": ["string"],
+  "signsTheyAreHavingAHardTime": ["string"],
   "whatHelpsWhenTheyAreHavingAHardTime": ["string"],
-  "healthAndSafety": ["string"],
-  "whoToContactAndWhen": ["string"]
+  "healthAndSafety": ["string"]
 }`;
 
-const oneStepSynthesisRules = `You are an assistant that transforms caregiver input into a clear, structured caregiver handoff.
+const sevenSectionGuidance = `Use these exact seven sections in this exact order:
+1. Communication
+2. Understanding and Learning
+3. Daily Schedule
+4. Activities & Preferences
+5. Signs They Are Having a Hard Time
+6. What helps when they are having a hard time
+7. Health & Safety
 
-Your role is NOT to summarize.
-Your role is to:
-1. Extract ALL meaningful information
-2. Categorize information correctly
-3. Present it in a clear, concise, and actionable format
+Categorize by meaning:
+- Communication: communication methods, communication supports, and what specific signals mean.
+- Understanding and Learning: learning style, processing time, reading, writing, comprehension, abilities, limits, and decision support.
+- Daily Schedule: support level, morning routine, meals, snacks, bedtime, toileting, and daily care.
+- Activities & Preferences: favorite activities, outings, people, places, and preferences.
+- Signs They Are Having a Hard Time: triggers, difficult situations, physical signs, behavior changes, and communication changes.
+- What helps when they are having a hard time: environmental changes, calming items, transition supports, and direct caregiver actions.
+- Health & Safety: diagnoses, allergies, medications, equipment, supervision, risks, emergency contacts, and call guidance.
 
-Core rule
-- Include ALL meaningful information from the caregiver input.
-- Do NOT omit behaviors, needs, risks, or supports.
-- Do NOT simplify away important details.
-- If in doubt, include it.
-- Ignore copied question text, worksheet instructions, skip notes, testing notes, transcription filler, and obvious non-answer noise unless they clearly contain care information.
+Each fact belongs in one section only. Always write the final output in English. Preserve every meaningful fact, prioritize safety, remove duplicates, and never echo worksheet questions or instructions.`;
 
-Step 1: Extract all information
-- Carefully review the caregiver input.
-- Break it into a complete list of individual statements.
-- Each statement must represent one idea only.
-- Each statement must be clear and complete.
-- Do not skip meaningful information.
+const sevenSectionOneStepRules = `Create a caregiver-ready handoff from the caregiver input.
 
-Step 2: Categorize by meaning, not location
-- Assign each statement to the single best category based on meaning.
-- Use these section titles, in this order, every time:
-  1. Communication
-  2. Daily Needs & Routines
-  3. What helps the day go well
-  4. What can upset or overwhelm them
-  5. Signs they need help
-  6. What helps when they are having a hard time
-  7. Health & Safety
-  8. Who to contact (and when)
-- Category definitions:
-  - Communication: how the person expresses themselves and how to understand them.
-  - Daily Needs & Routines: schedules, toileting, eating, daily structure, and care routines.
-  - What helps the day go well: preventative supports that keep the person regulated and successful.
-  - What can upset or overwhelm them: environmental, situational, or internal triggers.
-  - Signs they need help: observable behaviors or changes that indicate a need.
-  - What helps when they are having a hard time: what a caregiver should do in response.
-  - Health & Safety: medical needs, supervision needs, risks, equipment, and physical limitations.
-  - Who to contact (and when): emergency and non-emergency contacts or call guidance.
-- Strict categorization rules:
-  - Categorize based on meaning, not where it was written.
-  - Each statement appears in only one category.
-  - Choose the most actionable category.
-  - Running away, aggression, self-injury, and withdrawal belong in Signs they need help.
-  - What the caregiver should do belongs in What helps when they are having a hard time.
-  - Supervision needs, physical risks, and medical information belong in Health & Safety.
-  - Preventative strategies belong in What helps the day go well.
-  - Toileting, eating, and schedules belong in Daily Needs & Routines.
-  - Communication methods, AAC device use, sounds, gestures, leading, touching, attention-seeking, and what device selections mean belong in Communication.
-- Do not repeat the same fact across sections unless omitting it would create a safety risk.
+${sevenSectionGuidance}
 
-Step 3: Prioritize safety
-- You must clearly include and highlight self-injury, elopement, supervision needs, medical needs, and situations where the caregiver could be harmed when that information is present.
+Return every section as an array of concise, complete bullet strings. If a section has no supported information, return exactly ["${NO_INFORMATION_PLACEHOLDER}"]. Keep the overview under 80 words and include the most important communication, support, and safety information.`;
 
-Step 4: Generate output
-- Always write the final output in English.
-- Build a useful caregiver handoff, not a worksheet recap.
-- Include all eight sections, even when no information is available.
-- Every section field must be an array of bullet strings.
-- If a section has no supported information, return exactly ["${NO_INFORMATION_PLACEHOLDER}"] for that section.
-- Rewrite the information into caregiver-ready bullet points. Do not echo the worksheet wording.
-- Use bullet points only.
-- Each bullet must be one clear, complete sentence.
-- Keep language short, direct, and easy to scan.
-- Combine similar ideas only when nothing is lost.
-- No duplicate information.
-- No run-on sentences.
-- Do not output question fragments, skip markers, uncertainty notes, or filler/noise such as "Use Skip", "Skip", "Not clearly stated in the raw input", "What do they mean?", "um", or "eheheh".
-- Prefer a 6th-8th grade reading level.
-- Avoid jargon, meta commentary, process notes, or unsupported assumptions.
-- overview must be a short 1-2 sentence summary of the most important themes, not a transcript recap.
-- If possible, the overview should briefly state how the person communicates and the most important safety or supervision risks.
-- Keep overview under 80 words.
+const sevenSectionCaptureRules = `Capture all meaningful caregiver information as atomic facts before rewriting.
 
-Step 5: Final validation
-- Check that all meaningful caregiver input is included.
-- Check that no behaviors, needs, or safety risks are missing.
-- Check that every item is in the best category.
-- Check that the output is easy to scan quickly and tells a new caregiver what to do.
-- Fix anything missing, duplicated, misplaced, or unclear before finalizing.`;
+${sevenSectionGuidance}
 
-const stepOneCaptureRules = `You are Step 1 of a caregiver handoff pipeline.
+Use the most specific allowed factKind. Use learning for learning, processing, reading, writing, comprehension, abilities, or decision support. Mark safetyRelevant for self-injury, elopement, supervision, medical needs, or caregiver-harm risk. Preserve the provided Entry label in entryId.
 
-Goal:
-- Capture ALL meaningful caregiver information before any rewriting happens.
+Capture every distinct detail separately. For example, AAC identity, asking for help, requesting a car ride, and requesting an iPad are separate facts even though they use the same device. Limping, not eating, not drinking, low energy, elopement, hand biting, angry vocalizations, hiding/grunting, and pressing Help are also separate signs. Squeeze-and-release, deep breathing, counting, giving space, reducing stimulation, not blocking hand biting, car rides, quiet environments, and time alone are separate caregiver actions unless the source explicitly combines them.
 
-You must:
-- Capture all meaningful caregiver information from the input.
-- Break the information into atomic facts: one idea per fact.
-- Preserve the original meaning and wording as much as possible.
-- Assign each fact to the single best section based on meaning, not where it was originally entered.
-- Assign each fact a factKind from the allowed enum. Use the most specific kind.
-- Choose a short internal subcategory label that helps organize related facts.
-- Mark safetyRelevant as true for self-injury, elopement, supervision needs, medical needs, or situations where a caregiver could be harmed.
+Do not invent, omit, polish, or combine distinct facts.`;
 
-You must not:
-- Omit meaningful behaviors, needs, risks, supports, or routines.
-- Rewrite for polish or combine separate ideas into one fact.
-- Invent facts or infer details that are not supported by the input.
-- Include copied question text, worksheet instructions, skip markers, testing notes, or obvious non-answer filler unless they clearly contain care information.
+const sevenSectionRewriteRules = `Rewrite the structured facts into a concise caregiver-ready handoff.
 
-Section guidance:
-- Communication
-- Daily Needs & Routines
-- What helps the day go well
-- What can upset or overwhelm them
-- Signs they need help
-- What helps when they are having a hard time
-- Health & Safety
-- Who to contact (and when)
+${sevenSectionGuidance}
 
-Allowed factKind values:
-- communication_method: how the person communicates
-- communication_signal: what a signal, AAC selection, gesture, or cue means
-- support_strategy: proactive supports that help the day go well
-- routine: schedules, toileting, meals, daily care, transitions
-- trigger: what can upset or overwhelm them
-- help_sign: physical, behavioral, or communication signs that they need help
-- caregiver_action: what the caregiver should do in the moment
-- condition: diagnoses, allergies, physical limitations, or health conditions
-- medication: medicines, doses, and medication instructions
-- equipment: devices, supplies, or supports
-- safety_risk: supervision needs, elopement, self-injury, or caregiver-harm cautions
-- contact: who to contact
-- preference: favorite people, activities, places, or downtime preferences
+Keep each fact in its assigned section and use each factKind consistently. Include all seven sections. Every captured fact must appear in the final summary. Use one clear idea per bullet, combine facts only when the combined bullet preserves every detail, keep medications/equipment/contacts distinct, and return ["${NO_INFORMATION_PLACEHOLDER}"] for an empty section.
 
-Strict categorization rules:
-- Running away, aggression, self-injury, and withdrawal belong in Signs they need help.
-- What the caregiver should do belongs in What helps when they are having a hard time.
-- Supervision needs, physical risks, and medical information belong in Health & Safety.
-- Preventative strategies belong in What helps the day go well.
-- Toileting, eating, and schedules belong in Daily Needs & Routines.
-- Communication methods, AAC device use, sounds, gestures, leading, touching, attention-seeking, and what device selections mean belong in Communication.
-- General regulation supports such as car rides, walks, preferred activities, and environmental supports belong in What helps the day go well even if the caregiver mentions that they help when the person is upset.
-- Direct caregiver actions such as offer, take, help, redirect, check, move, or stay with belong in What helps when they are having a hard time.
-- If a device selection explains what the person is trying to communicate, keep it in Communication.
-- If the device not working or inability to access content causes distress, place it in What can upset or overwhelm them.
-- If checking search history or helping find content is a preventative support, place it in What helps the day go well.
-- If helping find content is phrased as an in-the-moment caregiver action, place it in What helps when they are having a hard time.
-- Use communication only for how Gavin expresses himself and what his signals mean.
-- Do not place proactive supports, triggers, signs of distress, or caregiver instructions in Communication.
-- The factKind must agree with the section. For example, medication belongs in Health & Safety with factKind=medication, not help_sign.
+AAC identity and the meanings of AAC selections belong in Communication unless the source is explicitly answering an equipment-inventory question. Food availability and eating patterns belong in Daily Schedule. Hiding or grunting that signals a bowel movement belongs in Signs They Are Having a Hard Time; the pull-up routine itself belongs in Daily Schedule. Car rides, quiet environments, and time alone described as resets belong in What helps when they are having a hard time. Keep all named physical and behavioral signs, including limping, eating/drinking changes, low energy, elopement, hand biting, vocalizations, and pressing Help.
 
-Use the provided Entry labels in entryId exactly, such as "Entry 1".`;
-
-const stepTwoRewriteRules = `You are Step 2 of a caregiver handoff pipeline.
-
-Goal:
-- Turn the structured capture into a final caregiver-ready handoff summary.
-
-You must:
-- Ensure every meaningful fact from the structured capture appears in the final output, either directly or as part of a carefully combined bullet.
-- Combine duplicate or near-duplicate facts only when nothing important is lost.
-- Rewrite for clarity, readability, and actionability.
-- Prioritize safety, supervision, behavioral signals, and what caregivers should do.
-- Keep the output easy to scan in under 2 minutes.
-
-Output rules:
-- Always write the final output in English.
-- Include all eight sections, even when no information is available.
-- Every section field must be an array of bullet strings.
-- If a section has no supported information, return exactly ["${NO_INFORMATION_PLACEHOLDER}"] for that section.
-- Use bullet points only.
-- Each bullet must be one clear, complete sentence.
-- Keep language short, direct, and respectful.
-- No duplicate information.
-- No run-on sentences.
-- No question fragments, worksheet wording, or filler/noise.
-- Do not expose internal subcategory labels in the final output.
-- The section assignments in the structured capture are authoritative. Keep each fact in its assigned section.
-- The factKind assignments in the structured capture are authoritative. Use them to keep bullets in the right role within each section.
-- Do not move facts into Communication just because they mention an iPad, AAC device, attention, or help.
-- Use this distinction:
-  - meaning of a device selection or communication method -> Communication
-  - a trigger caused by device/content access problems -> What can upset or overwhelm them
-  - a proactive support such as helping find content before distress escalates -> What helps the day go well
-  - an in-the-moment caregiver action during distress -> What helps when they are having a hard time
-- AAC selection meanings, AAC help requests, and what device buttons mean must stay in Communication, not Signs they need help.
-- Keep general regulation supports such as car rides, walks, or preferred activities in What helps the day go well.
-- Keep direct action bullets such as "offer a car ride" or "help him access" in What helps when they are having a hard time.
-- Keep bathroom reminders and regular food access in What helps the day go well when they are presented as proactive supports.
-- Keep repeated trips to the fridge, grabbing cheese, hiding, grunting, angry vocalizations, elopement, and hand biting in Signs they need help.
-- Keep inability to open items, inability to access iPad content, hunger, and missing preferred items in What can upset or overwhelm them.
-- Do not place equipment inventories, diagnoses, medications, toileting routines, hunger/fridge signs, or physical illness signs in Communication.
-- Keep diagnoses, medications, equipment/supports, supervision risks, and caregiver-harm cautions in Health & Safety when present.
-- Keep bullets atomic and concise so they can be reorganized into a richer final handoff layout after rewriting.
-- Prefer short fact statements such as "Uses AAC to ask for help", "Leads you to what he needs", "Give space immediately", or "Abilify at 3pm daily" over long transcript-style sentences.
-- Keep medications, equipment, contacts, and health conditions as separate bullets.
-- In What helps the day go well, collapse preferred activities into 1-2 concise bullets. Do not repeat the same preference in separate "likes" or "enjoys" bullets.
-- In What helps the day go well, do not produce long runs of one-item preference bullets like "He likes X."
-- In Communication, do not repeat the same cue twice in different wording.
-- In Signs they need help, keep only one phrasing per symptom (for example, keep either "Not eating can mean illness" or "Not eating is a sign", not both).
-- In What can upset or overwhelm them, collapse repeated transition or stop-activity triggers into one bullet.
-- In What helps when they are having a hard time, collapse repeated troubleshooting steps into one clean caregiver action bullet.
-- overview must be a short 1-2 sentence summary of the most important themes.
-- If possible, the overview should briefly state how the person communicates and the most important safety or supervision risks.
-- Keep overview under 80 words.`;
+Keep the overview under 80 words and prioritize communication method, key support needs, elopement/self-injury or other major safety risks, and the strongest calming actions.`;
 
 function extractChatCompletionText(content?: string | ChatCompletionContentPart[]) {
   if (typeof content === "string") {
@@ -1099,6 +1038,7 @@ function buildSummaryEntries(turns: ConversationTurn[], options?: { chunkLongEnt
       return parts.map((part) => ({
         entryId,
         text: buildSummaryEntryText(turn, entryId, part),
+        content: part,
         sectionTitle: turn.sectionTitle,
         stepId: turn.stepId,
         stepTitle: turn.stepTitle,
@@ -1151,23 +1091,25 @@ function entryRouting(entry?: SummarySourceEntry): EntryPromptRouting | null {
   switch (entry.stepId) {
     case "communication":
       return { preferredSection: "Communication", defaultFactKind: "communication_method" };
+    case "understanding_learning":
+      return { preferredSection: "Understanding and Learning", defaultFactKind: "learning" };
     case "health_safety":
       return { preferredSection: "Health & Safety", defaultFactKind: "condition" };
     case "daily_schedule":
-      return { preferredSection: "Daily Needs & Routines", defaultFactKind: "routine" };
+      return { preferredSection: "Daily Schedule", defaultFactKind: "routine" };
     case "activities_preferences":
-      return { preferredSection: "What helps the day go well", defaultFactKind: "preference" };
+      return { preferredSection: "Activities & Preferences", defaultFactKind: "preference" };
     case "upset_overwhelm":
-      return { preferredSection: "What can upset or overwhelm them", defaultFactKind: "trigger" };
+      return { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "trigger" };
     case "signs_need_help":
-      return { preferredSection: "Signs they need help", defaultFactKind: "help_sign" };
+      return { preferredSection: "Signs They Are Having a Hard Time", defaultFactKind: "help_sign" };
     case "hard_time_support":
       return {
         preferredSection: "What helps when they are having a hard time",
         defaultFactKind: "caregiver_action"
       };
     case "who_to_contact":
-      return { preferredSection: "Who to contact (and when)", defaultFactKind: "contact" };
+      return { preferredSection: "Health & Safety", defaultFactKind: "contact" };
     default:
       return null;
   }
@@ -1249,7 +1191,7 @@ function statementLooksLikeMedication(value: string) {
 }
 
 function statementLooksLikeEquipment(value: string) {
-  return /\b(aac on an ipad|aac device|touchchat|noise-?cancel(?:ing)? headphones?|headphones?|buckle buddy|fidgets?|pull-?ups?|white cane)\b/i.test(
+  return /\b(aac on an ipad|aac device|touchchat|noise-?cancel(?:ing)? headphones?|headphones?|buckle buddy|fidgets?|white cane)\b/i.test(
     value
   );
 }
@@ -1272,14 +1214,29 @@ function statementLooksLikeDirectCaregiverAction(value: string) {
   );
 }
 
+function statementLooksLikeHandBitingProtection(value: string) {
+  return (
+    /\b(?:block|blocking|stop|stopping)\b.*\b(?:hand biting|biting (?:his|her|their) hand)\b/i.test(
+      value
+    ) &&
+    /\b(?:do not|don't|avoid|may bite|caregiver|you)\b/i.test(value)
+  );
+}
+
 function statementLooksLikeHelpSign(value: string) {
-  return /\b(press(?:es)? help|sign for help|limping|avoid(?:ing)? (?:a )?body part|not eating|not drinking|low energy|letharg|elop|run(?:ning)? away|hand biting|angry (?:sounds?|vocalizations?|yelling)|yelling|hiding|grunting|fridge|grabbing cheese|hungry|dysregulated|agitated|overwhelmed|pain|illness)\b/i.test(
+  return /\b(press(?:es)? help|sign for help|limping|avoid(?:ing)? (?:a )?body part|not eating|not drinking|low energy|letharg|elop|run(?:ning)? away|hand biting|angry (?:sounds?|vocalizations?|yelling)|yelling|hid(?:e|es|ing)|grunt(?:s|ing)?|fridge|grabbing cheese|hungry|dysregulated|agitated|overwhelmed|pain|illness)\b/i.test(
     value
   );
 }
 
 function statementLooksLikeRoutine(value: string) {
   return /\b(bathroom|toilet|toileting|pull-?up|bowel movement|routine|morning|breakfast|meal|meals|snack|snacks|school|van|water bottle|sippy cup|diet|bite-sized|grazes|showerhead|dress(?:ing)?|deodorant|socks|teeth brushing|hair)\b/i.test(
+    value
+  );
+}
+
+function statementLooksLikeLearning(value: string) {
+  return /\b(learn|understand|process(?:ing)?|read|write|literacy|one-step|two-step|direction|extra time|express|consequence|decision|recognizes? (?:pictures?|words?)|independent)\b/i.test(
     value
   );
 }
@@ -1291,9 +1248,23 @@ function statementLooksLikeTrigger(value: string) {
 }
 
 function statementLooksLikeCommunication(value: string) {
-  return /\b(non-speaking|cannot say words|uses? (?:an )?aac|touchchat|communicates? with sounds|body language|gestures?|happy sounds?|angry sounds?|singing|lead(?:ing)? you|touch(?:ing)? you|sit(?:ting)? very close|wants attention|selects? (?:car|i want ipad|ipad|a color)|ask for help)\b/i.test(
+  return /\b(non-speaking|cannot say words|uses? (?:an )?aac|touchchat|communicates? with sounds|body language|gestures?|happy sounds?|angry sounds?|singing|visual choices?|limited choices?|lead(?:s|ing)? (?:you|a caregiver|caregivers|them|him|her)|touch(?:ing)? you|sit(?:ting)? very close|wants attention|wants? (?:his|her|their) ipad|selects? (?:car|i want ipad|ipad|a color)|ask for help|request(?:s|ing)? (?:a |for )?car rides?|(?:device|aac).*(?:ask|request|tell|want)|(?:ask|request|tell|want).*(?:device|aac))\b/i.test(
     value
   );
+}
+
+function statementLooksLikeFoodRoutine(value: string) {
+  return /\b(food|meal|snack|eat|eating|diet|cheese)\b/i.test(value) &&
+    /\b(available|always hungry|small amounts|constantly|limited|routine|independently get)\b/i.test(
+      value
+    );
+}
+
+function statementLooksLikeSupportStrategy(value: string) {
+  return /\b(help|helps|helpful|work best|works best|reset|calm|sooth|regulat)\b/i.test(value) &&
+    /\b(quiet|low-light|dim|space|stimulation|noise|car ride|time alone|visual choices?|limited choices?)\b/i.test(
+      value
+    );
 }
 
 function statementLooksLikePreference(value: string) {
@@ -1313,11 +1284,31 @@ function inferCaptureRouting(
   const defaultFactKind = routing?.defaultFactKind ?? rawFactKind;
 
   if (statementLooksLikeContact(statement)) {
-    return { section: "Who to contact (and when)" as SummarySectionTitle, factKind: "contact" as StructuredFactKind };
+    return { section: "Health & Safety" as SummarySectionTitle, factKind: "contact" as StructuredFactKind };
   }
 
   if (statementLooksLikeMedication(statement)) {
     return { section: "Health & Safety" as SummarySectionTitle, factKind: "medication" as StructuredFactKind };
+  }
+
+  if (statementLooksLikeLearning(statement)) {
+    return {
+      section: "Understanding and Learning" as SummarySectionTitle,
+      factKind: "learning" as StructuredFactKind
+    };
+  }
+
+  const explicitEquipmentInventory =
+    preferredSection === "Health & Safety" && defaultFactKind === "equipment";
+  if (statementLooksLikeCommunication(statement) && !explicitEquipmentInventory) {
+    return {
+      section: "Communication" as SummarySectionTitle,
+      factKind: statementLooksLikeEquipment(statement)
+        ? "communication_method" as StructuredFactKind
+        : rawFactKind === "communication_signal"
+          ? "communication_signal" as StructuredFactKind
+          : "communication_method" as StructuredFactKind
+    };
   }
 
   if (statementLooksLikeEquipment(statement)) {
@@ -1328,12 +1319,29 @@ function inferCaptureRouting(
     return { section: "Health & Safety" as SummarySectionTitle, factKind: "condition" as StructuredFactKind };
   }
 
+  if (statementLooksLikeHandBitingProtection(statement)) {
+    return {
+      section: "What helps when they are having a hard time" as SummarySectionTitle,
+      factKind: "caregiver_action" as StructuredFactKind
+    };
+  }
+
+  if (
+    preferredSection === "Signs They Are Having a Hard Time" &&
+    statementLooksLikeHelpSign(statement)
+  ) {
+    return {
+      section: "Signs They Are Having a Hard Time" as SummarySectionTitle,
+      factKind: "help_sign" as StructuredFactKind
+    };
+  }
+
   if (statementLooksLikeSafetyRisk(statement)) {
     return { section: "Health & Safety" as SummarySectionTitle, factKind: "safety_risk" as StructuredFactKind };
   }
 
   if (statementLooksLikeDirectCaregiverAction(statement)) {
-    if (preferredSection === "What helps the day go well" && !/\b(give him space|reduce stimulation|keep things quiet|do not|offer a car ride|make sure.*safe|back off)\b/i.test(statement)) {
+    if (preferredSection === "Communication") {
       return { section: preferredSection, factKind: "support_strategy" as StructuredFactKind };
     }
 
@@ -1343,16 +1351,34 @@ function inferCaptureRouting(
     };
   }
 
+  if (statementLooksLikeFoodRoutine(statement)) {
+    return {
+      section: "Daily Schedule" as SummarySectionTitle,
+      factKind: "routine" as StructuredFactKind
+    };
+  }
+
+  if (statementLooksLikeSupportStrategy(statement)) {
+    return {
+      section: preferredSection === "Communication"
+        ? "Communication" as SummarySectionTitle
+        : "What helps when they are having a hard time" as SummarySectionTitle,
+      factKind: preferredSection === "Communication"
+        ? "support_strategy" as StructuredFactKind
+        : "caregiver_action" as StructuredFactKind
+    };
+  }
+
   if (statementLooksLikeHelpSign(statement)) {
-    return { section: "Signs they need help" as SummarySectionTitle, factKind: "help_sign" as StructuredFactKind };
+    return { section: "Signs They Are Having a Hard Time" as SummarySectionTitle, factKind: "help_sign" as StructuredFactKind };
   }
 
   if (statementLooksLikeRoutine(statement)) {
-    return { section: "Daily Needs & Routines" as SummarySectionTitle, factKind: "routine" as StructuredFactKind };
+    return { section: "Daily Schedule" as SummarySectionTitle, factKind: "routine" as StructuredFactKind };
   }
 
   if (statementLooksLikeTrigger(statement)) {
-    return { section: "What can upset or overwhelm them" as SummarySectionTitle, factKind: "trigger" as StructuredFactKind };
+    return { section: "Signs They Are Having a Hard Time" as SummarySectionTitle, factKind: "trigger" as StructuredFactKind };
   }
 
   if (statementLooksLikeCommunication(statement)) {
@@ -1364,13 +1390,72 @@ function inferCaptureRouting(
   }
 
   if (statementLooksLikePreference(statement)) {
-    return { section: "What helps the day go well" as SummarySectionTitle, factKind: "preference" as StructuredFactKind };
+    return { section: "Activities & Preferences" as SummarySectionTitle, factKind: "preference" as StructuredFactKind };
   }
 
   return {
     section: preferredSection,
     factKind: defaultFactKind
   };
+}
+
+function deterministicCommunicationFacts(entries: SummarySourceEntry[]) {
+  const facts: StructuredCaptureFact[] = [];
+
+  for (const entry of entries) {
+    if (entryRouting(entry)?.preferredSection !== "Communication") {
+      continue;
+    }
+
+    const content = compactWhitespace(entry.content);
+    if (!/\b(?:aac|touchchat|communication device)\b/i.test(content)) {
+      continue;
+    }
+
+    const nameMatch = content.match(/^([A-Z][A-Za-z'-]+)\b/);
+    const subject =
+      nameMatch && !/^(?:He|She|They)$/i.test(nameMatch[1]) ? nameMatch[1] : "They";
+    const addFact = (suffix: string, statement: string) => {
+      facts.push({
+        factId: `${entry.entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-source-${suffix}`,
+        entryId: entry.entryId,
+        section: "Communication",
+        factKind: suffix === "identity" ? "communication_method" : "communication_signal",
+        subcategory: "AAC",
+        statement,
+        safetyRelevant: false,
+        conceptKeys: [...extractCoverageConcepts(statement)].sort(),
+        sourceEntryIds: [entry.entryId]
+      });
+    };
+
+    const deviceParts = [
+      "an AAC device",
+      /\bipad\b/i.test(content) ? "on an iPad" : "",
+      /\btouchchat\b/i.test(content) ? "with TouchChat" : ""
+    ].filter(Boolean);
+    addFact("identity", `${subject} uses ${deviceParts.join(" ")}.`);
+
+    if (/\bask(?:s|ing)? for help\b/i.test(content)) {
+      addFact("ask-help", `${subject} uses the AAC device to ask for help.`);
+    }
+
+    if (/\brequest(?:s|ed|ing)? car rides?\b/i.test(content)) {
+      addFact("request-car", `${subject} uses the AAC device to request car rides.`);
+    }
+
+    const iPadRequest = content.match(
+      /\b(he|she|they)\b.{0,45}\bwants?\s+(his|her|their)\s+ipad\b/i
+    );
+    if (iPadRequest) {
+      addFact(
+        "request-ipad",
+        `${subject} uses the AAC device to say when ${iPadRequest[1].toLowerCase()} wants ${iPadRequest[2].toLowerCase()} iPad.`
+      );
+    }
+  }
+
+  return facts;
 }
 
 function statementLooksLikeContact(value: string) {
@@ -1426,14 +1511,26 @@ function dedupeCaptureFacts(facts: StructuredCaptureFact[]) {
           return false;
         }
 
-        const existingConcepts = extractCoverageConcepts(entry.statement);
-        const factConcepts = extractCoverageConcepts(fact.statement);
+        const normalizedExisting = normalizeCoverageText(entry.statement);
+        const normalizedFact = normalizeCoverageText(fact.statement);
+        if (
+          normalizedExisting.length >= 24 &&
+          normalizedFact.length >= 24 &&
+          (normalizedExisting.includes(normalizedFact) ||
+            normalizedFact.includes(normalizedExisting))
+        ) {
+          return true;
+        }
 
-        if (existingConcepts.size === 0 || factConcepts.size === 0) {
+        const existingTokens = coverageTokens(entry.statement);
+        const factTokens = coverageTokens(fact.statement);
+        if (existingTokens.length < 3 || factTokens.length < 3) {
           return false;
         }
 
-        return [...existingConcepts].some((concept) => factConcepts.has(concept));
+        const overlap = existingTokens.filter((token) => factTokens.includes(token)).length;
+        const union = new Set([...existingTokens, ...factTokens]).size;
+        return union > 0 && overlap / union >= 0.82;
       });
 
       if (!nearDuplicate) {
@@ -1548,7 +1645,7 @@ function extractCoverageConcepts(value: string) {
     concepts.add("ipad_help");
   }
 
-  if (/\belopement|elopen|running away|run away\b/.test(normalized)) {
+  if (/\belop(?:e|es|ed|ing|ement)|running away|run away\b/.test(normalized)) {
     concepts.add("elopement");
   }
 
@@ -1557,10 +1654,26 @@ function extractCoverageConcepts(value: string) {
   }
 
   if (
-    /\b(hiding|hides|hide)\b/.test(normalized) &&
-    /\b(grunting|grunts|grunt|bowel movement|pull up|pullup)\b/.test(normalized)
+    /\b(hiding|hides|hide|grunting|grunts|grunt)\b/.test(normalized) &&
+    /\b(bowel movements?|pull up|pullup)\b/.test(normalized)
   ) {
     concepts.add("bowel_movement_sign");
+  }
+
+  if (/\blimp(?:s|ed|ing)?\b/.test(normalized)) {
+    concepts.add("limping_sign");
+  }
+
+  if (/\bnot eating\b/.test(normalized)) {
+    concepts.add("not_eating_sign");
+  }
+
+  if (/\bnot drinking\b/.test(normalized)) {
+    concepts.add("not_drinking_sign");
+  }
+
+  if (/\blow energy\b/.test(normalized)) {
+    concepts.add("low_energy_sign");
   }
 
   if (/\b(loud|angry) vocalizations?\b/.test(normalized) || /\bangry sounds?\b/.test(normalized)) {
@@ -1571,7 +1684,11 @@ function extractCoverageConcepts(value: string) {
     concepts.add("hunger_sign");
   }
 
-  if (/\b(press(?:es)? help|sign for help|word help on (?:his|her|their) ipad)\b/.test(normalized)) {
+  if (
+    /\b(press(?:es|ed|ing)? help|select(?:s|ed|ing)? help|sign for help|word help on (?:his|her|their) ipad)\b/.test(
+      normalized
+    )
+  ) {
     concepts.add("help_request_signal");
   }
 
@@ -1632,7 +1749,6 @@ function extractCoverageConcepts(value: string) {
 function statementLooksCovered(statement: string, existingItems: string[]) {
   const normalizedStatement = normalizeCoverageText(statement);
   const statementTokens = coverageTokens(statement);
-  const statementConcepts = extractCoverageConcepts(statement);
 
   if (!normalizedStatement || statementTokens.length === 0) {
     return false;
@@ -1651,11 +1767,6 @@ function statementLooksCovered(statement: string, existingItems: string[]) {
       return true;
     }
 
-    const itemConcepts = extractCoverageConcepts(item);
-    if (statementConcepts.size > 0 && [...statementConcepts].some((concept) => itemConcepts.has(concept))) {
-      return true;
-    }
-
     const itemTokens = coverageTokens(item);
     if (itemTokens.length === 0) {
       return false;
@@ -1663,10 +1774,26 @@ function statementLooksCovered(statement: string, existingItems: string[]) {
 
     const overlapCount = statementTokens.filter((token) => itemTokens.includes(token)).length;
     const statementCoverage = overlapCount / statementTokens.length;
-    const itemCoverage = overlapCount / itemTokens.length;
 
-    return statementCoverage >= 0.75 || itemCoverage >= 0.75;
+    return statementCoverage >= 0.75;
   });
+}
+
+function helpRequestMode(value: string) {
+  const normalized = normalizeCoverageText(value);
+
+  if (/\b(?:press(?:es|ed|ing)?|select(?:s|ed|ing)?) help\b/.test(normalized)) {
+    return "distress-signal";
+  }
+
+  if (
+    /\b(?:aac|touchchat|communication device)\b/.test(normalized) &&
+    /\b(?:ask|asks|request|requests) for help\b/.test(normalized)
+  ) {
+    return "aac-request";
+  }
+
+  return "";
 }
 
 function factLooksCoveredByItem(fact: StructuredCaptureFact, item: string) {
@@ -1674,12 +1801,64 @@ function factLooksCoveredByItem(fact: StructuredCaptureFact, item: string) {
     return true;
   }
 
+  if (fact.factKind === "preference") {
+    const preferenceTokens = coverageTokens(
+      fact.statement.replace(
+        /^(?:(?:he|she|they|[A-Z][a-z]+)\s+)?(?:really\s+)?(?:likes?|loves?|enjoys?|especially enjoys)\s+/i,
+        ""
+      )
+    );
+    const itemTokens = coverageTokens(item);
+    if (
+      preferenceTokens.length > 0 &&
+      preferenceTokens.every((token) => itemTokens.includes(token))
+    ) {
+      return true;
+    }
+  }
+
   if (fact.conceptKeys.length === 0) {
     return false;
   }
 
+  const safeConcepts = new Set([
+    "non_speaking",
+    "elopement",
+    "bowel_movement_sign",
+    "limping_sign",
+    "not_eating_sign",
+    "not_drinking_sign",
+    "low_energy_sign",
+    "vocalization_sign",
+    "hunger_sign",
+    "caregiver_leading_sign",
+    "attention_sign",
+    "offer_car_ride",
+    "do_not_block_hand_biting",
+    "calming_prompt"
+  ]);
   const itemConcepts = extractCoverageConcepts(item);
-  return fact.conceptKeys.some((concept) => itemConcepts.has(concept));
+  if (
+    fact.conceptKeys.includes("help_request_signal") &&
+    itemConcepts.has("help_request_signal") &&
+    helpRequestMode(fact.statement) !== "" &&
+    helpRequestMode(fact.statement) === helpRequestMode(item)
+  ) {
+    return true;
+  }
+
+  if (
+    fact.section === "Signs They Are Having a Hard Time" &&
+    fact.conceptKeys.includes("hand_biting") &&
+    itemConcepts.has("hand_biting") &&
+    /\b(?:sign|help is needed|needs? help)\b/i.test(item)
+  ) {
+    return true;
+  }
+
+  return fact.conceptKeys.some(
+    (concept) => safeConcepts.has(concept) && itemConcepts.has(concept)
+  );
 }
 
 function formatStructuredCaptureForPrompt(capture: StructuredCapture) {
@@ -1723,9 +1902,7 @@ function formatStructuredCaptureForPrompt(capture: StructuredCapture) {
 }
 
 function clusterSignature(fact: StructuredCaptureFact) {
-  const conceptSignature =
-    fact.conceptKeys.length > 0 ? fact.conceptKeys.join("|") : normalizeCoverageText(fact.statement);
-  return `${fact.section}::${fact.factKind}::${conceptSignature}`;
+  return `${fact.section}::${fact.factKind}::${normalizeCoverageText(fact.statement)}`;
 }
 
 function buildFactClusters(capture: StructuredCapture) {
@@ -1760,19 +1937,20 @@ function sectionFactKindOrder(title: SummarySectionTitle, factKind: StructuredFa
       "communication_signal",
       "support_strategy"
     ],
-    "Daily Needs & Routines": [
+    "Understanding and Learning": [
+      "learning",
+      "support_strategy"
+    ],
+    "Daily Schedule": [
       "routine",
       "support_strategy"
     ],
-    "What helps the day go well": [
-      "support_strategy",
+    "Activities & Preferences": [
       "preference",
-      "routine"
+      "support_strategy"
     ],
-    "What can upset or overwhelm them": [
-      "trigger"
-    ],
-    "Signs they need help": [
+    "Signs They Are Having a Hard Time": [
+      "trigger",
       "help_sign",
       "communication_signal"
     ],
@@ -1784,9 +1962,7 @@ function sectionFactKindOrder(title: SummarySectionTitle, factKind: StructuredFa
       "safety_risk",
       "condition",
       "medication",
-      "equipment"
-    ],
-    "Who to contact (and when)": [
+      "equipment",
       "contact"
     ]
   };
@@ -1869,11 +2045,14 @@ function selectBestBulletForCluster(cluster: FactCluster, summary: StructuredSum
       }))
   );
 
-  if (candidates.length === 0) {
+  const expectedSectionCandidates = candidates.filter(
+    (candidate) => candidate.section === cluster.section
+  );
+  if (expectedSectionCandidates.length === 0) {
     return null;
   }
 
-  return candidates.sort((left, right) => {
+  return expectedSectionCandidates.sort((left, right) => {
     const scoreDifference =
       bulletSpecificityScore(right.item, cluster.section, right.section) -
       bulletSpecificityScore(left.item, cluster.section, left.section);
@@ -1923,11 +2102,7 @@ function composeSummaryFromCapture(
 
   for (const cluster of clusters) {
     const selected = selectBestBulletForCluster(cluster, summary);
-    if (!selected) {
-      continue;
-    }
-
-    buckets.get(cluster.section)?.push(selected.item);
+    buckets.get(cluster.section)?.push(selected?.item ?? clusterStatement(cluster));
   }
 
   const composed: StructuredSummary = {
@@ -2282,7 +2457,7 @@ async function generateSummaryOneStep(
     schema: summarySchema,
     systemPrompt:
       "You are a classifier and organizer for caregiver handoff notes. Read nonlinear caregiver input, extract individual facts, place each fact into the best handoff category based on meaning, prioritize safety and actionability, deduplicate overlap, and never invent facts.",
-    userPrompt: `${summarySchemaDescription}\n\n${oneStepSynthesisRules}\n\n${buildTitleInstruction(
+    userPrompt: `${summarySchemaDescription}\n\n${sevenSectionOneStepRules}\n\n${buildTitleInstruction(
       nameHint
     )}\n\nCaregiver input:\n${buildSummarySource(turns)}`,
     temperature: 0,
@@ -2317,7 +2492,7 @@ async function captureSummaryFacts(
       schema: captureSchema,
       systemPrompt:
         "You are a structured capture step for caregiver handoff notes. Preserve facts, split them into atomic statements, assign each one to the best section, and never drop meaningful care information.",
-      userPrompt: `${stepOneCaptureRules}\n\nCaregiver input:\n${chunk}`,
+      userPrompt: `${sevenSectionCaptureRules}\n\nCaregiver input:\n${chunk}`,
       temperature: 0.1,
       maxCompletionTokens: 6000
     });
@@ -2326,7 +2501,7 @@ async function captureSummaryFacts(
   }
 
   return {
-    facts: dedupeCaptureFacts(captures)
+    facts: dedupeCaptureFacts([...captures, ...deterministicCommunicationFacts(entries)])
   } satisfies StructuredCapture;
 }
 
@@ -2350,7 +2525,7 @@ async function rewriteStructuredCapture(
     schema: summarySchema,
     systemPrompt:
       "You are the final caregiver handoff writer. Use the structured capture to write a complete, organized, caregiver-ready handoff that preserves safety details and avoids duplication.",
-    userPrompt: `${summarySchemaDescription}\n\n${stepTwoRewriteRules}\n\n${buildTitleInstruction(
+    userPrompt: `${summarySchemaDescription}\n\n${sevenSectionRewriteRules}\n\n${buildTitleInstruction(
       nameHint
     )}\n\nStructured capture:\n${groupFactsForRewritePrompt(capture)}${repairPrompt}`,
     temperature: 0.1,

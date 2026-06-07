@@ -10,6 +10,11 @@ export interface AudioRecorderController {
   cancel: () => Promise<void>;
 }
 
+export interface RecordingEndChimeController {
+  play: () => Promise<void>;
+  close: () => Promise<void>;
+}
+
 const TARGET_SAMPLE_RATE = 16000;
 
 type BrowserWindow = Window &
@@ -105,6 +110,69 @@ export function isAudioRecordingSupported() {
   }
 
   return Boolean(navigator.mediaDevices && getAudioContextConstructor());
+}
+
+export function prepareRecordingEndChime(): RecordingEndChimeController | null {
+  const AudioContextConstructor = getAudioContextConstructor();
+  if (!AudioContextConstructor) {
+    return null;
+  }
+
+  let audioContext: AudioContext;
+  try {
+    audioContext = new AudioContextConstructor();
+    void audioContext.resume().catch(() => {
+      // Playback is best-effort; recording and transcription must still work.
+    });
+  } catch {
+    return null;
+  }
+
+  return {
+    async play() {
+      if (audioContext.state === "closed") {
+        return;
+      }
+
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+      }
+
+      const startedAt = audioContext.currentTime;
+      const gain = audioContext.createGain();
+      gain.gain.setValueAtTime(0.0001, startedAt);
+      gain.gain.exponentialRampToValueAtTime(0.18, startedAt + 0.01);
+      gain.gain.setValueAtTime(0.18, startedAt + 0.24);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.32);
+      gain.connect(audioContext.destination);
+
+      const firstTone = audioContext.createOscillator();
+      firstTone.type = "sine";
+      firstTone.frequency.setValueAtTime(880, startedAt);
+      firstTone.connect(gain);
+      firstTone.start(startedAt);
+      firstTone.stop(startedAt + 0.12);
+
+      const secondTone = audioContext.createOscillator();
+      secondTone.type = "sine";
+      secondTone.frequency.setValueAtTime(1174.66, startedAt + 0.15);
+      secondTone.connect(gain);
+      secondTone.start(startedAt + 0.15);
+      secondTone.stop(startedAt + 0.3);
+
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 340);
+      });
+      firstTone.disconnect();
+      secondTone.disconnect();
+      gain.disconnect();
+    },
+    async close() {
+      if (audioContext.state !== "closed") {
+        await audioContext.close();
+      }
+    }
+  };
 }
 
 export async function startWavRecording(): Promise<AudioRecorderController> {

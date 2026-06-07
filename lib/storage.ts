@@ -1,4 +1,5 @@
 import { STORAGE_KEY } from "@/lib/constants";
+import { migrateSessionDraftQuestionnaire } from "@/lib/questionnaire-migration";
 import { SessionDraft, StructuredSummary } from "@/lib/types";
 
 export function loadDraft(): SessionDraft | null {
@@ -12,7 +13,9 @@ export function loadDraft(): SessionDraft | null {
   }
 
   try {
-    return JSON.parse(raw) as SessionDraft;
+    const draft = migrateSessionDraftQuestionnaire(JSON.parse(raw) as SessionDraft);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+    return draft;
   } catch {
     return null;
   }

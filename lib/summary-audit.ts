@@ -26,9 +26,31 @@ function normalizeAuditText(value: string) {
 }
 
 function auditTokens(value: string) {
+  const stopwords = new Set([
+    "are",
+    "best",
+    "bowel",
+    "during",
+    "gavin",
+    "having",
+    "help",
+    "helps",
+    "may",
+    "movement",
+    "need",
+    "needs",
+    "reset",
+    "sign",
+    "that",
+    "they",
+    "when",
+    "work",
+    "works"
+  ]);
+
   return normalizeAuditText(value)
     .split(" ")
-    .filter((token) => token.length > 2);
+    .filter((token) => token.length > 2 && !stopwords.has(token));
 }
 
 function itemsAreNearDuplicate(left: string, right: string) {
@@ -70,7 +92,7 @@ function isMeaningfulItem(item: string) {
 }
 
 function isAwkwardLowSignalItem(item: string, sectionTitle: string) {
-  if (/^(?:also|and|but|too)\b/i.test(item)) {
+  if (/^(?:also|and|but)\b/i.test(item)) {
     return true;
   }
 
@@ -79,20 +101,10 @@ function isAwkwardLowSignalItem(item: string, sectionTitle: string) {
   }
 
   if (
-    sectionTitle === "What helps the day go well" &&
+    sectionTitle === "Activities & Preferences" &&
     /\b(favorite person|spending time with family|downtime|watch tv|watch television|left alone to do (?:his|her|their) own thing)\b/i.test(
       item
     )
-  ) {
-    return true;
-  }
-
-  if (
-    sectionTitle === "What helps the day go well" &&
-    !/\b(help|supports?|routine|visual|timer|schedule|food|quiet|low-light|low light|prevent|structured|regulat)\b/i.test(
-      item
-    ) &&
-    /^(?:mom|he|she|they|gavin)\b/i.test(item)
   ) {
     return true;
   }

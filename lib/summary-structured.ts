@@ -9,8 +9,8 @@ import {
   SummarySection
 } from "@/lib/types";
 
-export const SUMMARY_PIPELINE_VERSION = "2026-04-22-structured-v2";
-export const SUMMARY_LAYOUT_VERSION = "2026-04-22-structured-v2";
+export const SUMMARY_PIPELINE_VERSION = "2026-06-06-seven-section-v1";
+export const SUMMARY_LAYOUT_VERSION = "2026-06-06-seven-section-v1";
 
 type LegacyItemRecord = {
   id: string;
@@ -1608,312 +1608,64 @@ export function composeStructuredSummaryLayout(
   turns: ConversationTurn[],
   nameHint?: string
 ): StructuredSummary {
-  const summaryTitle = compactWhitespace(legacySummary.title) || defaultSummaryTitle(nameHint);
-  const buckets = buildRecordBuckets(legacySummary);
-  const titleSet = buildSectionTitleSet({ ...legacySummary, title: summaryTitle }, turns);
-  const communicationRecords = buckets.get("Communication") ?? [];
-  const dailyRecords = buckets.get("Daily Needs & Routines") ?? [];
-  const dayRecords = buckets.get("What helps the day go well") ?? [];
-  const upsetRecords = buckets.get("What can upset or overwhelm them") ?? [];
-  const signRecords = buckets.get("Signs they need help") ?? [];
-  const hardTimeRecords = buckets.get("What helps when they are having a hard time") ?? [];
-  const healthRecords = buckets.get("Health & Safety") ?? [];
-  const contactRecords = buckets.get("Who to contact (and when)") ?? [];
-  const rawItems = turns
-    .filter((turn) => turn.role === "user" && !turn.skipped)
-    .map((turn) => compactWhitespace(normalizeSourceText(turn.content)))
-    .filter(Boolean);
-  const rawFragments = turns
-    .filter((turn) => turn.role === "user" && !turn.skipped)
-    .flatMap((turn) => splitSourceFragments(turn.content));
-  const allItems = uniqueStrings([
-    ...legacySummary.sections.flatMap((section) => section.items),
-    ...rawItems,
-    ...rawFragments
-  ]);
-  const contactItems = extractContactItems([
-    ...contactRecords.map((record) => record.text),
-    ...allItems.filter((item) => /\bcontacts?\b|\bmother\b|\bgrandmother\b|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b/i.test(item))
-  ]);
+  const sectionTitles = [
+    "Communication",
+    "Understanding and Learning",
+    "Daily Schedule",
+    "Activities & Preferences",
+    "Signs They Are Having a Hard Time",
+    "What helps when they are having a hard time",
+    "Health & Safety"
+  ] as const;
+  const buckets = new Map<string, string[]>(sectionTitles.map((title) => [title, []]));
 
-  const quickOverview = buildKeyValueSection(
-    "Quick Overview",
-    [
-      createRow("Communication", buildCommunicationOverviewValue(allItems)),
-      createRow("Key Needs", buildKeyNeedsValue(allItems)),
-      createRow("Top Risks", buildTopRisksValue(allItems)),
-      createRow("Best Supports", buildBestSupportsValue(allItems)),
-      createRow("Emergency Contact", buildPrimaryContactValue(contactItems))
-    ].filter((row): row is SummaryKeyValueRow => Boolean(row))
-  );
-
-  const communicationSection = buildGroupedSection(
-    titleSet.communication,
-    [
-      {
-        label: "Uses AAC device to",
-        items: dedupeCommunicationUseItems([
-          ...takeMatching(
-            communicationRecords,
-            (item) => /\b(ask for help|selects?|request|label things|i want ipad)\b/i.test(item)
-          )
-            .map((item) => simplifyCommunicationItem(item, titleSet.pronoun))
-            .filter(Boolean),
-          ...collectCommunicationUses(allItems)
-        ])
-      },
-      {
-        label: "Will",
-        items: dedupeCommunicationWillItems([
-          ...takeMatching(
-            communicationRecords,
-            (item) => /\b(lead|touch|attention|sit close)\b/i.test(item)
-          )
-            .map((item) => simplifyCommunicationItem(item, titleSet.pronoun))
-            .filter(Boolean),
-          ...collectCommunicationWill(allItems, titleSet.pronoun)
-        ])
-      },
-      {
-        label: "Sounds",
-        items: dedupeCommunicationSoundItems([
-          ...takeMatching(
-            communicationRecords,
-            (item) => /\b(sound|singing|angry|happy)\b/i.test(item)
-          )
-            .map((item) => simplifyCommunicationItem(item, titleSet.pronoun))
-            .filter(Boolean),
-          ...collectCommunicationSounds(allItems)
-        ])
-      },
-      {
-        label: "Important",
-        items: uniqueStrings(
-          [
-            ...takeMatching(communicationRecords, (item) => /\b(does not|bathroom|hurt|pain)\b/i.test(item)),
-            ...dailyRecords
-              .map((record) => record.text)
-              .filter((item) => /\b(does not|bathroom|hurt|pain)\b/i.test(item))
-          ]
-            .map((item) => simplifyCommunicationItem(item, titleSet.pronoun))
-            .filter(Boolean)
-            .concat(collectCommunicationImportant(allItems, titleSet.pronoun))
-        )
-      }
-    ],
-    {
-      intro: "Keep only the most useful signals"
+  function targetTitle(value: string) {
+    if (/^communication$/i.test(value)) return "Communication";
+    if (/understanding|learning/i.test(value)) return "Understanding and Learning";
+    if (/daily (?:schedule|needs)/i.test(value)) return "Daily Schedule";
+    if (/activities|preferences|day go well|enjoy/i.test(value)) {
+      return "Activities & Preferences";
     }
-  );
-
-  const preferredActivities = dedupeEnjoymentItems(
-    allItems.map(simplifyEnjoymentItem).filter(Boolean)
-  ).slice(0, 5);
-  const preferredActivityItems = dedupeEnjoymentItems([
-    ...collectEnjoymentItems(allItems).filter(
-      (item) => !/horseback riding|exploring new places/i.test(item)
-    ),
-    ...preferredActivities
-  ]).slice(0, 4);
-  const dayGoWellSection = buildGroupedSection(
-    "What Helps the Day Go Well",
-    preferredActivityItems.length > 0
-      ? [
-          {
-            label: "Preferred activities",
-            items: preferredActivityItems
-          }
-        ]
-      : [],
-    {
-      intro: "(This is your success blueprint)",
-      notes: [
-        ...takeMatching(
-          dayRecords,
-          (item) =>
-            /\b(visual|pictures?|2-step|two-step|food|hungry|quiet|low light|low-light|routine|structured)\b/i.test(
-              item
-            )
-        )
-          .map(simplifySupportItem)
-          .filter(Boolean),
-        ...takeMatching(
-          dailyRecords,
-          (item) => /\b(food|bathroom reminders?|structured|routine|visual timer|visual schedule)\b/i.test(item)
-        )
-          .map(simplifySupportItem)
-          .filter(Boolean),
-        ...allItems
-          .filter((item) => /\b(food|hungry)\b/i.test(item))
-          .map(simplifySupportItem)
-          .filter(Boolean),
-        ...collectSupportItems(allItems)
-      ]
+    if (/what helps when|what to do when/i.test(value)) {
+      return "What helps when they are having a hard time";
     }
-  );
-
-  const triggerSection = buildBulletsSection(
-    titleSet.triggers,
-    uniqueStrings([
-      ...takeMatching(upsetRecords, () => true).map(simplifyTriggerItem).filter(Boolean),
-      ...takeMatching(dayRecords, (item) => /\btrigger|upset|overwhelm|hard|transition\b/i.test(item))
-        .map(simplifyTriggerItem)
-        .filter(Boolean),
-      ...collectTriggerItems(allItems)
-    ])
-  );
-
-  const signsSection = buildGroupedSection(titleSet.signs, [
-    {
-      label: "Physical",
-      items: uniqueStrings([
-        ...takeMatching(signRecords, isPhysicalSignItem).map(simplifySignItem).filter(Boolean),
-        ...collectPhysicalSigns(allItems)
-      ])
-    },
-    {
-      label: "Behavioral",
-      items: uniqueStrings([
-        ...takeMatching(signRecords, isBehavioralSignItem).map(simplifySignItem).filter(Boolean),
-        ...collectBehavioralSigns(allItems)
-      ])
-    },
-    {
-      label: "Communication",
-      items: uniqueStrings([
-        ...takeMatching(signRecords, isCommunicationSignItem)
-          .map(simplifyCommunicationSignItem)
-          .filter(Boolean),
-        ...collectCommunicationSigns(allItems)
-      ])
+    if (/signs|upset|overwhelm/i.test(value)) {
+      return "Signs They Are Having a Hard Time";
     }
-  ]);
-
-  const hardTimeSection = buildGroupedSection(titleSet.hardTime, [
-    {
-      label: "Early (still somewhat calm)",
-      items: uniqueStrings([
-        ...takeMatching(hardTimeRecords, isEarlySupportItem).map(simplifyHardTimeItem).filter(Boolean),
-        ...collectEarlyHardTimeItems(allItems)
-      ])
-    },
-    {
-      label: "Escalating / Very upset",
-      items: dedupeHardTimeItems([
-        ...takeMatching(
-          hardTimeRecords,
-          (item) => !isEarlySupportItem(item) && !isResetSupportItem(item)
-        )
-          .map(simplifyHardTimeItem)
-          .filter(Boolean),
-        ...collectEscalatedHardTimeItems(allItems)
-      ])
-    },
-    {
-      label: "Best resets",
-      items: uniqueStrings([
-        ...takeMatching(hardTimeRecords, isResetSupportItem).map(simplifyHardTimeItem).filter(Boolean),
-        ...collectResetItems(allItems)
-      ])
+    if (/health|safety|contact|medication|equipment/i.test(value)) {
+      return "Health & Safety";
     }
-  ]);
+    return null;
+  }
 
-  const dailyNeedsSection = buildGroupedSection("Daily Needs to Know (High Value Only)", [
-    {
-      label: "Bathroom",
-      items: uniqueStrings([
-        ...takeMatching(dailyRecords, (item) => /\b(bathroom|toilet|pull-?up|grunting|bowel)\b/i.test(item)).map(
-          simplifyDailyNeedItem
-        ).filter(Boolean),
-        ...takeMatching(signRecords, (item) => /\b(hiding|grunting|bowel)\b/i.test(item))
-          .map(simplifyDailyNeedItem)
-          .filter(Boolean),
-        ...collectBathroomItems(allItems)
-      ])
-    },
-    {
-      label: "Eating",
-      items: uniqueStrings([
-        ...takeMatching(
-          dailyRecords,
-          (item) => /\b(food|eat|cheese|diet|meals?|drinking|water)\b/i.test(item)
-        )
-          .map(simplifyDailyNeedItem)
-          .filter(Boolean),
-        ...collectEatingItems(allItems)
-      ])
-    },
-    {
-      label: "Routine",
-      items: takeMatching(dailyRecords, (item) => /\b(routine|morning|school|transition)\b/i.test(item)).map(
-        simplifyDailyNeedItem
-      ).filter(Boolean)
+  for (const section of legacySummary.sections) {
+    const title = targetTitle(section.title);
+    if (title) {
+      buckets.get(title)?.push(...section.items);
     }
-  ]);
+  }
 
-  const medicationItems = uniqueStrings([
-    ...takeMatching(healthRecords, isMedicationItem).map(simplifyMedicationItem),
-    ...collectMedicationItems(allItems)
-  ]);
-  const equipmentItems = uniqueStrings(
-    [
-      ...takeMatching(healthRecords, isEquipmentItem).map(simplifyEquipmentItem),
-      ...communicationRecords
-        .map((record) => record.text)
-        .filter((item) => /\b(aac|touchchat|ipad)\b/i.test(item))
-        .map(simplifyEquipmentItem),
-      ...collectEquipmentItems(allItems)
-    ].filter(Boolean)
-  );
-  const conditionItems = takeMatching(
-    healthRecords,
-    (item) => isHealthConditionItem(item) && !/\bpica\b/i.test(item)
-  );
-  const safetyItems = uniqueStrings([
-    ...takeMatching(healthRecords, () => true).map(simplifySafetyItem).filter(Boolean),
-    ...conditionItems
-      .filter((item) => /\bpica\b/i.test(item))
-      .map(simplifySafetyItem),
-    ...collectSafetyItems(allItems)
-  ]);
+  const sections = sectionTitles.map((title, index) => {
+    const seen = new Set<string>();
+    const items = (buckets.get(title) ?? []).filter((item) => {
+      const key = compactWhitespace(item).toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
-  const contactsSection = buildBulletsSection("Contacts", contactItems);
-  const safetySection = buildBulletsSection("Safety Notes (CRITICAL SECTION)", safetyItems);
-  const medicationsSection = buildBulletsSection("Medications (Simplified)", medicationItems);
-  const equipmentSection = buildBulletsSection("Equipment / Supports", equipmentItems);
-  const healthConditionsSection = buildBulletsSection(
-    "Health Conditions",
-    uniqueStrings([...conditionItems.map(simplifyConditionItem), ...collectConditionItems(allItems)])
-  );
-  const enjoymentSection = buildBulletsSection(
-    titleSet.enjoyment,
-    dedupeEnjoymentItems([
-      ...allItems.map(simplifyEnjoymentItem).filter(Boolean),
-      ...collectEnjoymentItems(allItems)
-    ])
-  );
-
-  const structuredSections = [
-    quickOverview,
-    communicationSection,
-    dayGoWellSection,
-    triggerSection,
-    signsSection,
-    hardTimeSection,
-    dailyNeedsSection,
-    safetySection,
-    medicationsSection,
-    equipmentSection,
-    healthConditionsSection,
-    contactsSection,
-    enjoymentSection
-  ].filter((section): section is SummarySection => Boolean(section));
+    return {
+      id: `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${index + 1}`,
+      title,
+      items: items.length > 0 ? items : ["(No information provided)"]
+    };
+  });
 
   return {
     ...EMPTY_SUMMARY,
-    title: summaryTitle,
-    overview: "",
-    sections: structuredSections,
+    title: compactWhitespace(legacySummary.title) || defaultSummaryTitle(nameHint),
+    overview: compactWhitespace(legacySummary.overview),
+    sections,
     generatedAt: legacySummary.generatedAt,
     pipelineVersion: SUMMARY_PIPELINE_VERSION,
     layoutVersion: SUMMARY_LAYOUT_VERSION,
