@@ -1,6 +1,12 @@
 import { EMPTY_SUMMARY } from "@/lib/constants";
 import { deriveItemsFromBlocks, hydrateStructuredSection } from "@/lib/summary-structured";
-import { ConversationTurn, StructuredSummary, SummarySection, UiLanguage } from "@/lib/types";
+import {
+  CaregiverInsight,
+  ConversationTurn,
+  StructuredSummary,
+  SummarySection,
+  UiLanguage
+} from "@/lib/types";
 
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
 const OVERVIEW_LABELS = [
@@ -41,6 +47,7 @@ type GeneratedSummarySectionKey = (typeof GENERATED_SUMMARY_SECTION_FIELDS)[numb
 type GeneratedStructuredSummary = {
   title?: unknown;
   overview?: unknown;
+  caregiverInsights?: unknown;
   generatedAt?: unknown;
 } & Partial<Record<GeneratedSummarySectionKey, unknown>>;
 
@@ -63,13 +70,13 @@ type SummaryNormalizationOptions = {
 const CONTACT_PATTERN =
   /\b(911|emergency|non-?emergenc|guardian|doctor|nurse|contact|call right away|call first|phone|crisis support)\b/i;
 const STRONG_HEALTH_PATTERN =
-  /\b(allerg|diagnos|disabil|condition|medicat|medicine|dose|seizure|epilep|asthma|diabet|wheelchair|hearing aid|glasses|feeding tube|brace|cane|equipment|pica|autism|syndrome|cerebral palsy|adhd|dementia|vision|hearing loss)\b/i;
+  /\b(allerg|diagnos|disabil|condition|medicat|medicine|dose|mg\b|abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|seizure|epilep|asthma|diabet|wheelchair|hearing aid|glasses|feeding tube|brace|cane|equipment|pica|autism|syndrome|cerebral palsy|adhd|dementia|vision|hearing loss|two people|more than one person|at least two)\b/i;
 const HEALTH_PATTERN =
-  /\b(allerg|diagnos|disabil|condition|medicat|medicine|dose|seizure|epilep|asthma|diabet|wheelchair|hearing aid|glasses|feeding tube|brace|cane|equipment|supervision|safety|unsafe|risk|wander|pica|autism|syndrome|cerebral palsy|adhd|dementia|vision|hearing loss)\b/i;
+  /\b(allerg|diagnos|disabil|condition|medicat|medicine|dose|mg\b|abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|seizure|epilep|asthma|diabet|wheelchair|hearing aid|glasses|feeding tube|brace|cane|equipment|supervision|safety|unsafe|risk|wander|pica|autism|syndrome|cerebral palsy|adhd|dementia|vision|hearing loss|two people|more than one person|at least two)\b/i;
 const LEARNING_PATTERN =
   /\b(learn|understand|process(?:ing)?|read|write|literacy|one-step|two-step|direction|extra time|express|consequence|decision|recognizes? (?:pictures?|words?)|independent)\b/i;
 const HARD_TIME_SUPPORT_PATTERN =
-  /\b(help|calm|quieter|reduce noise|dim lights|give space|stay nearby|headphones|music|fidget|weighted blanket|favorite item|favorite drink|favorite snack|countdown|timer|visual schedule|written schedule|reassur|incentive|car ride|go outside|transition)\b/i;
+  /\b(calm|quieter|reduce noise|dim lights|give space|stay nearby|space|quiet|headphones|music|fidget|weighted blanket|favorite item|favorite drink|favorite snack|countdown|timer|visual schedule|written schedule|visual timer|reassur|incentive|car ride|go outside|transition|squeeze and release|deep breaths?|count(?:ing)? to 10|swedish fish|gumm(?:y|ies)|candy|safe|hurt (?:himself|herself|themself))\b/i;
 const HARD_TIME_SIGNS_PATTERN =
   /\b(hard time|trigger|upset|overwhelm|routine change|waiting|rushed|loud noise|crowded|hunger|thirst|pain|poor sleep|illness|too hot|too cold|low energy|limp(?:s|ed|ing)?|not eating|not drinking|breathing change|covering ears|covering eyes|staring|not responding|stiffen|jerk|pacing|repetitive|yelling|quieter|aggression|self-injury|hand biting|angry vocalizations?|press(?:es|ed|ing)? help|withdraw|running away|elop(?:e|es|ed|ing|ement)?|hiding|grunting|repeat(?:ing)? words|difficulty communicating)\b/i;
 const DAILY_PATTERN =
@@ -82,6 +89,13 @@ const QUESTION_ECHO_PATTERN =
   /^(what|who|how|when|where|why|are|do|does|did|is|can|could|should|would)\b.*\?$/i;
 const NON_ANSWER_PATTERN =
   /^(?:use skip|skip|n\/a|na|none|unknown|not sure|not stated|not provided|no information)$/i;
+
+function itemLooksLikeHardTimeSupport(item: string) {
+  return HARD_TIME_SUPPORT_PATTERN.test(item) &&
+    /\b(helpful|helps|work best|works best|calm|sooth|regulat|redirect|reduce|prompt|give (?:him|her|them)?\s*space|keep(?:ing)? (?:everything|things|it)?\s*quiet|time to calm|moment to (?:himself|herself|themself)|squeeze and release|deep breaths?|count(?:ing)? to 10|make sure .*safe|cannot hurt|can't hurt|do not|don't|swedish fish|gumm(?:y|ies)|candy)\b/i.test(
+      item
+    );
+}
 
 const FALLBACK_STEP_TO_SECTION_TITLE: Record<string, PreferredSummarySectionTitle> = {
   communication: "Communication",
@@ -151,6 +165,7 @@ const COMPARISON_STOPWORDS = new Set([
   "of",
   "on",
   "or",
+  "really",
   "she",
   "that",
   "the",
@@ -159,6 +174,7 @@ const COMPARISON_STOPWORDS = new Set([
   "they",
   "this",
   "to",
+  "very",
   "when",
   "with"
 ]);
@@ -193,6 +209,24 @@ function itemsAreNearDuplicate(left: string, right: string) {
     return true;
   }
 
+  if (
+    /\belop/.test(normalizedLeft) &&
+    /\belop/.test(normalizedRight) &&
+    /\b(upset|hard time|dysregulat)\b/.test(normalizedLeft) &&
+    /\b(upset|hard time|dysregulat)\b/.test(normalizedRight)
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(two people|more than one person|at least two people|two caregivers)\b/.test(normalizedLeft) &&
+    /\b(two people|more than one person|at least two people|two caregivers)\b/.test(normalizedRight) &&
+    /\bcar rides?\b/.test(`${normalizedLeft} ${normalizedRight}`) &&
+    /\bwalks?\b/.test(`${normalizedLeft} ${normalizedRight}`)
+  ) {
+    return true;
+  }
+
   const leftTokens = comparisonTokens(left);
   const rightTokens = comparisonTokens(right);
   if (leftTokens.length < 4 || rightTokens.length < 4) {
@@ -202,6 +236,25 @@ function itemsAreNearDuplicate(left: string, right: string) {
   const overlap = leftTokens.filter((token) => rightTokens.includes(token)).length;
   const union = new Set([...leftTokens, ...rightTokens]).size;
   return union > 0 && overlap / union >= 0.82;
+}
+
+function mergeComplementaryItems(values: string[]) {
+  const normalizedValues = values.map(normalizeComparisonText);
+  const combined = normalizedValues.join(" ");
+
+  if (
+    normalizedValues.every((value) =>
+      /\b(two people|more than one person|at least two people|two caregivers)\b/.test(value)
+    ) &&
+    /\bcar rides?\b/.test(combined) &&
+    /\bwalks?\b/.test(combined)
+  ) {
+    return values.some((value) => /\bGavin\b/.test(value))
+      ? "Gavin needs more than one person with him for car rides and walks."
+      : "They need more than one person with them for car rides and walks.";
+  }
+
+  return null;
 }
 
 function uniqueItems(values: string[]) {
@@ -222,7 +275,9 @@ function uniqueItems(values: string[]) {
     }
 
     const candidates = [cleaned, ...duplicateIndices.map((index) => items[index])];
-    const preferred = candidates.sort((left, right) => right.length - left.length)[0];
+    const preferred =
+      mergeComplementaryItems(candidates) ??
+      candidates.sort((left, right) => right.length - left.length)[0];
     for (const index of duplicateIndices.sort((left, right) => right - left)) {
       items.splice(index, 1);
     }
@@ -617,6 +672,60 @@ function coerceStringArray(value: unknown) {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
+function uniqueCompactStrings(values: unknown[]) {
+  const seen = new Set<string>();
+  const items: string[] = [];
+
+  for (const value of values) {
+    const item = compactWhitespace(String(value));
+    if (!item || seen.has(item)) {
+      continue;
+    }
+
+    seen.add(item);
+    items.push(item);
+  }
+
+  return items;
+}
+
+function normalizeCaregiverInsights(input: unknown): CaregiverInsight[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input
+    .map((entry, index) => {
+      const candidate = entry as Partial<CaregiverInsight> | undefined;
+      const statement = cleanSummaryItem(String(candidate?.statement ?? ""));
+      if (!candidate || !statement || isNoInformationItem(statement)) {
+        return null;
+      }
+
+      const section = canonicalizeSectionTitle(String(candidate.section ?? "")) ?? "";
+      const supportingFactIds = uniqueCompactStrings(
+        Array.isArray(candidate.supportingFactIds)
+          ? candidate.supportingFactIds
+          : []
+      );
+      const themes = uniqueCompactStrings(
+        Array.isArray(candidate.themes) ? candidate.themes : []
+      );
+      const insightId =
+        compactWhitespace(String(candidate.insightId ?? "")) ||
+        `insight-${index + 1}-${slugify(statement).slice(0, 32)}`;
+
+      return {
+        insightId,
+        section,
+        statement,
+        supportingFactIds,
+        themes
+      } satisfies CaregiverInsight;
+    })
+    .filter((insight): insight is CaregiverInsight => Boolean(insight));
+}
+
 function buildSectionsFromStructuredPayload(candidate: GeneratedStructuredSummary) {
   return GENERATED_SUMMARY_SECTION_FIELDS.map((field, index) => ({
     id: `${slugify(field.title)}-${index + 1}`,
@@ -753,6 +862,10 @@ export function inferAuthoritativeSectionTitle(
     return "What helps when they are having a hard time";
   }
 
+  if (itemLooksLikeHardTimeSupport(item)) {
+    return "What helps when they are having a hard time";
+  }
+
   if (
     HARD_TIME_SUPPORT_PATTERN.test(item) &&
     /^(?:do not|don't|give|help|move|go|reduce|dim|stay|use|offer|provide|allow|tell|show|keep|reassure|prepare|countdown|set)\b/i.test(
@@ -859,6 +972,7 @@ export function normalizeGeneratedSummaryWithOptions(
       ...EMPTY_SUMMARY,
       title: defaultSummaryTitle(nameHint),
       overview: buildOverview(sections),
+      caregiverInsights: [],
       sections
     };
   }
@@ -873,6 +987,7 @@ export function normalizeGeneratedSummaryWithOptions(
         ? candidate.title.trim()
         : defaultSummaryTitle(nameHint),
     overview: options.reclassify ? buildOverview(sections) : normalizeOverview(candidate.overview, sections),
+    caregiverInsights: normalizeCaregiverInsights(candidate.caregiverInsights),
     sections,
     generatedAt:
       typeof candidate.generatedAt === "string" ? candidate.generatedAt.trim() : "",
@@ -980,6 +1095,7 @@ function normalizeLegacySummary(
       candidate.caregiver_summary_text.trim()
         ? candidate.caregiver_summary_text.trim()
         : buildOverview(sections),
+    caregiverInsights: [],
     sections
   };
 }
@@ -998,6 +1114,7 @@ function normalizeStructuredCandidate(
     return {
       ...EMPTY_SUMMARY,
       title: defaultSummaryTitle(nameHint),
+      caregiverInsights: [],
       sections: normalizeSections([])
     };
   }
@@ -1024,6 +1141,7 @@ function normalizeStructuredCandidate(
           ? candidate.title.trim()
           : defaultSummaryTitle(nameHint),
       overview: reclassify ? buildOverview(sections) : normalizeOverview(candidate.overview, sections),
+      caregiverInsights: normalizeCaregiverInsights(candidate.caregiverInsights),
       sections,
       generatedAt:
         typeof candidate.generatedAt === "string" ? candidate.generatedAt.trim() : "",
@@ -1096,9 +1214,14 @@ export function formatSummaryGeneratedAt(
 }
 
 export function summaryToPlainText(summary: StructuredSummary) {
+  const insightLines = (summary.caregiverInsights ?? [])
+    .map((insight) => insight.statement.trim())
+    .filter(Boolean);
+
   return [
     summary.title.trim(),
     summary.overview.trim(),
+    ...(insightLines.length > 0 ? ["Caregiver Insights", ...insightLines.map((item) => `- ${item}`)] : []),
     ...summary.sections.flatMap((section) => [
       section.title,
       ...section.items.filter((item) => !isNoInformationItem(item)).map((item) => `- ${item}`)

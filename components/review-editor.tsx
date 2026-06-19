@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
-import { StructuredSummarySectionEditor } from "@/components/structured-summary-sections";
+import {
+  CaregiverInsightsEditor,
+  StructuredSummarySectionEditor
+} from "@/components/structured-summary-sections";
 import { EMPTY_SUMMARY } from "@/lib/constants";
 import {
   authenticatedFetch,
@@ -19,6 +22,7 @@ import { getSummaryFreshness } from "@/lib/summary-structured";
 import { formatSummaryGeneratedAt, normalizeEditableStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
 import {
+  CaregiverInsight,
   SessionDraft,
   StructuredSummary,
   SummaryAuditReport,
@@ -148,6 +152,13 @@ export function ReviewEditor() {
     setSummary((current) => ({
       ...current,
       sections: current.sections.map((section) => (section.id === nextSection.id ? nextSection : section))
+    }));
+  }
+
+  function updateCaregiverInsights(nextInsights: CaregiverInsight[]) {
+    setSummary((current) => ({
+      ...current,
+      caregiverInsights: nextInsights
     }));
   }
 
@@ -347,6 +358,12 @@ export function ReviewEditor() {
                 />
               </label>
             ) : null}
+
+            <CaregiverInsightsEditor
+              insights={summary.caregiverInsights ?? []}
+              title={copy.caregiverInsightsLabel}
+              onChange={updateCaregiverInsights}
+            />
 
             <div className="space-y-3">
               <h2 className="text-sm font-medium text-slate-700">{copy.sectionsLabel}</h2>

@@ -63,7 +63,11 @@ export function getVisibleSections(summary: StructuredSummary) {
 }
 
 export function summaryHasContent(summary: StructuredSummary) {
-  return Boolean(compactWhitespace(summary.overview)) || getVisibleSections(summary).length > 0;
+  return (
+    Boolean(compactWhitespace(summary.overview)) ||
+    (summary.caregiverInsights ?? []).some((insight) => compactWhitespace(insight.statement)) ||
+    getVisibleSections(summary).length > 0
+  );
 }
 
 export function blockToPlainTextLines(block: SummaryBlock): string[] {
@@ -111,6 +115,7 @@ export function summaryToSearchText(summary: StructuredSummary) {
   return [
     compactWhitespace(summary.title),
     compactWhitespace(summary.overview),
+    ...(summary.caregiverInsights ?? []).map((insight) => compactWhitespace(insight.statement)),
     ...getVisibleSections(summary).flatMap((section) => [section.title, ...sectionToPlainTextLines(section)])
   ]
     .filter(Boolean)

@@ -13,6 +13,7 @@ import {
   computeTurnsHash
 } from "./summary-structured";
 import {
+  CaregiverInsight,
   ConversationTurn,
   ReflectionStepId,
   StructuredSummary,
@@ -51,6 +52,10 @@ type StructuredCaptureFact = {
 
 type StructuredCapture = {
   facts: StructuredCaptureFact[];
+};
+
+type StructuredInsightCapture = {
+  insights: CaregiverInsight[];
 };
 
 type StructuredFactKind =
@@ -741,6 +746,46 @@ const captureSchema = {
   required: ["facts"]
 } as const;
 
+const insightSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    insights: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          insightId: {
+            type: "string"
+          },
+          section: {
+            type: "string",
+            enum: SUMMARY_SECTION_TITLES
+          },
+          statement: {
+            type: "string"
+          },
+          supportingFactIds: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          },
+          themes: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          }
+        },
+        required: ["insightId", "section", "statement", "supportingFactIds", "themes"]
+      }
+    }
+  },
+  required: ["insights"]
+} as const;
+
 const summarySchemaDescription = `Return JSON with exactly these keys and no others:
 {
   "title": "string",
@@ -789,6 +834,14 @@ Use the most specific allowed factKind. Use learning for learning, processing, r
 Capture every distinct detail separately. For example, AAC identity, asking for help, requesting a car ride, and requesting an iPad are separate facts even though they use the same device. Limping, not eating, not drinking, low energy, elopement, hand biting, angry vocalizations, hiding/grunting, and pressing Help are also separate signs. Squeeze-and-release, deep breathing, counting, giving space, reducing stimulation, not blocking hand biting, car rides, quiet environments, and time alone are separate caregiver actions unless the source explicitly combines them.
 
 Do not invent, omit, polish, or combine distinct facts.`;
+
+const caregiverInsightRules = `Create a short "Caregiver Insights" layer from the structured facts.
+
+Return 3 to 5 insights when supported, or fewer if there are not enough related facts. Each insight must synthesize a pattern across at least two supporting facts, use plain caregiver-ready language, and include only information supported by the listed fact IDs.
+
+Good insights connect related facts across questions, such as learning style, regulation supports, communication patterns, sensory needs, routines, or safety patterns. Do not create insights for simple lists like medications, diagnoses, contacts, or equipment inventories unless they reveal a broader care pattern.
+
+The insights are additive. Do not use this layer to replace, omit, or compress atomic facts in the detailed handoff.`;
 
 const sevenSectionRewriteRules = `Rewrite the structured facts into a concise caregiver-ready handoff.
 
@@ -1211,6 +1264,15 @@ function cleanCaptureStatement(value: string) {
   return trimmed;
 }
 
+function cleanInsightStatement(value: string) {
+  const trimmed = sanitizeTranscriptFragment(value);
+  if (!trimmed || NON_ANSWER_PATTERN.test(trimmed) || QUESTION_ECHO_PATTERN.test(trimmed)) {
+    return null;
+  }
+
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 function statementLooksLikeMedication(value: string) {
   return /\b(abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|mg\b|dose|once a day|daily at|3pm|3 p\.m\.)\b/i.test(
     value
@@ -1230,7 +1292,7 @@ function statementLooksLikeCondition(value: string) {
 }
 
 function statementLooksLikeSafetyRisk(value: string) {
-  return /\b(two caregivers?|two people|2 adults?|close supervision|supervision|safety risk|unsafe|pica|elopement|run away|hand biting|self-injury|may bite you|caregiver injury|for safety reasons?)\b/i.test(
+  return /\b(two caregivers?|two people|more than one person|at least two people|2 adults?|close supervision|supervision|safety risk|unsafe|pica|elopement|run away|hand biting|self-injury|may bite you|caregiver injury|for safety reasons?)\b/i.test(
     value
   );
 }
@@ -1288,8 +1350,10 @@ function statementLooksLikeFoodRoutine(value: string) {
 }
 
 function statementLooksLikeSupportStrategy(value: string) {
-  return /\b(help|helps|helpful|work best|works best|reset|calm|sooth|regulat)\b/i.test(value) &&
-    /\b(quiet|low-light|dim|space|stimulation|noise|car ride|time alone|visual choices?|limited choices?)\b/i.test(
+  return /\b(helps|helpful|work best|works best|reset|calm|sooth|regulat|redirect|motivat|prompt|safe|hurt (?:himself|herself|themself)|squeeze and release|deep breaths?|count(?:ing)? to 10|swedish fish|gumm(?:y|ies)|candy)\b/i.test(
+    value
+  ) &&
+    /\b(quiet|low-light|dim|space|stimulation|noise|car rides?|time alone|moment to (?:himself|herself|themself)|visual choices?|limited choices?|visual schedule|visual timer|transition|upset|hard time|dysregulated|escalat|self-harm|elop)\b/i.test(
       value
     );
 }
@@ -1771,6 +1835,137 @@ function extractCoverageConcepts(value: string) {
   }
 
   return concepts;
+}
+
+function formatInsightList(items: string[]) {
+  if (items.length === 0) {
+    return "";
+  }
+
+  if (items.length === 1) {
+    return items[0];
+  }
+
+  if (items.length === 2) {
+    return `${items[0]} and ${items[1]}`;
+  }
+
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+function normalizeInsightCapture(input: unknown, capture: StructuredCapture) {
+  const validFactIds = new Set(capture.facts.map((fact) => fact.factId));
+  const candidate = input as Partial<StructuredInsightCapture> | undefined;
+  const insights = Array.isArray(candidate?.insights) ? candidate.insights : [];
+  const deduped = new Map<string, CaregiverInsight>();
+
+  for (const insight of insights) {
+    const statement = cleanInsightStatement(String(insight.statement ?? ""));
+    const section = SUMMARY_SECTION_TITLES.find((title) => title === insight.section);
+    const supportingFactIds = [...new Set(
+      (Array.isArray(insight.supportingFactIds) ? insight.supportingFactIds : [])
+        .map(String)
+        .map(compactWhitespace)
+        .filter((factId) => validFactIds.has(factId))
+    )];
+    const themes = [...new Set(
+      (Array.isArray(insight.themes) ? insight.themes : [])
+        .map(String)
+        .map(compactWhitespace)
+        .filter(Boolean)
+    )].slice(0, 5);
+
+    if (!statement || !section || supportingFactIds.length < 2) {
+      continue;
+    }
+
+    const key = normalizeCoverageText(statement);
+    if (!key || deduped.has(key)) {
+      continue;
+    }
+
+    const insightId =
+      compactWhitespace(String(insight.insightId ?? "")) ||
+      `insight-${deduped.size + 1}`;
+    deduped.set(key, {
+      insightId: insightId.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || `insight-${deduped.size + 1}`,
+      section,
+      statement,
+      supportingFactIds,
+      themes
+    });
+  }
+
+  return [...deduped.values()].slice(0, 5);
+}
+
+function buildVisualLearningInsight(capture: StructuredCapture, nameHint?: string): CaregiverInsight[] {
+  const supportEntries: Array<{ label: string; facts: StructuredCaptureFact[] }> = [
+    {
+      label: "videos",
+      facts: capture.facts.filter((fact) => /\b(videos?|youtube|watching)\b/i.test(fact.statement))
+    },
+    {
+      label: "modeling",
+      facts: capture.facts.filter((fact) => /\b(model(?:ing)?|demonstrat|show(?:ing)? him|show(?:ing)? her|show(?:ing)? them|watching)\b/i.test(fact.statement))
+    },
+    {
+      label: "visual schedules",
+      facts: capture.facts.filter((fact) => /\b(visual schedule|visual timer|visual choices?|pictures?|items themselves)\b/i.test(fact.statement))
+    },
+    {
+      label: "First-Then language",
+      facts: capture.facts.filter((fact) => /\b(first[ -]?then|first this,? then that|two-step|2-step)\b/i.test(fact.statement))
+    }
+  ].map((entry) => ({
+    ...entry,
+    facts: entry.facts.filter((fact) =>
+      fact.section === "Understanding and Learning" ||
+      fact.section === "Communication" ||
+      fact.section === "What helps when they are having a hard time" ||
+      fact.factKind === "learning" ||
+      fact.factKind === "support_strategy" ||
+      fact.factKind === "caregiver_action"
+    )
+  }));
+  const supportedLabels = supportEntries
+    .filter((entry) => entry.facts.length > 0)
+    .map((entry) => entry.label);
+  const supportingFactIds = [
+    ...new Set(supportEntries.flatMap((entry) => entry.facts.map((fact) => fact.factId)))
+  ];
+
+  if (supportedLabels.length < 2 || supportingFactIds.length < 2) {
+    return [];
+  }
+
+  const subject = nameHint?.trim() || "They";
+  const verb = nameHint?.trim() ? "is" : "are";
+
+  return [
+    {
+      insightId: "visual-learning-pattern",
+      section: "Understanding and Learning",
+      statement: `${subject} ${verb} a highly visual learner who learns best through ${formatInsightList(supportedLabels)}.`,
+      supportingFactIds,
+      themes: ["visual learning", ...supportedLabels]
+    }
+  ];
+}
+
+function mergeCaregiverInsights(...groups: CaregiverInsight[][]) {
+  const merged = new Map<string, CaregiverInsight>();
+
+  for (const insight of groups.flat()) {
+    const key = normalizeCoverageText(insight.statement);
+    if (!key || merged.has(key)) {
+      continue;
+    }
+
+    merged.set(key, insight);
+  }
+
+  return [...merged.values()].slice(0, 5);
 }
 
 function statementLooksCovered(statement: string, existingItems: string[]) {
@@ -2599,6 +2794,45 @@ async function captureSummaryFacts(
   } satisfies StructuredCapture;
 }
 
+async function generateCaregiverInsights(
+  apiKey: string,
+  model: string,
+  capture: StructuredCapture,
+  nameHint?: string
+) {
+  const deterministicInsights = buildVisualLearningInsight(capture, nameHint);
+  if (capture.facts.length < 2) {
+    return deterministicInsights;
+  }
+
+  try {
+    const rawInsights = await requestStructuredCompletion<StructuredInsightCapture>({
+      apiKey,
+      model,
+      schemaName: "caregiver_handoff_insights",
+      schema: insightSchema,
+      systemPrompt:
+        "You synthesize caregiver handoff facts into short, non-clinical caregiver insights. You only use provided facts and cite supporting fact IDs.",
+      userPrompt: `${caregiverInsightRules}\n\n${
+        nameHint ? `Care recipient name: ${nameHint}\n\n` : ""
+      }Structured facts:\n${groupFactsForRewritePrompt(capture)}`,
+      temperature: 0.1,
+      maxCompletionTokens: 2500
+    });
+
+    return mergeCaregiverInsights(
+      deterministicInsights,
+      normalizeInsightCapture(rawInsights, capture)
+    );
+  } catch (error) {
+    console.error("[summary:insights] insight generation failed; continuing with deterministic insights", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : "Unknown insight error"
+    });
+    return deterministicInsights;
+  }
+}
+
 async function rewriteStructuredCapture(
   apiKey: string,
   model: string,
@@ -2647,12 +2881,20 @@ async function generateSummaryTwoStep(
     return null;
   }
 
+  const caregiverInsights = await generateCaregiverInsights(apiKey, model, capture, nameHint);
   const rewrittenSummary = await rewriteStructuredCapture(apiKey, model, capture, nameHint);
   if (!rewrittenSummary) {
     return null;
   }
 
-  const firstPass = auditAndFinalizeSummary(rewrittenSummary, capture, nameHint);
+  const firstPass = auditAndFinalizeSummary(
+    {
+      ...rewrittenSummary,
+      caregiverInsights
+    },
+    capture,
+    nameHint
+  );
   if (firstPass.report.issues.length === 0) {
     return firstPass;
   }
@@ -2669,7 +2911,14 @@ async function generateSummaryTwoStep(
     return firstPass;
   }
 
-  return auditAndFinalizeSummary(repairedSummary, capture, nameHint);
+  return auditAndFinalizeSummary(
+    {
+      ...repairedSummary,
+      caregiverInsights
+    },
+    capture,
+    nameHint
+  );
 }
 
 export function buildSummarySource(turns: ConversationTurn[]) {

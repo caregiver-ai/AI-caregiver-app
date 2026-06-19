@@ -2,7 +2,7 @@ import {
   PREFERRED_SUMMARY_SECTION_ORDER,
   normalizeAuthoritativeStructuredSummary,
 } from "@/lib/summary";
-import type { SessionDraft, StructuredSummary } from "@/lib/types";
+import type { CaregiverInsight, SessionDraft, StructuredSummary } from "@/lib/types";
 
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
 
@@ -57,6 +57,47 @@ function meaningfulItems(summary: StructuredSummary, title: string) {
         (item) => normalizeItem(item) !== normalizeItem(NO_INFORMATION_PLACEHOLDER),
       ) ?? []
   );
+}
+
+function applyReviewedInsightEdits(
+  current: StructuredSummary,
+  previousGenerated: StructuredSummary,
+  previousEdited: StructuredSummary,
+) {
+  const generatedById = new Map(
+    (previousGenerated.caregiverInsights ?? []).map((insight) => [insight.insightId, insight]),
+  );
+  const editedById = new Map(
+    (previousEdited.caregiverInsights ?? []).map((insight) => [insight.insightId, insight]),
+  );
+  const merged = (current.caregiverInsights ?? []).map((insight) => {
+    const generated = generatedById.get(insight.insightId);
+    const edited = editedById.get(insight.insightId);
+    if (
+      generated &&
+      edited &&
+      normalizeItem(generated.statement) !== normalizeItem(edited.statement)
+    ) {
+      return {
+        ...insight,
+        statement: edited.statement,
+      } satisfies CaregiverInsight;
+    }
+
+    return insight;
+  });
+
+  for (const edited of previousEdited.caregiverInsights ?? []) {
+    if (generatedById.has(edited.insightId)) {
+      continue;
+    }
+
+    if (!merged.some((insight) => itemsAreEquivalent(insight.statement, edited.statement))) {
+      merged.push(edited);
+    }
+  }
+
+  return merged;
 }
 
 export function applyReviewedSummaryEdits(
@@ -117,6 +158,7 @@ export function applyReviewedSummaryEdits(
   return normalizeAuthoritativeStructuredSummary(
     {
       ...current,
+      caregiverInsights: applyReviewedInsightEdits(current, generated, edited),
       sections,
     },
     nameHint,

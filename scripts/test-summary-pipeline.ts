@@ -205,14 +205,61 @@ async function testSummaryCaptureBatchingWithMockedModel() {
               finish_reason: "stop",
               message: {
                 content: JSON.stringify({
-                  facts: entryIds.map((entryId) => ({
-                    entryId,
-                    section: "Communication",
-                    factKind: "communication_method",
-                    subcategory: "General",
-                    statement: `${entryId} includes a communication detail.`,
-                    safetyRelevant: false,
-                  })),
+                  facts: entryIds.map((entryId) => {
+                    const communicationDetails = [
+                      "uses short words to communicate",
+                      "uses gestures to communicate",
+                      "uses a communication device",
+                      "points to choices",
+                    ];
+                    const entryNumber = Number(entryId.match(/\d+/)?.[0] ?? "1");
+
+                    return {
+                      entryId,
+                      section: "Communication",
+                      factKind: "communication_method",
+                      subcategory: "General",
+                      statement: `${entryId} ${communicationDetails[(entryNumber - 1) % communicationDetails.length]}.`,
+                      safetyRelevant: false,
+                    };
+                  }),
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (schemaName === "caregiver_handoff_insights") {
+      const prompt = String(requestBody.messages?.at(-1)?.content ?? "");
+      const factIds = [
+        ...new Set(
+          [...prompt.matchAll(/\[([a-z0-9-]+-fact-\d+)\]/g)]
+            .map((match) => match[1])
+            .filter((factId): factId is string => Boolean(factId)),
+        ),
+      ];
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  insights:
+                    factIds.length >= 2
+                      ? [
+                          {
+                            insightId: "mock-communication-pattern",
+                            section: "Communication",
+                            statement: "Mock has a consistent communication support pattern.",
+                            supportingFactIds: factIds.slice(0, 2),
+                            themes: ["communication support"],
+                          },
+                        ]
+                      : [],
                 }),
               },
             },
@@ -259,6 +306,8 @@ async function testSummaryCaptureBatchingWithMockedModel() {
 
     const result = await generateCaregiverSummaryWithQa(turns, "Mock", "two-step");
     assert.equal(result.summary.sections.length, 7);
+    assert.equal(result.summary.caregiverInsights?.length, 1);
+    assert.equal(result.summary.caregiverInsights?.[0]?.supportingFactIds.length, 2);
     assert.ok(captureCalls > 1, "expected large capture input to be split across model calls");
   } finally {
     globalThis.fetch = previousFetch;
@@ -731,6 +780,86 @@ function testSummaryRoutingAndCleanup() {
     ),
     "What helps when they are having a hard time",
   );
+  assert.equal(
+    inferAuthoritativeSectionTitle(
+      "If Gavin is really upset, giving him space is helpful.",
+      "Signs They Are Having a Hard Time",
+    ),
+    "What helps when they are having a hard time",
+  );
+  assert.equal(
+    inferAuthoritativeSectionTitle(
+      "You can ask Gavin to count to 10, tell him to take a deep breath, or tell him to squeeze and release his hands, but these strategies help only if he is still somewhat calm.",
+      "Signs They Are Having a Hard Time",
+    ),
+    "What helps when they are having a hard time",
+  );
+  assert.equal(
+    inferAuthoritativeSectionTitle(
+      "The most important thing when Gavin is very upset is to make sure he is safe and cannot hurt himself.",
+      "Signs They Are Having a Hard Time",
+    ),
+    "What helps when they are having a hard time",
+  );
+  assert.equal(
+    inferAuthoritativeSectionTitle(
+      "Gavin takes ARIPiprazole 15 mg (Abilify) once a day at 3 pm to help manage irritability, aggression, repetitive behaviors, and self-injury.",
+      "Signs They Are Having a Hard Time",
+    ),
+    "Health & Safety",
+  );
+  assert.equal(
+    inferAuthoritativeSectionTitle(
+      "Gavin takes L'il Critters Gummy Vites Daily Multivitamin for Kids, 2 gummies per day.",
+      "What helps when they are having a hard time",
+    ),
+    "Health & Safety",
+  );
+  assert.equal(
+    inferAuthoritativeSectionTitle(
+      "Gavin needs more than one person with him for car rides.",
+      "Communication",
+    ),
+    "Health & Safety",
+  );
+  assert.equal(
+    inferAuthoritativeSectionTitle(
+      "A structured routine helps Gavin's day go well.",
+      "What helps when they are having a hard time",
+    ),
+    "Daily Schedule",
+  );
+
+  const dedupedSafetySummary = normalizeAuthoritativeStructuredSummary(
+    summaryWithVersions([], {
+      sections: expectedSections.map((title, index) => ({
+        id: `dedupe-${index + 1}`,
+        title,
+        items:
+          title === "Signs They Are Having a Hard Time"
+            ? [
+                "When Gavin is upset, he may elope.",
+                "Gavin may elope when he is really upset.",
+              ]
+            : title === "Health & Safety"
+              ? [
+                  "Gavin needs more than one person with him for car rides.",
+                  "Gavin needs more than one person with him for walks.",
+                ]
+              : ["(No information provided)"],
+      })),
+    }),
+    "Gavin",
+  );
+  assert.equal(
+    sectionItems(dedupedSafetySummary, "Signs They Are Having a Hard Time")
+      .filter((item) => /elop/i.test(item)).length,
+    1,
+  );
+  assert.match(
+    sectionText(dedupedSafetySummary, "Health & Safety"),
+    /car rides and walks/i,
+  );
 
   const activities = sectionItems(normalized, "Activities & Preferences");
   assert.equal(activities.length, 1);
@@ -749,9 +878,25 @@ function testSummaryRoutingAndCleanup() {
 }
 
 function testSevenSectionSummaryOutputs() {
-  const summary = summaryWithVersions([]);
+  const summary = summaryWithVersions([], {
+    caregiverInsights: [
+      {
+        insightId: "visual-learning-pattern",
+        section: "Understanding and Learning",
+        statement:
+          "Jay is a highly visual learner who learns best through videos, modeling, visual schedules, and First-Then language.",
+        supportingFactIds: ["entry-1-fact-1", "entry-2-fact-1"],
+        themes: ["visual learning"],
+      },
+    ],
+  });
   const plainText = summaryToPlainText(summary);
   const emailHtml = buildSummaryEmailHtml(summary);
+
+  assert.match(plainText, /Caregiver Insights/);
+  assert.match(plainText, /highly visual learner/i);
+  assert.match(emailHtml, /Caregiver Insights/);
+  assert.match(emailHtml, /highly visual learner/i);
 
   for (const heading of expectedSections) {
     assert.match(plainText, new RegExp(heading.replace("&", "\\&")));
@@ -948,6 +1093,15 @@ function testReviewedSummaryEditsSurviveRegeneration() {
   });
   const previousGenerated: StructuredSummary = {
     ...metadata,
+    caregiverInsights: [
+      {
+        insightId: "communication-pattern",
+        section: "Communication",
+        statement: "Dylan communicates verbally.",
+        supportingFactIds: ["entry-1-fact-1", "entry-2-fact-1"],
+        themes: ["communication"],
+      },
+    ],
     sections: [
       {
         id: "communication",
@@ -996,6 +1150,15 @@ function testReviewedSummaryEditsSurviveRegeneration() {
   };
   const previousEdited: StructuredSummary = {
     ...previousGenerated,
+    caregiverInsights: [
+      {
+        insightId: "communication-pattern",
+        section: "Communication",
+        statement: "Dylan communicates verbally and benefits from patient conversation.",
+        supportingFactIds: ["entry-1-fact-1", "entry-2-fact-1"],
+        themes: ["communication"],
+      },
+    ],
     sections: previousGenerated.sections.map((section) => {
       if (section.title === "What helps the day go well") {
         return {
@@ -1016,6 +1179,15 @@ function testReviewedSummaryEditsSurviveRegeneration() {
   };
   const current = summaryWithVersions(turns, {
     title: "Caring for Dylan",
+    caregiverInsights: [
+      {
+        insightId: "communication-pattern",
+        section: "Communication",
+        statement: "Dylan communicates verbally.",
+        supportingFactIds: ["entry-3-fact-1", "entry-4-fact-1"],
+        themes: ["communication"],
+      },
+    ],
     sections: expectedSections.map((title, index) => ({
       id: `current-${index + 1}`,
       title,
@@ -1060,6 +1232,10 @@ function testReviewedSummaryEditsSurviveRegeneration() {
     /Emergency Contact: Dotty Foley.*parent and guardian/i,
   );
   assert.doesNotMatch(merged.overview, /Emergency Contact: Emergency contact:/i);
+  assert.match(
+    merged.caregiverInsights?.[0]?.statement ?? "",
+    /patient conversation/i,
+  );
 }
 
 async function testRecordingStopSequence() {

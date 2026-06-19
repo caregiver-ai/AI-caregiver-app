@@ -83,9 +83,18 @@ export type SummaryBlock =
       text: string;
     };
 
+export interface CaregiverInsight {
+  insightId: string;
+  section: string;
+  statement: string;
+  supportingFactIds: string[];
+  themes: string[];
+}
+
 export interface StructuredSummary {
   title: string;
   overview: string;
+  caregiverInsights?: CaregiverInsight[];
   sections: SummarySection[];
   generatedAt: string;
   pipelineVersion: string;

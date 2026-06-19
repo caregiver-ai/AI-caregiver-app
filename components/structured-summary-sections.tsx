@@ -2,7 +2,7 @@
 
 import { deriveItemsFromBlocks } from "@/lib/summary-structured";
 import { getSectionBlocks, sectionHasContent } from "@/lib/summary-display";
-import { SummaryBlock, SummarySection } from "@/lib/types";
+import { CaregiverInsight, SummaryBlock, SummarySection } from "@/lib/types";
 
 function itemsToTextarea(items: string[]) {
   return items.join("\n");
@@ -21,6 +21,47 @@ function updateBlocks(section: SummarySection, blocks: SummaryBlock[], onChange:
     blocks,
     items: deriveItemsFromBlocks(blocks)
   });
+}
+
+export function CaregiverInsightsEditor({
+  insights,
+  title,
+  onChange
+}: {
+  insights: CaregiverInsight[];
+  title: string;
+  onChange: (insights: CaregiverInsight[]) => void;
+}) {
+  if (insights.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-4 rounded-3xl border border-border bg-canvas px-4 py-4">
+      <h2 className="text-sm font-medium text-slate-700">{title}</h2>
+      {insights.map((insight, index) => (
+        <label key={insight.insightId || index} className="block space-y-2">
+          <span className="text-sm font-medium text-slate-600">Insight {index + 1}</span>
+          <textarea
+            className="min-h-24 w-full rounded-2xl border border-border bg-white px-4 py-3 outline-none transition focus:border-accent"
+            value={insight.statement}
+            onChange={(event) =>
+              onChange(
+                insights.map((entry, entryIndex) =>
+                  entryIndex === index
+                    ? {
+                        ...entry,
+                        statement: event.target.value
+                      }
+                    : entry
+                )
+              )
+            }
+          />
+        </label>
+      ))}
+    </div>
+  );
 }
 
 function BlockEditor({
@@ -251,6 +292,35 @@ export function StructuredSummarySectionDisplay({ section }: { section: SummaryS
           <SummaryBlockDisplay key={`${section.id}-${block.type}-${blockIndex}`} block={block} />
         ))}
       </div>
+    </div>
+  );
+}
+
+export function CaregiverInsightsDisplay({
+  insights,
+  title
+}: {
+  insights: CaregiverInsight[];
+  title: string;
+}) {
+  const visibleInsights = insights
+    .map((insight) => insight.statement.trim())
+    .filter(Boolean);
+
+  if (visibleInsights.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">{title}</h2>
+      <ul className="space-y-2 text-sm leading-6 text-slate-700">
+        {visibleInsights.map((insight) => (
+          <li key={insight} className="rounded-2xl bg-canvas px-4 py-3">
+            {insight}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

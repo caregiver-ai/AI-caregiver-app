@@ -161,6 +161,7 @@ type ReviewCopy = {
   staleSummaryMessage: string;
   summaryTitleLabel: string;
   overviewLabel: string;
+  caregiverInsightsLabel: string;
   sectionsLabel: string;
   sectionTitleLabel: string;
   sectionItemsLabel: string;
@@ -188,6 +189,7 @@ type CompletionCopy = {
   regenerateSuccess: string;
   staleSummaryMessage: string;
   overviewLabel: string;
+  caregiverInsightsLabel: string;
   downloadPdfButton: string;
   preparingPdfButton: string;
   downloadPdfFailed: string;
@@ -643,6 +645,7 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
       "This saved summary is out of date. Regenerate it from the saved answers before reviewing or confirming it.",
     summaryTitleLabel: "Summary title",
     overviewLabel: "Overview",
+    caregiverInsightsLabel: "Caregiver Insights",
     sectionsLabel: "Handoff sections",
     sectionTitleLabel: "Section title",
     sectionItemsLabel: "Section details",
@@ -668,6 +671,7 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
       "Este resumen guardado está desactualizado. Regénérelo desde las respuestas guardadas antes de revisarlo o confirmarlo.",
     summaryTitleLabel: "Título del resumen",
     overviewLabel: "Resumen general",
+    caregiverInsightsLabel: "Ideas clave para cuidadores",
     sectionsLabel: "Secciones del relevo",
     sectionTitleLabel: "Título de la sección",
     sectionItemsLabel: "Detalles de la sección",
@@ -691,6 +695,7 @@ const reviewCopy: Record<UiLanguage, ReviewCopy> = {
     staleSummaryMessage: "这份已保存的摘要已过期。请先根据已保存的回答重新生成，再进行审核或确认。",
     summaryTitleLabel: "摘要标题",
     overviewLabel: "概览",
+    caregiverInsightsLabel: "照护者要点",
     sectionsLabel: "交接部分",
     sectionTitleLabel: "部分标题",
     sectionItemsLabel: "部分内容",
@@ -722,6 +727,7 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     staleSummaryMessage:
       "This saved summary is out of date. Regenerate it from the saved answers before downloading or emailing it.",
     overviewLabel: "Overview",
+    caregiverInsightsLabel: "Caregiver Insights",
     downloadPdfButton: "Download as PDF",
     preparingPdfButton: "Preparing PDF...",
     downloadPdfFailed: "Unable to download the PDF right now.",
@@ -758,6 +764,7 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     staleSummaryMessage:
       "Este resumen guardado está desactualizado. Regénérelo desde las respuestas guardadas antes de descargarlo o enviarlo por correo.",
     overviewLabel: "Resumen general",
+    caregiverInsightsLabel: "Ideas clave para cuidadores",
     downloadPdfButton: "Descargar como PDF",
     preparingPdfButton: "Preparando PDF...",
     downloadPdfFailed: "No fue posible descargar el PDF en este momento.",
@@ -792,6 +799,7 @@ const completionCopy: Record<UiLanguage, CompletionCopy> = {
     regenerateSuccess: "已根据保存的回答重新生成摘要。",
     staleSummaryMessage: "这份已保存的摘要已过期。请先根据已保存的回答重新生成，再下载或通过邮件发送。",
     overviewLabel: "概览",
+    caregiverInsightsLabel: "照护者要点",
     downloadPdfButton: "下载 PDF",
     preparingPdfButton: "正在准备 PDF...",
     downloadPdfFailed: "暂时无法下载 PDF。",

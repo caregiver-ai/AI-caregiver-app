@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
 import { StatusBanner } from "@/components/status-banner";
-import { StructuredSummarySectionDisplay } from "@/components/structured-summary-sections";
+import {
+  CaregiverInsightsDisplay,
+  StructuredSummarySectionDisplay
+} from "@/components/structured-summary-sections";
 import {
   authenticatedFetch,
   getCurrentAuthUser,
@@ -379,6 +382,11 @@ export function CompletionView() {
 
         {!requiresRegeneration ? (
           <>
+            <CaregiverInsightsDisplay
+              insights={summary.caregiverInsights ?? []}
+              title={copy.caregiverInsightsLabel}
+            />
+
             {getVisibleSections(summary).map((section) => (
               <StructuredSummarySectionDisplay key={section.id} section={section} />
             ))}

@@ -5,6 +5,7 @@ export const APP_NAME = "Caregiver Handoff";
 export const EMPTY_SUMMARY: StructuredSummary = {
   title: "",
   overview: "",
+  caregiverInsights: [],
   sections: [],
   generatedAt: "",
   pipelineVersion: "",

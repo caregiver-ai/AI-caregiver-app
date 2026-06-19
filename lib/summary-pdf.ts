@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import type { PDFDocument, PDFFont, PDFPage } from "pdf-lib";
 import { getSectionBlocks, getVisibleSections } from "@/lib/summary-display";
 import { formatSummaryGeneratedAt, getOverviewLines } from "@/lib/summary";
 import { StructuredSummary, SummaryBlock } from "@/lib/types";
@@ -21,6 +21,8 @@ type PageState = {
   page: PDFPage;
   y: number;
 };
+
+type PdfColor = NonNullable<NonNullable<Parameters<PDFPage["drawText"]>[1]>["color"]>;
 
 function createPage(pdf: PDFDocument): PageState {
   return {
@@ -101,7 +103,7 @@ function drawWrappedLines(
   lines: string[],
   font: PDFFont,
   fontSize: number,
-  color: ReturnType<typeof rgb>,
+  color: PdfColor,
   x: number
 ) {
   let nextState = state;
@@ -131,7 +133,7 @@ function drawParagraph(
   text: string,
   font: PDFFont,
   fontSize: number,
-  color: ReturnType<typeof rgb>,
+  color: PdfColor,
   width = CONTENT_WIDTH,
   x = PAGE_MARGIN_X
 ) {
@@ -144,7 +146,7 @@ function drawBulletItem(
   state: PageState,
   text: string,
   font: PDFFont,
-  color: ReturnType<typeof rgb>,
+  color: PdfColor,
   x = PAGE_MARGIN_X,
   width = CONTENT_WIDTH
 ) {
@@ -184,8 +186,8 @@ function drawSectionBlock(
   block: SummaryBlock,
   regularFont: PDFFont,
   boldFont: PDFFont,
-  slate: ReturnType<typeof rgb>,
-  muted: ReturnType<typeof rgb>
+  slate: PdfColor,
+  muted: PdfColor
 ) {
   let nextState = state;
 
@@ -259,6 +261,7 @@ function escapeHtml(value: string) {
 }
 
 export async function createSummaryPdf(summary: StructuredSummary) {
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
   const pdf = await PDFDocument.create();
   const regularFont = await pdf.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -306,6 +309,24 @@ export async function createSummaryPdf(summary: StructuredSummary) {
     state.y -= SECTION_GAP;
   }
 
+  const caregiverInsights = (summary.caregiverInsights ?? [])
+    .map((insight) => insight.statement.trim())
+    .filter(Boolean);
+  if (caregiverInsights.length > 0) {
+    state.page.drawText("Caregiver Insights", {
+      x: PAGE_MARGIN_X,
+      y: state.y,
+      size: SMALL_SIZE,
+      font: boldFont,
+      color: muted
+    });
+    state.y -= SMALL_SIZE + 8;
+    for (const insight of caregiverInsights) {
+      state = drawBulletItem(pdf, state, insight, regularFont, slate);
+    }
+    state.y -= SECTION_GAP;
+  }
+
   for (const section of getVisibleSections(summary)) {
     const blocks = getSectionBlocks(section);
 
@@ -337,6 +358,18 @@ export async function createSummaryPdf(summary: StructuredSummary) {
 export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: string) {
   const generatedAtText = formatSummaryGeneratedAt(summary.generatedAt, "english");
   const overviewLines = getOverviewLines(summary.overview.trim());
+  const caregiverInsights = (summary.caregiverInsights ?? [])
+    .map((insight) => insight.statement.trim())
+    .filter(Boolean);
+  const caregiverInsightsHtml =
+    caregiverInsights.length > 0
+      ? `
+        <h3 style="font-size:16px;margin:20px 0 8px;color:#334155;">Caregiver Insights</h3>
+        <ul style="margin:0 0 16px 18px;padding:0;color:#334155;">
+          ${caregiverInsights.map((insight) => `<li style="margin:0 0 6px;">${escapeHtml(insight)}</li>`).join("")}
+        </ul>
+      `
+      : "";
   const sections = getVisibleSections(summary)
     .map((section) => {
       const intro = section.intro?.trim()
@@ -413,6 +446,7 @@ export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: stri
               .join("")}</ul>`
           : ""
       }
+      ${caregiverInsightsHtml}
       ${sections}
     </div>
   `;
