@@ -1280,7 +1280,14 @@ function statementLooksLikeMedication(value: string) {
 }
 
 function statementLooksLikeEquipment(value: string) {
-  return /\b(aac on an ipad|aac device|touchchat|noise-?cancel(?:ing)? headphones?|headphones?|buckle buddy|fidgets?|white cane)\b/i.test(
+  if (
+    /\bpull-?ups?\b/i.test(value) &&
+    /\b(bowel movements?|bathroom|toilet|toileting)\b/i.test(value)
+  ) {
+    return false;
+  }
+
+  return /\b(aac on an ipad|aac device|touchchat|noise-?cancel(?:ing)? headphones?|headphones?|buckle buddy|fidgets?|pull-?ups?|white cane)\b/i.test(
     value
   );
 }
@@ -1325,7 +1332,11 @@ function statementLooksLikeRoutine(value: string) {
 }
 
 function statementLooksLikeLearning(value: string) {
-  return /\b(learn|understand|process(?:ing)?|read|write|literacy|one-step|two-step|direction|extra time|express|consequence|decision|recognizes? (?:pictures?|words?)|independent)\b/i.test(
+  if (/\b(likes?|loves?|enjoys?|favorite|preferred activities|downtime)\b/i.test(value)) {
+    return false;
+  }
+
+  return /\b(learn|understand|read|write|literacy|one-step|two-step|2-step|direction|extra time|express|consequence|decision|recognizes? (?:pictures?|words?)|visual learner|very visual|first[ -]?then|first this,? then that|model(?:ing)?|watch(?:ing)?|videos?|pictures?|actual items?|items themselves|physical cues?|gentle physical cues?|tap(?:ping)? .*foot)\b/i.test(
     value
   );
 }
@@ -1350,7 +1361,7 @@ function statementLooksLikeFoodRoutine(value: string) {
 }
 
 function statementLooksLikeSupportStrategy(value: string) {
-  return /\b(helps|helpful|work best|works best|reset|calm|sooth|regulat|redirect|motivat|prompt|safe|hurt (?:himself|herself|themself)|squeeze and release|deep breaths?|count(?:ing)? to 10|swedish fish|gumm(?:y|ies)|candy)\b/i.test(
+  return /\b(helps|helpful|work best|works best|reset|calm|sooth|regulat|redirect|motivat|prompt|safe|hurt (?:himself|herself|themself)|squeeze and release|deep breaths?|count(?:ing)? to 10|swedish fish|gumm(?:y|ies)|candy|back off|do not crowd|don't crowd|visual schedule|visual timer)\b/i.test(
     value
   ) &&
     /\b(quiet|low-light|dim|space|stimulation|noise|car rides?|time alone|moment to (?:himself|herself|themself)|visual choices?|limited choices?|visual schedule|visual timer|transition|upset|hard time|dysregulated|escalat|self-harm|elop)\b/i.test(

@@ -635,6 +635,10 @@ function sectionText(summary: StructuredSummary, title: string) {
   return sectionItems(summary, title).join("\n");
 }
 
+function countSectionMatches(summary: StructuredSummary, title: string, pattern: RegExp) {
+  return sectionItems(summary, title).filter((item) => pattern.test(item)).length;
+}
+
 function testSummaryRoutingAndCleanup() {
   const normalized = normalizeAuthoritativeStructuredSummary({
     title: "Caring for Jay",
@@ -875,6 +879,186 @@ function testSummaryRoutingAndCleanup() {
   ]) {
     assert.match(activities[0] ?? "", new RegExp(`\\b${preference}\\b`, "i"));
   }
+}
+
+function testPastedGavinSummaryCleanup() {
+  const normalized = normalizeAuthoritativeStructuredSummary(
+    summaryWithVersions([], {
+      title: "Caring for Gavin",
+      overview: [
+        "Communication: Gavin uses an AAC device on an iPad with TouchChat to ask for help. Gavin is non-speaking.",
+        "Key Needs: Gavin has Sensory Processing Difficulty.",
+        "Top Risks: Key safety risks include elopement and hand biting.",
+        "Best Supports: Preferred activities include walks, scooter riding, swimming, swinging, jumping, crashing, obstacle courses, chase, bowling, basketball, and horseback riding, car rides, exploring, hikes, malls, museums, stores, and walking around new places, animals, farms, dinosaurs, cars, trucks, books, and planets, spending time with family, and cupcakes, cake, frosting, sprinkles, and candy.",
+        "Emergency Contact: Labebe Awde, grandmother, 617-930-7229.",
+      ].join("\n"),
+      caregiverInsights: [
+        {
+          insightId: "visual-learning-pattern",
+          section: "Understanding and Learning",
+          statement:
+            "Gavin is a highly visual learner who learns best through videos, visual schedules, and First-Then language.",
+          supportingFactIds: ["entry-1-fact-1", "entry-2-fact-1"],
+          themes: ["visual learning"],
+        },
+      ],
+      sections: [
+        {
+          id: "communication",
+          title: "Communication",
+          items: [
+            "Body language and other nonverbal communication help Gavin communicate.",
+            "Gavin uses an AAC device on an iPad with TouchChat to ask for help.",
+            "Gavin communicates with body language.",
+            "Gavin communicates with sounds.",
+            "Gavin is non-speaking.",
+            "He may get physically close or sit very close to a caregiver when he wants attention.",
+            "He may lead a caregiver to show what he needs.",
+            "If he is too dysregulated, he may not be able to ask for help; look for physical and behavioral signs instead.",
+            "Gavin may make happy sounds.",
+            "Gavin may make singing-like sounds.",
+            "Gavin does best with 2-step directions.",
+            "Gavin does best with directions given as 'first this, then that.'",
+            "Gavin is very visual.",
+            "Gavin responds to gentle physical cues.",
+            "It helps to show Gavin pictures to communicate choices.",
+            "It helps to show Gavin the actual items to communicate choices.",
+            "Tapping Gavin's foot can prompt him to lift it.",
+            "Downtime usually means being left alone to do his own thing.",
+          ],
+        },
+        {
+          id: "understanding",
+          title: "Understanding and Learning",
+          items: ["Gavin has Sensory Processing Difficulty."],
+        },
+        {
+          id: "daily",
+          title: "Daily Schedule",
+          items: [
+            "Gavin does not tell caregivers when he needs the bathroom.",
+            "He has a limited diet and grazes throughout the day rather than sitting for meals.",
+            "He uses the bathroom with support and reminders.",
+            "His bowel movements happen in his pull-up.",
+            "He can get cranky if he does not have food available.",
+          ],
+        },
+        {
+          id: "activities",
+          title: "Activities & Preferences",
+          items: [
+            "Preferred activities include walks, scooter riding, swimming, swinging, jumping, crashing, obstacle courses, chase, bowling, basketball, and horseback riding, car rides, exploring, hikes, malls, museums, stores, and walking around new places, animals, farms, dinosaurs, cars, trucks, books, and planets, spending time with family, and cupcakes, cake, frosting, sprinkles, and candy.",
+            "He especially enjoys videos, YouTube, and sometimes sitting on the couch to watch TV.",
+            "One of his biggest favorites is horseback riding.",
+            "Mom is his favorite person.",
+            "He may use his iPad to indicate he needs support.",
+          ],
+        },
+        {
+          id: "signs",
+          title: "Signs They Are Having a Hard Time",
+          items: [
+            "Agitation, angry sounds, angry yelling, eloping or running away, and hand biting are signs he may need help.",
+            "Bright lights, overhead lighting, loud noise, loud chaotic environments, crowded places, and too many people are upsetting to him.",
+            "Hiding or grunting may mean they are having a bowel movement.",
+            "Going to the fridge repeatedly for cheese can be a sign that he is hungry and needs help.",
+            "He may sign for help to indicate he needs support.",
+            "Let him have time alone when he is having a hard time.",
+            "Reduce stimulation when he is having a hard time.",
+            "He may press help on his AAC device to indicate he needs support.",
+            "When Gavin goes to his AAC device and presses help, it means he needs help.",
+          ],
+        },
+        {
+          id: "supports",
+          title: "What helps when they are having a hard time",
+          items: [
+            "Preferred activities include walks, scooter riding, swimming, swinging, jumping, crashing, obstacle courses, chase, bowling, basketball, and horseback riding, car rides, exploring, hikes, malls, museums, stores, and walking around new places, animals, farms, dinosaurs, cars, trucks, books, and planets, spending time with family, and cupcakes, cake, frosting, sprinkles, and candy.",
+            "A car ride can help him reset.",
+            "A quiet environment can help him calm down.",
+            "A visual schedule with a preferred item or preferred activity at the end is helpful for transitions.",
+            "Candy such as Swedish Fish or gummies can sometimes help redirect him when he is having a hard time.",
+            "Do not crowd him.",
+            "Do not try to physically stop hand biting because he may bite you.",
+            "Give him space when he is having a hard time.",
+            "Gummy candy can help sometimes when he is having a hard time.",
+            "If he is still somewhat calm, prompt him to squeeze and release, take a deep breath, or count to 10.",
+            "Keep the environment quiet when he is having a hard time.",
+            "Make sure Gavin is safe when he is having a hard time.",
+            "Swedish Fish or other gummies can motivate him during transitions.",
+            "Swedish Fish can help sometimes when he is having a hard time.",
+            "He uses noise-canceling headphones.",
+          ],
+        },
+        {
+          id: "health",
+          title: "Health & Safety",
+          items: [
+            "He has Pica.",
+            "He needs at least 2 adults for walks or outings for safety.",
+            "He has Apraxia of Speech.",
+            "Diagnoses and conditions: Autism Spectrum Disorder, Cerebral Visual Impairment (CVI), Pica, Language Regression, Mixed receptive-expressive language disorder, Global Developmental Delay, Apraxia of Speech, low muscle tone, and Sensory Processing Difficulty.",
+            "He has Language Regression.",
+            "Abilify is used for irritability, aggression, repetitive behaviors, and self-injury.",
+            "Gavin gets MiraLax in water.",
+            "He takes Abilify (Aripiprazole) 15 mg once daily at 3 p.m.",
+            "He also takes L'il Critters Gummy Vites multivitamin, 2 gummies per day.",
+            "He takes Polyethylene glycol 3350 / MiraLax daily in water to keep stool regular.",
+            "He uses pull-ups.",
+            "He uses a Buckle Buddy for seat belt safety and is buckled in with it.",
+            "He uses a white cane and is learning to use it.",
+            "He uses fidgets.",
+            "Emergency contact: Labebe Awde, grandmother, 617-930-7229.",
+            "Emergency contact: Rania Kelly, mother with physical custody, 617-538-4056.",
+          ],
+        },
+      ],
+    }),
+    "Gavin",
+  );
+
+  assert.equal(normalized.caregiverInsights?.length, 1);
+  assert.doesNotMatch(normalized.overview, /Best Supports: Preferred activities include/i);
+  assert.match(
+    normalized.overview,
+    /Best Supports: .*(space|quiet|car ride|visual schedule)/i,
+  );
+
+  const learning = sectionText(normalized, "Understanding and Learning");
+  assert.match(learning, /2-step|two-step/i);
+  assert.match(learning, /first this, then that/i);
+  assert.match(learning, /very visual/i);
+  assert.match(learning, /pictures/i);
+  assert.match(learning, /actual items/i);
+  assert.match(learning, /gentle physical cues/i);
+  assert.match(learning, /Tapping Gavin's foot/i);
+  assert.doesNotMatch(learning, /Sensory Processing Difficulty/i);
+
+  const signs = sectionText(normalized, "Signs They Are Having a Hard Time");
+  assert.doesNotMatch(signs, /time alone|Reduce stimulation|Abilify|Aripiprazole|MiraLax|polyethylene glycol|multivitamin/i);
+  assert.equal(countSectionMatches(normalized, "Signs They Are Having a Hard Time", /press(?:es)? help/i), 1);
+
+  const supports = sectionText(normalized, "What helps when they are having a hard time");
+  assert.match(supports, /car ride/i);
+  assert.match(supports, /quiet/i);
+  assert.match(supports, /visual schedule/i);
+  assert.match(supports, /squeeze and release|deep breath|count to 10/i);
+  assert.match(supports, /Swedish Fish|gummies|candy/i);
+  assert.doesNotMatch(supports, /^Preferred activities include/im);
+  assert.equal(countSectionMatches(normalized, "What helps when they are having a hard time", /Swedish Fish|gumm|candy/i), 1);
+
+  const health = sectionText(normalized, "Health & Safety");
+  assert.match(health, /Sensory Processing Difficulty/i);
+  assert.match(health, /Abilify.*aripiprazole/i);
+  assert.match(health, /polyethylene glycol.*MiraLax|MiraLax.*polyethylene glycol/i);
+  assert.match(health, /Gummy Vites|multivitamin/i);
+  assert.match(health, /Buckle Buddy/i);
+  assert.match(health, /white cane/i);
+  assert.match(health, /pull-ups/i);
+  assert.match(health, /fidgets/i);
+  assert.match(health, /noise-canceling headphones/i);
+  assert.match(health, /Labebe Awde/i);
+  assert.match(health, /Rania Kelly/i);
 }
 
 function testSevenSectionSummaryOutputs() {
@@ -1305,6 +1489,7 @@ async function main() {
   testHealthMappingAndSkippedMigration();
   testSevenSectionSummaryNormalization();
   testSummaryRoutingAndCleanup();
+  testPastedGavinSummaryCleanup();
   testSevenSectionSummaryOutputs();
   testCurrentStructuredBlocksArePreserved();
   testFallbackAndRawCaptureRouting();

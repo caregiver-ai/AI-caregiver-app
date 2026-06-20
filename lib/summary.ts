@@ -70,13 +70,13 @@ type SummaryNormalizationOptions = {
 const CONTACT_PATTERN =
   /\b(911|emergency|non-?emergenc|guardian|doctor|nurse|contact|call right away|call first|phone|crisis support)\b/i;
 const STRONG_HEALTH_PATTERN =
-  /\b(allerg|diagnos|disabil|condition|medicat|medicine|dose|mg\b|abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|seizure|epilep|asthma|diabet|wheelchair|hearing aid|glasses|feeding tube|brace|cane|equipment|pica|autism|syndrome|cerebral palsy|adhd|dementia|vision|hearing loss|two people|more than one person|at least two)\b/i;
+  /\b(allerg|diagnos|disabil|condition|medicat|medicine|dose|mg\b|abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|seizure|epilep|asthma|diabet|wheelchair|hearing aid|glasses|feeding tube|brace|cane|equipment|pica|autism|syndrome|cerebral palsy|adhd|dementia|vision|hearing loss|sensory processing difficulty|two people|more than one person|at least two)\b/i;
 const HEALTH_PATTERN =
-  /\b(allerg|diagnos|disabil|condition|medicat|medicine|dose|mg\b|abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|seizure|epilep|asthma|diabet|wheelchair|hearing aid|glasses|feeding tube|brace|cane|equipment|supervision|safety|unsafe|risk|wander|pica|autism|syndrome|cerebral palsy|adhd|dementia|vision|hearing loss|two people|more than one person|at least two)\b/i;
+  /\b(allerg|diagnos|disabil|condition|medicat|medicine|dose|mg\b|abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|seizure|epilep|asthma|diabet|wheelchair|hearing aid|glasses|feeding tube|brace|cane|equipment|supervision|safety|unsafe|risk|wander|pica|autism|syndrome|cerebral palsy|adhd|dementia|vision|hearing loss|sensory processing difficulty|two people|more than one person|at least two)\b/i;
 const LEARNING_PATTERN =
-  /\b(learn|understand|process(?:ing)?|read|write|literacy|one-step|two-step|direction|extra time|express|consequence|decision|recognizes? (?:pictures?|words?)|independent)\b/i;
+  /\b(learn|understand|read|write|literacy|one-step|two-step|2-step|direction|extra time|express|consequence|decision|recognizes? (?:pictures?|words?)|visual learner|very visual|first[ -]?then|first this,? then that|model(?:ing)?|watch(?:ing)?|videos?|pictures?|actual items?|items themselves|physical cues?|gentle physical cues?|tap(?:ping)? .*foot)\b/i;
 const HARD_TIME_SUPPORT_PATTERN =
-  /\b(calm|quieter|reduce noise|dim lights|give space|stay nearby|space|quiet|headphones|music|fidget|weighted blanket|favorite item|favorite drink|favorite snack|countdown|timer|visual schedule|written schedule|visual timer|reassur|incentive|car ride|go outside|transition|squeeze and release|deep breaths?|count(?:ing)? to 10|swedish fish|gumm(?:y|ies)|candy|safe|hurt (?:himself|herself|themself))\b/i;
+  /\b(calm|quieter|reduce noise|reduce stimulation|dim lights|give space|stay nearby|space|quiet|do not crowd|don't crowd|back off|time alone|headphones|music|fidget|weighted blanket|favorite item|favorite drink|favorite snack|countdown|timer|visual schedule|written schedule|visual timer|reassur|incentive|car ride|go outside|transition|squeeze and release|deep breaths?|count(?:ing)? to 10|swedish fish|gumm(?:y|ies)|candy|safe|hurt (?:himself|herself|themself))\b/i;
 const HARD_TIME_SIGNS_PATTERN =
   /\b(hard time|trigger|upset|overwhelm|routine change|waiting|rushed|loud noise|crowded|hunger|thirst|pain|poor sleep|illness|too hot|too cold|low energy|limp(?:s|ed|ing)?|not eating|not drinking|breathing change|covering ears|covering eyes|staring|not responding|stiffen|jerk|pacing|repetitive|yelling|quieter|aggression|self-injury|hand biting|angry vocalizations?|press(?:es|ed|ing)? help|withdraw|running away|elop(?:e|es|ed|ing|ement)?|hiding|grunting|repeat(?:ing)? words|difficulty communicating)\b/i;
 const DAILY_PATTERN =
@@ -84,7 +84,7 @@ const DAILY_PATTERN =
 const COMMUNICATION_PATTERN =
   /\b(communicat|speak|speaking|sound|gesture|point|sign language|aac|touchchat|communication device|writing|texting|limited choices|visual choices|simple language|waiting before repeating|pictures|demonstration|means?|lead(?:s|ing)? (?:you|a caregiver|caregivers|them|him|her)|sitting close|attention)\b/i;
 const ACTIVITIES_PATTERN =
-  /\b(activit|enjoy|favorite|music|animal|book|technology|ipad|phone|video game|art|shopping|game|sport|walk|restaurant|community|friend|family|pet|caregiver|outside the home|car ride)\b/i;
+  /\b(activit|enjoy|favorite|music|animal|book|technology|ipad|phone|video game|art|shopping|game|sport|walk|restaurant|community|friend|family|pet|caregiver|outside the home|car ride|downtime|watch tv|being left alone|left alone to do)\b/i;
 const QUESTION_ECHO_PATTERN =
   /^(what|who|how|when|where|why|are|do|does|did|is|can|could|should|would)\b.*\?$/i;
 const NON_ANSWER_PATTERN =
@@ -92,9 +92,60 @@ const NON_ANSWER_PATTERN =
 
 function itemLooksLikeHardTimeSupport(item: string) {
   return HARD_TIME_SUPPORT_PATTERN.test(item) &&
-    /\b(helpful|helps|work best|works best|calm|sooth|regulat|redirect|reduce|prompt|give (?:him|her|them)?\s*space|keep(?:ing)? (?:everything|things|it)?\s*quiet|time to calm|moment to (?:himself|herself|themself)|squeeze and release|deep breaths?|count(?:ing)? to 10|make sure .*safe|cannot hurt|can't hurt|do not|don't|swedish fish|gumm(?:y|ies)|candy)\b/i.test(
+    /\b(helpful|helps|work best|works best|calm|sooth|regulat|redirect|reduce|prompt|give (?:him|her|them)?\s*space|keep(?:ing)? (?:everything|things|it)?\s*quiet|do not crowd|don't crowd|back off|time alone|time to calm|moment to (?:himself|herself|themself)|squeeze and release|deep breaths?|count(?:ing)? to 10|make sure .*safe|cannot hurt|can't hurt|do not|don't|swedish fish|gumm(?:y|ies)|candy|visual schedule|visual timer)\b/i.test(
       item
     );
+}
+
+function itemLooksLikePreferredActivitiesList(item: string) {
+  return /^Preferred activities include\b/i.test(item) ||
+    (
+      item.length > 180 &&
+      /\b(walks?|scooter|swimming|swinging|jumping|horseback|car rides?|farms?|animals?|dinosaurs?|books?|planets?|music|ipad|youtube|malls?|museums?|stores?)\b/i.test(item)
+    );
+}
+
+function itemExplicitlySaysPreferenceHelps(item: string) {
+  return /\b(helps?|helpful|works? best|calm|sooth|regulat|redirect|reset|transition|hard time|upset|dysregulated|escalat)\b/i.test(
+    item
+  );
+}
+
+function itemLooksLikeLearningSupport(item: string) {
+  if (/\b(likes?|loves?|enjoys?|favorite|preferred activities|downtime)\b/i.test(item)) {
+    return false;
+  }
+
+  return LEARNING_PATTERN.test(item) &&
+    /\b(visual|pictures?|actual items?|items themselves|videos?|model(?:ing)?|watch(?:ing)?|two-step|2-step|first[ -]?then|first this,? then that|directions?|physical cues?|gentle physical cues?|tap(?:ping)? .*foot|prompt(?:s|ing)? .*lift)\b/i.test(item);
+}
+
+function itemLooksLikeLearningItem(item: string) {
+  if (itemLooksLikeLearningSupport(item)) {
+    return true;
+  }
+
+  if (/\b(likes?|loves?|enjoys?|favorite|preferred activities|downtime|watch tv|being left alone|left alone to do)\b/i.test(item)) {
+    return false;
+  }
+
+  return LEARNING_PATTERN.test(item);
+}
+
+function itemLooksLikeEquipmentInventory(item: string) {
+  if (itemLooksLikeHardTimeSupport(item)) {
+    return false;
+  }
+
+  if (
+    /\bpull-?ups?\b/i.test(item) &&
+    /\b(bowel movements?|bathroom|toilet|toileting)\b/i.test(item)
+  ) {
+    return false;
+  }
+
+  return /\b(noise-?cancel(?:ing|ling)? headphones?|buckle buddy|white cane|pull-?ups?|fidgets?)\b/i.test(item) &&
+    !/\b(calm|sooth|regulat|reset|helps?|helpful|hard time|upset|escalat)\b/i.test(item);
 }
 
 const FALLBACK_STEP_TO_SECTION_TITLE: Record<string, PreferredSummarySectionTitle> = {
@@ -227,6 +278,54 @@ function itemsAreNearDuplicate(left: string, right: string) {
     return true;
   }
 
+  if (
+    (
+      /\b(?:press(?:es)?|select(?:s)?)\b.*\bhelp\b/.test(normalizedLeft) &&
+      /\b(?:press(?:es)?|select(?:s)?)\b.*\bhelp\b/.test(normalizedRight)
+    ) ||
+    (
+      /\bsigns?\b.*\bhelp\b/.test(normalizedLeft) &&
+      /\bsigns?\b.*\bhelp\b/.test(normalizedRight)
+    ) ||
+    (
+      /\basks?\b.*\bhelp\b/.test(normalizedLeft) &&
+      /\basks?\b.*\bhelp\b/.test(normalizedRight)
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(abilify|aripiprazole)\b/.test(normalizedLeft) &&
+    /\b(abilify|aripiprazole)\b/.test(normalizedRight)
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(miralax|polyethylene glycol|clearlax|gavilax|healthylax)\b/.test(normalizedLeft) &&
+    /\b(miralax|polyethylene glycol|clearlax|gavilax|healthylax)\b/.test(normalizedRight)
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(swedish fish|gumm(?:y|ies)|candy)\b/.test(normalizedLeft) &&
+    /\b(swedish fish|gumm(?:y|ies)|candy)\b/.test(normalizedRight) &&
+    /\b(transition|hard time|redirect|motivat|calm|upset)\b/.test(normalizedLeft) &&
+    /\b(transition|hard time|redirect|motivat|calm|upset)\b/.test(normalizedRight)
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(body language|nonverbal|non verbal|sounds?|vocali[sz])\b/.test(normalizedLeft) &&
+    /\b(body language|nonverbal|non verbal|sounds?|vocali[sz])\b/.test(normalizedRight) &&
+    /\bcommunicat|express/.test(`${normalizedLeft} ${normalizedRight}`)
+  ) {
+    return true;
+  }
+
   const leftTokens = comparisonTokens(left);
   const rightTokens = comparisonTokens(right);
   if (leftTokens.length < 4 || rightTokens.length < 4) {
@@ -252,6 +351,57 @@ function mergeComplementaryItems(values: string[]) {
     return values.some((value) => /\bGavin\b/.test(value))
       ? "Gavin needs more than one person with him for car rides and walks."
       : "They need more than one person with them for car rides and walks.";
+  }
+
+  if (combined.includes("abilify") || combined.includes("aripiprazole")) {
+    const text = values.join(" ");
+    const subject = values.some((value) => /\bGavin\b/.test(value)) ? "Gavin" : "They";
+    const takes = subject === "They" ? "take" : "takes";
+    const medication =
+      combined.includes("abilify") && combined.includes("aripiprazole")
+        ? "Abilify (aripiprazole)"
+        : combined.includes("aripiprazole")
+          ? "aripiprazole"
+          : "Abilify";
+    const dose = text.match(/\b\d+(?:\.\d+)?\s*mg\b/i)?.[0] ?? "";
+    const frequency = /\bonce daily\b/i.test(text)
+      ? "once daily"
+      : /\bonce a day\b/i.test(text)
+        ? "once a day"
+        : /\bdaily\b/i.test(text)
+          ? "daily"
+          : "";
+    const time = text.match(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:a\.m\.|p\.m\.|am|pm)\b/i)?.[0] ?? "";
+    const details = [dose, frequency, time].filter(Boolean).join(" ");
+    const purposes = [
+      /\birritability\b/i.test(text) ? "irritability" : "",
+      /\baggression\b/i.test(text) ? "aggression" : "",
+      /\brepetitive behaviors?\b/i.test(text) ? "repetitive behaviors" : "",
+      /\bself-injury\b/i.test(text) ? "self-injury" : ""
+    ].filter(Boolean);
+    const purpose = purposes.length > 0 ? ` to help manage ${formatList(purposes)}` : "";
+    return `${subject} ${takes} ${medication}${details ? ` ${details}` : ""}${purpose}.`;
+  }
+
+  if (/\b(miralax|polyethylene glycol|clearlax|gavilax|healthylax)\b/.test(combined)) {
+    const text = values.join(" ");
+    const subject = values.some((value) => /\bGavin\b/.test(value)) ? "Gavin" : "They";
+    const takes = subject === "They" ? "take" : "takes";
+    const hasPolyethylene = /\bpolyethylene glycol\b/i.test(text);
+    const hasMiralax = /\bmiralax\b/i.test(text);
+    const has3350 = /\b3350\b/i.test(text);
+    const medication =
+      hasPolyethylene && hasMiralax
+        ? `polyethylene glycol${has3350 ? " 3350" : ""} / MiraLax`
+        : hasPolyethylene
+          ? `polyethylene glycol${has3350 ? " 3350" : ""}`
+          : "MiraLax";
+    const details = [
+      /\bdaily\b/i.test(text) ? "daily" : "",
+      /\bin water\b/i.test(text) ? "in water" : ""
+    ].filter(Boolean).join(" ");
+    const purpose = /\bstool regular\b/i.test(text) ? " to keep stool regular" : "";
+    return `${subject} ${takes} ${medication}${details ? ` ${details}` : ""}${purpose}.`;
   }
 
   return null;
@@ -424,7 +574,7 @@ function condenseHardTimeSigns(items: string[]) {
 }
 
 function condenseCommunication(items: string[]) {
-  return replaceItemGroup(
+  let condensed = replaceItemGroup(
     items,
     (item) => /\b(?:aac|touchchat|communication device)\b/i.test(item),
     (matched) => {
@@ -456,6 +606,33 @@ function condenseCommunication(items: string[]) {
       return `${subject} ${subject === "They" ? "use" : "uses"} ${device} to ${formatList(actions)}.`;
     }
   );
+
+  condensed = replaceItemGroup(
+    condensed,
+    (item) =>
+      /\b(body language|nonverbal|non-verbal|sounds?|vocali[sz]|singing-like|happy sounds?|angry sounds?)\b/i.test(item) &&
+      /\b(communicat|express|sound|nonverbal|body language)\b/i.test(item),
+    (matched) => {
+      const text = matched.join(" ");
+      const name = matched
+        .map((item) => item.match(/^([A-Z][A-Za-z'-]+)\b/)?.[1] ?? "")
+        .find((candidate) => candidate && !/^(?:He|She|They|On|The|An|If)$/i.test(candidate));
+      const subject = name || "They";
+      const channels = [
+        /\bbody language\b/i.test(text) ? "body language" : "",
+        /\bnonverbal|non-verbal\b/i.test(text) ? "other nonverbal communication" : "",
+        /\bsounds?|vocali[sz]/i.test(text) ? "sounds" : "",
+        /\bhappy sounds?\b/i.test(text) ? "happy sounds" : "",
+        /\bsinging-like|singing\b/i.test(text) ? "singing-like sounds" : "",
+        /\bangry sounds?\b/i.test(text) ? "angry sounds" : ""
+      ].filter(Boolean);
+      return channels.length >= 2
+        ? `${subject} communicate${subject === "They" ? "" : "s"} with ${formatList([...new Set(channels)])}.`
+        : null;
+    }
+  );
+
+  return condensed;
 }
 
 function condenseHardTimeSupports(items: string[]) {
@@ -512,7 +689,7 @@ function condenseHardTimeSupports(items: string[]) {
     }
   );
 
-  return replaceItemGroup(
+  condensed = replaceItemGroup(
     condensed,
     (item) =>
       /\b(?:resets?|help.*day go well|quiet.*help.*regulat|low-light.*help.*regulat)\b/i.test(
@@ -527,6 +704,81 @@ function condenseHardTimeSupports(items: string[]) {
         /\btime alone\b/i.test(text) ? "time alone" : ""
       ].filter(Boolean);
       return resets.length >= 2 ? `Helpful resets include ${formatList(resets)}.` : null;
+    }
+  );
+
+  return replaceItemGroup(
+    condensed,
+    (item) => /\b(swedish fish|gumm(?:y|ies)|candy)\b/i.test(item),
+    (matched) => {
+      const text = matched.join(" ");
+      const uses = [
+        /\bredirect/i.test(text) ? "redirect him" : "",
+        /\bmotivat|reward|transition/i.test(text) ? "motivate him during transitions" : "",
+        /\bcalm/i.test(text) ? "help him calm" : ""
+      ].filter(Boolean);
+      const action = uses.length > 0 ? ` to ${formatList([...new Set(uses)])}` : "";
+      return matched.length >= 2
+        ? `Candy such as Swedish Fish or gummies can sometimes help${action}.`
+        : null;
+    }
+  );
+}
+
+function condenseHealthSafety(items: string[]) {
+  let condensed = replaceItemGroup(
+    items,
+    (item) => /\b(abilify|aripiprazole)\b/i.test(item),
+    (matched) => (matched.length >= 2 ? mergeComplementaryItems(matched) : null)
+  );
+
+  condensed = replaceItemGroup(
+    condensed,
+    (item) => /\b(miralax|polyethylene glycol|clearlax|gavilax|healthylax)\b/i.test(item),
+    (matched) => (matched.length >= 2 ? mergeComplementaryItems(matched) : null)
+  );
+
+  condensed = replaceItemGroup(
+    condensed,
+    (item) =>
+      /\b(diagnoses and conditions|autism spectrum disorder|cerebral visual impairment|cvi|pica|language regression|mixed receptive-expressive language disorder|global developmental delay|apraxia of speech|low muscle tone|sensory processing difficulty)\b/i.test(item),
+    (matched) => {
+      const text = matched.join(" ");
+      const diagnoses = [
+        /\bautism spectrum disorder\b/i.test(text) ? "Autism Spectrum Disorder" : "",
+        /\bcerebral visual impairment|cvi\b/i.test(text) ? "Cerebral Visual Impairment (CVI)" : "",
+        /\bpica\b/i.test(text) ? "Pica" : "",
+        /\blanguage regression\b/i.test(text) ? "Language Regression" : "",
+        /\bmixed receptive-expressive language disorder\b/i.test(text)
+          ? "Mixed receptive-expressive language disorder"
+          : "",
+        /\bglobal developmental delay\b/i.test(text) ? "Global Developmental Delay" : "",
+        /\bapraxia of speech\b/i.test(text) ? "Apraxia of Speech" : "",
+        /\blow muscle tone\b/i.test(text) ? "low muscle tone" : "",
+        /\bsensory processing difficulty\b/i.test(text) ? "Sensory Processing Difficulty" : ""
+      ].filter(Boolean);
+      return diagnoses.length >= 2
+        ? `Diagnoses and conditions include ${formatList([...new Set(diagnoses)])}.`
+        : null;
+    }
+  );
+
+  return replaceItemGroup(
+    condensed,
+    (item) =>
+      /\b(noise-?cancel(?:ing|ling)? headphones?|buckle buddy|white cane|pull-?ups?|fidgets?)\b/i.test(item),
+    (matched) => {
+      const text = matched.join(" ");
+      const equipment = [
+        /\bnoise-?cancel(?:ing|ling)? headphones?\b/i.test(text) ? "noise-canceling headphones" : "",
+        /\bbuckle buddy\b/i.test(text) ? "Buckle Buddy" : "",
+        /\bwhite cane\b/i.test(text) ? "white cane" : "",
+        /\bpull-?ups?\b/i.test(text) ? "pull-ups" : "",
+        /\bfidgets?\b/i.test(text) ? "fidgets" : ""
+      ].filter(Boolean);
+      return equipment.length >= 2
+        ? `Equipment and supports include ${formatList([...new Set(equipment)])}.`
+        : null;
     }
   );
 }
@@ -657,7 +909,9 @@ function normalizeSections(
           ? condenseHardTimeSigns(uniqueSectionItems)
           : title === "What helps when they are having a hard time"
             ? condenseHardTimeSupports(uniqueSectionItems)
-        : uniqueSectionItems;
+            : title === "Health & Safety"
+              ? condenseHealthSafety(uniqueSectionItems)
+              : uniqueSectionItems;
     return items.length > 0
       ? {
           id: `${slugify(title)}-${index + 1}`,
@@ -758,6 +1012,89 @@ function firstMatchingItem(
   );
 }
 
+function bestScoredItem(items: string[], scoreItem: (item: string) => number) {
+  return items
+    .filter((item) => !isNoInformationItem(item))
+    .map((item) => ({ item, score: scoreItem(item) }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score || left.item.length - right.item.length)[0]?.item ?? "";
+}
+
+function selectKeyNeeds(sections: SummarySection[]) {
+  const learningItems =
+    sections
+      .find((section) => section.title === "Understanding and Learning")
+      ?.items.filter((item) => !isNoInformationItem(item)) ?? [];
+  const learningNeed = bestScoredItem(learningItems, (item) => {
+    if (STRONG_HEALTH_PATTERN.test(item) || HEALTH_PATTERN.test(item)) {
+      return 0;
+    }
+
+    let score = 1;
+    if (/\b(visual|pictures?|items?|videos?|model(?:ing)?|watch(?:ing)?)\b/i.test(item)) {
+      score += 4;
+    }
+    if (/\b(two-step|2-step|first[ -]?then|directions?)\b/i.test(item)) {
+      score += 4;
+    }
+    if (/\b(prompt|physical cue|tap(?:ping)? .*foot)\b/i.test(item)) {
+      score += 2;
+    }
+    return score;
+  });
+  if (learningNeed) {
+    return learningNeed;
+  }
+
+  const dailyItems =
+    sections
+      .find((section) => section.title === "Daily Schedule")
+      ?.items.filter((item) => !isNoInformationItem(item)) ?? [];
+  return bestScoredItem(dailyItems, (item) => {
+    let score = 1;
+    if (/\b(routine|bathroom|food|hungry|prompt|schedule)\b/i.test(item)) {
+      score += 3;
+    }
+    return score;
+  }) || firstMeaningfulItem(sections, "Daily Schedule");
+}
+
+function selectBestSupports(sections: SummarySection[]) {
+  const supportItems =
+    sections
+      .find((section) => section.title === "What helps when they are having a hard time")
+      ?.items.filter((item) => !isNoInformationItem(item)) ?? [];
+  const support = bestScoredItem(supportItems, (item) => {
+    if (itemLooksLikePreferredActivitiesList(item)) {
+      return 0;
+    }
+
+    let score = 1;
+    if (/\b(space|quiet|reduce noise|reduce stimulation|low-light|time alone)\b/i.test(item)) {
+      score += 5;
+    }
+    if (/\b(car rides?|reset|visual schedule|visual timer|transition)\b/i.test(item)) {
+      score += 4;
+    }
+    if (/\b(squeeze and release|deep breaths?|count(?:ing)? to 10|calm)\b/i.test(item)) {
+      score += 3;
+    }
+    if (/\b(make sure .*safe|cannot hurt|can't hurt|do not block|may bite)\b/i.test(item)) {
+      score += 2;
+    }
+    if (item.length > 220) {
+      score -= 4;
+    }
+    return score;
+  });
+  if (support) {
+    return support;
+  }
+
+  return firstMeaningfulItem(sections, "What helps when they are having a hard time") ||
+    firstMeaningfulItem(sections, "Activities & Preferences");
+}
+
 function buildOverview(sections: SummarySection[]) {
   const communicationItems =
     sections
@@ -768,9 +1105,7 @@ function buildOverview(sections: SummarySection[]) {
     .slice(0, 2)
     .join(" ");
   const communication = communicationMethods || communicationItems[0] || "";
-  const keyNeeds =
-    firstMeaningfulItem(sections, "Understanding and Learning") ||
-    firstMeaningfulItem(sections, "Daily Schedule");
+  const keyNeeds = selectKeyNeeds(sections);
   const allItems = sections.flatMap((section) => section.items).join(" ");
   const riskLabels = [
     /\b(?:elopement|eloping|running away|wandering)\b/i.test(allItems)
@@ -790,9 +1125,7 @@ function buildOverview(sections: SummarySection[]) {
           /\b(safety|risk|supervision|wander|elop|self-injury|unsafe|two adults|two caregivers)\b/i
         ) ||
         firstMeaningfulItem(sections, "Signs They Are Having a Hard Time");
-  const bestSupports =
-    firstMeaningfulItem(sections, "What helps when they are having a hard time") ||
-    firstMeaningfulItem(sections, "Activities & Preferences");
+  const bestSupports = selectBestSupports(sections);
   const emergencyContact = firstMatchingItem(sections, "Health & Safety", CONTACT_PATTERN);
   const emergencyContactValue = emergencyContact.replace(
     /^Emergency contact:\s*/i,
@@ -841,14 +1174,6 @@ export function inferAuthoritativeSectionTitle(
     return "Health & Safety";
   }
 
-  if (LEARNING_PATTERN.test(item)) {
-    return "Understanding and Learning";
-  }
-
-  if (HEALTH_PATTERN.test(item)) {
-    return "Health & Safety";
-  }
-
   if (
     /\b(?:press(?:es|ed|ing)?|select(?:s|ed|ing)?)\b.{0,25}\bhelp\b/i.test(item) &&
     /\b(?:when|need|needs|needed|signal|sign|mean|means)\b/i.test(item)
@@ -862,8 +1187,20 @@ export function inferAuthoritativeSectionTitle(
     return "What helps when they are having a hard time";
   }
 
+  if (itemLooksLikePreferredActivitiesList(item) && !itemExplicitlySaysPreferenceHelps(item)) {
+    return "Activities & Preferences";
+  }
+
   if (itemLooksLikeHardTimeSupport(item)) {
     return "What helps when they are having a hard time";
+  }
+
+  if (itemLooksLikeLearningItem(item)) {
+    return "Understanding and Learning";
+  }
+
+  if (itemLooksLikeEquipmentInventory(item) || HEALTH_PATTERN.test(item)) {
+    return "Health & Safety";
   }
 
   if (

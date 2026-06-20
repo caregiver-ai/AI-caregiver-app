@@ -9,8 +9,8 @@ import {
   SummarySection
 } from "@/lib/types";
 
-export const SUMMARY_PIPELINE_VERSION = "2026-06-19-caregiver-insights-v1";
-export const SUMMARY_LAYOUT_VERSION = "2026-06-19-caregiver-insights-v1";
+export const SUMMARY_PIPELINE_VERSION = "2026-06-19-caregiver-insights-routing-v2";
+export const SUMMARY_LAYOUT_VERSION = "2026-06-19-caregiver-insights-routing-v2";
 
 type LegacyItemRecord = {
   id: string;
