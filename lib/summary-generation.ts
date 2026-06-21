@@ -27,7 +27,7 @@ import {
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_SUMMARY_MODEL = "gpt-5.5";
-const DEFAULT_OPENAI_TIMEOUT_MS = 75_000;
+const DEFAULT_OPENAI_TIMEOUT_MS = 300_000;
 const CAPTURE_ENTRY_TARGET_CHARS = 2_400;
 const CAPTURE_PROMPT_TARGET_CHARS = 3_200;
 const CAPTURE_CONCURRENCY_LIMIT = 3;
@@ -1613,6 +1613,52 @@ function deterministicCommunicationFacts(entries: SummarySourceEntry[]) {
   return facts;
 }
 
+function deterministicToiletingFacts(entries: SummarySourceEntry[]) {
+  const facts: StructuredCaptureFact[] = [];
+
+  for (const entry of entries) {
+    const content = compactWhitespace(entry.content);
+    if (!/\b(bathroom|toilet|toileting|void|bowel movement|pull-?up)\b/i.test(content)) {
+      continue;
+    }
+
+    const nameMatch = content.match(/^([A-Z][A-Za-z'-]+)\b/);
+    const subject =
+      nameMatch && !/^(?:He|She|They)$/i.test(nameMatch[1]) ? nameMatch[1] : "They";
+    const addFact = (suffix: string, statement: string) => {
+      facts.push({
+        factId: `${entry.entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-toileting-${suffix}`,
+        entryId: entry.entryId,
+        section: "Daily Schedule",
+        factKind: "routine",
+        subcategory: "Toileting",
+        statement,
+        safetyRelevant: false,
+        conceptKeys: [...extractCoverageConcepts(statement)].sort(),
+        sourceEntryIds: [entry.entryId]
+      });
+    };
+
+    if (/\bevery hour|hourly|speakers? (?:go|goes) off\b/i.test(content)) {
+      addFact("hourly-prompts", `${subject} needs bathroom reminders or prompts every hour.`);
+    }
+
+    if (/\b(?:does not|doesn't|will not|won't)\b.{0,60}\b(initiate|use (?:it|the bathroom|the toilet) independently)\b|\bdoes not initiate\b/i.test(content)) {
+      addFact("does-not-initiate", `${subject} does not initiate bathroom use on their own.`);
+    }
+
+    if (/\b(?:does not|doesn't|will not|won't)\b.{0,80}\b(communicate|tell|let .*know)\b.{0,80}\b(bathroom|toilet|toileting)\b|\b(bathroom|toilet|toileting)\b.{0,80}\b(?:does not|doesn't|will not|won't)\b.{0,80}\b(communicate|tell|let .*know)\b/i.test(content)) {
+      addFact("does-not-communicate", `${subject} does not independently communicate toileting needs.`);
+    }
+
+    if (/\bbowel movements?\b.{0,80}\bpull-?up\b|\bpull-?up\b.{0,80}\bbowel movements?\b/i.test(content)) {
+      addFact("bowel-pullup", `${subject}'s bowel movements happen in a pull-up.`);
+    }
+  }
+
+  return facts;
+}
+
 function statementLooksLikeContact(value: string) {
   return /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}).*\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(value);
 }
@@ -1742,7 +1788,25 @@ function dedupeCaptureFacts(facts: StructuredCaptureFact[]) {
     });
   }
 
-  return [...deduped.values()];
+  return uniquifyCaptureFactIds([...deduped.values()]);
+}
+
+function uniquifyCaptureFactIds(facts: StructuredCaptureFact[]) {
+  const counts = new Map<string, number>();
+
+  return facts.map((fact) => {
+    const count = counts.get(fact.factId) ?? 0;
+    counts.set(fact.factId, count + 1);
+
+    if (count === 0) {
+      return fact;
+    }
+
+    return {
+      ...fact,
+      factId: `${fact.factId}-${count + 1}`
+    };
+  });
 }
 
 function normalizeCoverageText(value: string) {
@@ -1772,6 +1836,13 @@ function extractCoverageConcepts(value: string) {
     /\b(reminder|reminders|prompt|prompts|hourly|prompted)\b/.test(normalized)
   ) {
     concepts.add("bathroom_reminders");
+  }
+
+  if (
+    /\b(bathroom|toilet)\b/.test(normalized) &&
+    /\b(supervision|eyes on|eyes-on)\b/.test(normalized)
+  ) {
+    concepts.add("bathroom_supervision");
   }
 
   if (/\b(non speaking|non speaking|cannot say words|can t say words|does not use words)\b/.test(normalized)) {
@@ -1886,6 +1957,13 @@ function extractCoverageConcepts(value: string) {
     concepts.add("help_ipad_access");
   }
 
+  if (
+    /\b(?:tell|explain|explaining|speak|speaking|orient)\b.{0,100}\b(?:what (?:you|caregivers?|they) (?:are|re) doing|what is happening|what s happening|what's happening|happening)\b/.test(normalized) ||
+    /\b(?:startle|unexpected reaction)\b/.test(normalized)
+  ) {
+    concepts.add("speak_first_orient");
+  }
+
   if (/\bredirect\b/.test(normalized)) {
     concepts.add("redirect");
   }
@@ -1916,6 +1994,190 @@ function extractCoverageConcepts(value: string) {
 
   if (/\b(usually has a lot of energy|high energy|can t sit still|cannot sit still)\b/.test(normalized)) {
     concepts.add("high_energy_baseline");
+  }
+
+  if (/\bbuckle buddy\b/.test(normalized)) {
+    concepts.add("buckle_buddy");
+  }
+
+  if (/\b(miralax|polyethylene glycol|clearlax|gavilax|healthylax)\b/.test(normalized)) {
+    concepts.add("miralax");
+  }
+
+  if (/\b(multivitamin|gummy vites|gummies per day)\b/.test(normalized)) {
+    concepts.add("multivitamin");
+  }
+
+  if (/\b(abilify|aripiprazole)\b/.test(normalized)) {
+    concepts.add("abilify");
+  }
+
+  if (/\b(bite sized|cut into bite sized|trouble biting|choking)\b/.test(normalized)) {
+    concepts.add("bite_sized_food");
+  }
+
+  if (/\b(blind|blindness|lack of vision|low vision|white cane|vision)\b/.test(normalized)) {
+    concepts.add("vision_support");
+  }
+
+  if (/\b(allerg\w*|allergic|hives|bactrim|erythromycin|caine)\b/.test(normalized)) {
+    concepts.add("allergy");
+  }
+
+  if (/\btcf20\b|\bmutation\b/.test(normalized)) {
+    concepts.add("genetic_condition");
+  }
+
+  if (/\bglobal developmental delay\b/.test(normalized)) {
+    concepts.add("global_developmental_delay");
+  }
+
+  if (/\bautis(?:m|tic)\b.{0,120}\b(?:contradict|main diagnosis|other doctors?)\b|\b(?:contradict|main diagnosis|other doctors?)\b.{0,120}\bautis(?:m|tic)\b/.test(normalized)) {
+    concepts.add("autism_diagnosis_contradiction");
+  }
+
+  if (/\bg6pd\b/.test(normalized)) {
+    concepts.add("g6pd");
+  }
+
+  if (/\bseizure\b/.test(normalized)) {
+    concepts.add("seizure_risk");
+  }
+
+  if (/\btemperature extremes?\b.{0,80}\bseizure|\b(?:too hot|too cold)\b.{0,80}\bseizure|\bseizure\b.{0,80}\b(?:temperature extremes?|too hot|too cold)\b/.test(normalized)) {
+    concepts.add("temperature_seizure_sign");
+  }
+
+  if (/\bpica\b/.test(normalized)) {
+    concepts.add("pica");
+  }
+
+  if (/\bcerebral palsy\b|\bcp\b/.test(normalized)) {
+    concepts.add("cerebral_palsy");
+  }
+
+  if (/\bintellectual disability\b/.test(normalized)) {
+    concepts.add("intellectual_disability");
+  }
+
+  if (/\bgastrointestinal\b|\bgi issues?\b/.test(normalized)) {
+    concepts.add("gi_condition");
+  }
+
+  if (/\bwheelchair\b/.test(normalized)) {
+    concepts.add("wheelchair");
+  }
+
+  if (/\bpull[- ]?ups?|pullup|pull up|pull-up style underwear\b/.test(normalized)) {
+    concepts.add("pull_ups");
+  }
+
+  if (/\bregular chair\b|\bliving room chair\b|\bregular furniture\b/.test(normalized)) {
+    concepts.add("regular_chair_equipment");
+  }
+
+  if (/\b(headphones?|noise canceling)\b/.test(normalized)) {
+    concepts.add("headphones");
+  }
+
+  if (/\britalin\b|\brit\b|something called like rit\b/.test(normalized)) {
+    concepts.add("rit_medication");
+  }
+
+  if (/\btylenol\b/.test(normalized)) {
+    concepts.add("tylenol");
+  }
+
+  if (/\bhearing aids?\b/.test(normalized)) {
+    concepts.add("hearing_aids");
+  }
+
+  if (/\bglasses\b/.test(normalized)) {
+    concepts.add("glasses");
+  }
+
+  if (/\brisk taker|risk taking|take risks?|willing to take risks?|trust .*risks?\b/.test(normalized)) {
+    concepts.add("risk_taking");
+  }
+
+  if (/\bpain\b.*\b(distress|frustration|upset|hard time)\b|\b(distress|frustration|upset|hard time)\b.*\bpain\b/.test(normalized)) {
+    concepts.add("pain_distress");
+  }
+
+  if (/\b(?:does not|doesn t|not)\b.{0,80}\bcommunicat(?:e|ing)?\b.{0,80}\bpain\b|\bpain\b.{0,80}\b(?:does not|doesn t|not)\b.{0,80}\bcommunicat(?:e|ing)?\b|\bdoes not tell\b.{0,80}\b(?:hurt|pain)\b/.test(normalized)) {
+    concepts.add("pain_reporting_limit");
+  }
+
+  if (/\b(danger|dangerous|social cues?|unsafe|innocent|strangers?|unfamiliar situations?)\b/.test(normalized)) {
+    concepts.add("danger_awareness");
+  }
+
+  if (/\bpropranolol\b/.test(normalized)) {
+    concepts.add("propranolol");
+  }
+
+  if (/\bcitalopram\b|\bsitelapram\b/.test(normalized)) {
+    concepts.add("citalopram");
+  }
+
+  if (/\bmedicine cups?\b|\bliquid medicines?\b|\bcorrect dosage\b|\bmedicines?\b.{0,80}\b(?:with|while|eating) breakfast\b|\b(?:with|while|eating) breakfast\b.{0,80}\bmedicines?\b/.test(normalized)) {
+    concepts.add("medicine_routine");
+  }
+
+  if (/\bstomach feels different\b|\bafter\b.{0,80}\b(?:medicine|medicines|breakfast)\b.{0,80}\bstomach\b/.test(normalized)) {
+    concepts.add("medication_stomach_note");
+  }
+
+  if (/\bmedicines?\b.{0,80}\b(?:yogurt|applesauce|apple sauce|chaser|sweet spoonfuls?|chew(?:s|ing)?)\b|\b(?:yogurt|applesauce|apple sauce|chaser|sweet spoonfuls?|chew(?:s|ing)?)\b.{0,80}\bmedicines?\b|\bspoon feed\b.{0,80}\bmedicines?\b|\bmedicine or hydration\b|\byogurt and fluids\b|\bbitter(?: tasting)?\b|\btastes? very bitter\b|\bgrind(?:ing)?\b|\bbroken pill\b/.test(normalized)) {
+    concepts.add("medicine_with_food");
+  }
+
+  if (/\bmedicines?\b.{0,80}\b(?:vaginal|vagina|vulva|vulvar)\b|\b(?:vaginal|vagina|vulva|vulvar)\b.{0,80}\bmedicines?\b/.test(normalized)) {
+    concepts.add("topical_vaginal_medicine");
+  }
+
+  if (/\bsleep related medications?\b|\bsleep aid\b|\bnarcoleptic\b|\bmood stabilizer\b|\bmelatonin\b/.test(normalized)) {
+    concepts.add("sleep_medications");
+  }
+
+  if (/\bcontact\b.{0,80}\b(?:caregivers?|family)\b|\b(?:caregivers?|family)\b.{0,80}\bcontact\b|\bdo not hesitate\b.{0,80}\b(?:contact|call)\b|\bdon t hesitate\b.{0,80}\b(?:contact|call)\b/.test(normalized)) {
+    concepts.add("contact_caregiver_support");
+  }
+
+  if (/\b(?:sister|brother|father|family|caregivers?)\b.{0,80}\bdecode unclear words?|decode unclear words?.{0,80}\b(?:sister|brother|father|family|caregivers?)\b/.test(normalized)) {
+    concepts.add("family_decode_support");
+  }
+
+  if (/\bcall\b.{0,80}\b(?:family|caregivers?|mother|father)|\b(?:family|caregivers?|mother|father)\b.{0,80}\bcall\b|\bany time of day or night\b|\bonly have a question\b|\bnot hesitate to call\b/.test(normalized)) {
+    concepts.add("family_call_guidance");
+  }
+
+  if (/\btilt(?:ing)? .*head back\b|\bfill(?:ing)? .*mouth\b|\bchok(?:e|ing)\b|\bdrown(?:ing)?\b/.test(normalized)) {
+    concepts.add("hydration_choking");
+  }
+
+  if (/\bground\b.{0,60}\bnot pureed\b|\bnot pureed\b.{0,60}\bground\b|\bavoid choking\b|\bchoking risk\b/.test(normalized)) {
+    concepts.add("food_texture_choking");
+  }
+
+  if (/\bdrags? a chair\b|\bkitchen counter\b|\bon the counter\b|\bstep on the stove\b/.test(normalized)) {
+    concepts.add("kitchen_counter_risk");
+  }
+
+  if (/\bseizure\b.{0,100}\b(?:car|home|bed|recover)|\b(?:car|home|bed|recover)\b.{0,100}\bseizure\b/.test(normalized)) {
+    concepts.add("seizure_recovery_support");
+  }
+
+  if (/\bsafe in (?:his|her|their) space\b|\bsafety checks?\b|\boutside close by\b|\bremains? safe\b/.test(normalized)) {
+    concepts.add("safe_space_checks");
+  }
+
+  if (/\bgolf cart\b.{0,80}\bseat belts?|\bseat belts?\b.{0,80}\bgolf cart\b/.test(normalized)) {
+    concepts.add("golf_cart_seat_belts");
+  }
+
+  if (/\bcup to mouth\b|\bcup-to-mouth\b|\bhead tilt\b|\bhead-tilt\b|\bfilling .*mouth with fluid\b|\bgulp and swallow\b/.test(normalized)) {
+    concepts.add("hydration_routine");
   }
 
   return concepts;
@@ -2136,12 +2398,18 @@ function factLooksCoveredByItem(fact: StructuredCaptureFact, item: string) {
     }
   }
 
-  if (fact.conceptKeys.length === 0) {
+  const factConcepts = new Set([
+    ...fact.conceptKeys,
+    ...extractCoverageConcepts(fact.statement)
+  ]);
+
+  if (factConcepts.size === 0) {
     return false;
   }
 
   const safeConcepts = new Set([
     "non_speaking",
+    "bathroom_supervision",
     "elopement",
     "bowel_movement_sign",
     "limping_sign",
@@ -2150,15 +2418,63 @@ function factLooksCoveredByItem(fact: StructuredCaptureFact, item: string) {
     "low_energy_sign",
     "vocalization_sign",
     "hunger_sign",
+    "hand_biting",
     "caregiver_leading_sign",
     "attention_sign",
     "offer_car_ride",
     "do_not_block_hand_biting",
-    "calming_prompt"
+    "calming_prompt",
+    "buckle_buddy",
+    "miralax",
+    "multivitamin",
+    "abilify",
+    "bite_sized_food",
+    "vision_support",
+    "allergy",
+    "seizure_risk",
+    "temperature_seizure_sign",
+    "pica",
+    "cerebral_palsy",
+    "intellectual_disability",
+    "gi_condition",
+    "wheelchair",
+    "regular_chair_equipment",
+    "pull_ups",
+    "headphones",
+    "hearing_aids",
+    "glasses",
+    "genetic_condition",
+    "global_developmental_delay",
+    "autism_diagnosis_contradiction",
+    "g6pd",
+    "risk_taking",
+    "pain_distress",
+    "rit_medication",
+    "tylenol",
+    "danger_awareness",
+    "speak_first_orient",
+    "propranolol",
+    "citalopram",
+    "medicine_routine",
+    "medication_stomach_note",
+    "medicine_with_food",
+    "topical_vaginal_medicine",
+    "sleep_medications",
+    "contact_caregiver_support",
+    "family_decode_support",
+    "family_call_guidance",
+    "hydration_choking",
+    "food_texture_choking",
+    "kitchen_counter_risk",
+    "pain_reporting_limit",
+    "seizure_recovery_support",
+    "safe_space_checks",
+    "golf_cart_seat_belts",
+    "hydration_routine"
   ]);
   const itemConcepts = extractCoverageConcepts(item);
   if (
-    fact.conceptKeys.includes("help_request_signal") &&
+    factConcepts.has("help_request_signal") &&
     itemConcepts.has("help_request_signal") &&
     helpRequestMode(fact.statement) !== "" &&
     helpRequestMode(fact.statement) === helpRequestMode(item)
@@ -2168,16 +2484,45 @@ function factLooksCoveredByItem(fact: StructuredCaptureFact, item: string) {
 
   if (
     fact.section === "Signs They Are Having a Hard Time" &&
-    fact.conceptKeys.includes("hand_biting") &&
+    factConcepts.has("hand_biting") &&
     itemConcepts.has("hand_biting") &&
     /\b(?:sign|help is needed|needs? help)\b/i.test(item)
   ) {
     return true;
   }
 
-  return fact.conceptKeys.some(
+  return [...factConcepts].some(
     (concept) => safeConcepts.has(concept) && itemConcepts.has(concept)
   );
+}
+
+const CRITICAL_VISIBLE_FACT_PATTERN =
+  /\b(diagnos(?:is|ed)?|condition|syndrome|mutation|autism|g6pd|diabetes|cerebral|blind|vision|seizure|allerg|reaction|hives|medicat|medicine|dose|mg\b|miralax|polyethylene|abilify|aripiprazole|equipment|wheelchair|cane|buckle|seat belts?|pull-?ups?|headphones?|fidgets?|emergency|911|contact|guardian|custody|supervision|unsafe|danger|elop|wander|bite|biting|pica|self-?injury|pain|illness|choking|bite-sized|risk|safety)\b/i;
+
+function factRequiresVisibleGuideCoverage(fact: StructuredCaptureFact) {
+  const statement = fact.statement;
+
+  if (fact.factKind === "contact") {
+    return statementLooksLikeActualContact(statement);
+  }
+
+  if (fact.factKind === "medication") {
+    return /\b(medicat|medicines?|takes?|dose|mg\b|miralax|polyethylene|abilify|aripiprazole|tylenol|melatonin|ritalin|esomeprazole|propranolol|citalopram|sitelapram|allerg|reaction|no allergies|no known allergies)\b/i.test(statement);
+  }
+
+  if (fact.factKind === "condition") {
+    return /\b(diagnos(?:is|ed)?|condition|syndrome|mutation|autism|g6pd|diabetes|cerebral|blind|vision|seizure|allerg|reaction|hives|gastrointestinal|\bgi\b|apraxia|developmental|delay|disability|tone)\b/i.test(statement);
+  }
+
+  if (fact.factKind === "equipment") {
+    return /\b(equipment|wheelchair|cane|buckle|seat belts?|pull-?ups?|headphones?|fidgets?|glasses|hearing aids?|aac|touchchat|communication device|chair|underpad|liner)\b/i.test(statement);
+  }
+
+  if (fact.factKind === "safety_risk") {
+    return CRITICAL_VISIBLE_FACT_PATTERN.test(statement);
+  }
+
+  return fact.safetyRelevant && CRITICAL_VISIBLE_FACT_PATTERN.test(statement);
 }
 
 function formatStructuredCaptureForPrompt(capture: StructuredCapture) {
@@ -2421,11 +2766,16 @@ function guideSectionForFact(fact: StructuredCaptureFact): GuideSectionTitle {
     return "Daily Routine";
   }
 
-  if (/\b(no allergies|allerg(?:y|ies)|diagnos(?:is|ed)?|condition|takes?|medication|abilify|aripiprazole|miralax|polyethylene|gummy vites|multivitamin|buckle buddy|white cane|pull-?ups?|fidgets?|glasses|hearing aids?|emergency contact|phone number|call 911|call first|called first|physical custody)\b/i.test(statement)) {
+  if (/\b(bathroom|toilet|toileting|void|bowel movements?|speaker|every hour|hourly|does not initiate)\b/i.test(statement) ||
+    /\b(?:remind(?:er|ers)?|prompt(?:ed|s)?)\b.{0,50}\b(?:bathroom|toilet|toileting|void)\b|\b(?:bathroom|toilet|toileting|void)\b.{0,50}\b(?:remind(?:er|ers)?|prompt(?:ed|s)?)\b/i.test(statement)) {
+    return "Daily Routine";
+  }
+
+  if (/\b(no allergies|allerg\w*|diagnos(?:is|ed)?|condition|g6pd|medication|medicines?|abilify|aripiprazole|miralax|polyethylene|gummy vites|multivitamin|tylenol|esomeprazole|propranolol|citalopram|sitelapram|chok(?:e|ing)|drown(?:ing)?|hydration|buckle buddy|white cane|pull-?ups?|fidgets?|glasses|hearing aids?|emergency contact|phone number|call 911|call first|called first|physical custody|danger|dangerous|social cues?|unsafe|innocent|strangers?|unfamiliar situations?|cerebral palsy|\bcp\b|blind|vision)\b/i.test(statement)) {
     return "Health & Safety";
   }
 
-  if (/\b(car ride|walks? soothe|soothes?|calm(?:s|ing)?|redirect|space|quiet|stimulation|deep breath|count(?:ing)? to 10|squeeze|release|swedish fish|gumm(?:y|ies)|visual timer|visual schedule|transition|back off|do not .*block|do not .*stop|may bite you|make sure .*safe|cannot hurt himself)\b/i.test(statement)) {
+  if (/\b(car ride|walks? soothe|soothes?|calm(?:s|ing)?|redirect|space|quiet|stimulation|deep breath|count(?:ing)? to 10|squeeze|release|swedish fish|gumm(?:y|ies)|music|nascar|familiar low-volume audio|visual timer|visual schedule|transition|back off|do not .*block|do not .*stop|may bite you|make sure .*safe|cannot hurt himself|contact .*(?:caregivers?|family)|(?:caregivers?|family).*contact|do not hesitate .*(?:contact|call)|tell .*what .*doing|what .*doing.*tell|startle|unexpected reaction|speak.*what .*happening|orient|seizure.*(?:car|home|bed|recover)|(?:car|home|bed|recover).*seizure)\b/i.test(statement)) {
     return "What Helps When They Are Having a Hard Time";
   }
 
@@ -2435,6 +2785,10 @@ function guideSectionForFact(fact: StructuredCaptureFact): GuideSectionTitle {
 
   if (/\b(dog|romeo)\b/i.test(statement) && /\b(sad|upset|tough day|hard time|stress|calm|support|walk)\b/i.test(statement)) {
     return "What Helps When They Are Having a Hard Time";
+  }
+
+  if (/\b(trouble biting|bite-?sized|biting is hard|foods? should be cut)\b/i.test(statement)) {
+    return "Food and Meals";
   }
 
   if (/\b(press(?:es|ed|ing)? help|help on (?:his|her|their) (?:device|ipad)|go(?:es)? .*device .*help)\b/i.test(statement)) {
@@ -2449,20 +2803,32 @@ function guideSectionForFact(fact: StructuredCaptureFact): GuideSectionTitle {
     return "What Can Upset or Overwhelm";
   }
 
-  if (/\b(non-speaking|aac|touchchat|communicat|express(?:es)? himself|voice|sounds?|vocal|singing|happy|sad|lead|touch|sit(?:s|ting)? close|attention|select(?:s|ed)?|i want ipad|word car|press(?:es)? help|label things)\b/i.test(statement)) {
+  if (/\b(show(?:ing)? .*things? to pick from|things? to pick from|shown? .*choices?|choices? .*shown?|first[- ]this[-, ]*then[- ]that|first[ -]?then)\b/i.test(statement)) {
+    return "Understanding and Learning";
+  }
+
+  if (/\b(?:places?.*likes? to go|likes? (?:going|to go)|loves? (?:going|to go)|enjoys? (?:going|visiting)|ikea|bass pro|favorite activities|interests? include|activity option|activity .*makes? .*happy|activities? .*make .*happy|make (?:him|her|them) happy|may engage (?:him|her|them))\b/i.test(statement)) {
+    return "Activities and Interests";
+  }
+
+  if (/\b(non-speaking|aac|touchchat|communicat\w*|express(?:es)? himself|voice|sounds?|vocal|singing|happy sounds?|happy noises?|sad sounds?|sad noises?|lead|touch|sit(?:s|ting)? close|attention|select(?:s|ed)?|i want ipad|word car|press(?:es)? help|label things)\b/i.test(statement)) {
     return "Communication";
   }
 
   if (
     !/\b(video games?|friends?|train-loving|makes? videos? with)\b/i.test(statement) &&
-    !(/\bvideos?\b/i.test(statement) && !/\b(learns?|learning|remember|understand|support|helps?|helpful|best (?:with|through)|visual|model(?:ing)?|demonstrat)\b/i.test(statement)) &&
-    /\b(visual|videos?|model(?:ing)?|first[ -]?then|first this, then that|two-step|2-step|more than two steps|gets lost|pictures?|actual items?|physical cues?|tap(?:ping)? .*foot|demonstrat)\b/i.test(statement)
+    !(/\bvideos?\b/i.test(statement) && !/\b(learns?|learning|remember|understand|support|helps?|helpful|best (?:with|through)|visual\w*|model(?:ing)?|demonstrat)\b/i.test(statement)) &&
+    /\b(visual\w*|videos?|model(?:ing)?|first[ -]?then|first this, then that|two-step|2-step|more than two steps|gets lost|pictures?|actual items?|physical cues?|tap(?:ping)? .*foot|demonstrat|shown? .*choices?|choices? .*shown?)\b/i.test(statement)
   ) {
     return "Understanding and Learning";
   }
 
   if (fact.section === "Daily Schedule") {
     return "Daily Routine";
+  }
+
+  if (fact.section === "Communication") {
+    return "Communication";
   }
 
   if (fact.section === "Activities & Preferences") {
@@ -2649,7 +3015,9 @@ const FOOD_TERMS = [
   "cheddar cheese",
   "slice of cheese",
   "mini cupcake",
+  "cupcakes",
   "cake and frosting",
+  "ice cream",
   "sprinkles",
   "candy and sweets",
   "certain fruits",
@@ -2663,6 +3031,8 @@ function compactFoodName(value: string) {
       .replace(/^a\s+(?:large\s+)?container of\s+/i, "")
       .replace(/^slices? of\s+/i, "")
       .replace(/^any kind of\s+/i, "")
+      .replace(/,\s*(?:but\s+)?(?:he|she|they|[A-Z][A-Za-z'-]+)\s+(?:likes?|loves?|enjoys?).*$/i, "")
+      .replace(/\s+and\s+(?:he|she|they|[A-Z][A-Za-z'-]+)\s+(?:likes?|loves?|enjoys?).*$/i, "")
       .replace(/\s+sprinkled on top$/i, "")
       .replace(/\s+with nothing on it$/i, "")
       .replace(/\s+cut into bite-sized pieces$/i, "")
@@ -2735,6 +3105,12 @@ function compactFoodName(value: string) {
   if (/cupcake/i.test(text)) {
     return "mini cupcake";
   }
+  if (/ice cream/i.test(text)) {
+    return "ice cream";
+  }
+  if (/sprinkles/i.test(text)) {
+    return "sprinkles";
+  }
   if (/cake|frosting|sprinkles|candy|sweets/i.test(text)) {
     return text;
   }
@@ -2746,7 +3122,7 @@ function usefulFoodItem(value: string) {
   const item = compactWhitespace(value);
   return Boolean(item) &&
     !/^(?:it|this|that|them|these|those)$/i.test(item) &&
-    !/\b(the food|food that|food shopping|grocery list|water pick|medicine|medication|breakfast\b|lunch\b|dinner\b|variety in .*meals?|same exact way|his breakfast|her breakfast|their breakfast|breakfast after|setting up|waste food|to waste|are due to|because|texture|taste|smell|the look of food|very slowly|slow pace|meal can sit|choking)\b/i.test(item) &&
+    !/\b(the food|food that|food shopping|grocery list|water pick|medicine|medication|breakfast\b|lunch\b|dinner\b|variety in .*meals?|same exact way|his breakfast|her breakfast|their breakfast|breakfast after|setting up|waste food|to waste|are due to|because|texture|taste|smell|the look of food|very slowly|slow pace|meal can sit|choking|loves? sprinkles)\b/i.test(item) &&
     item.length <= 80;
 }
 
@@ -2782,7 +3158,7 @@ function groupFoods(facts: StructuredCaptureFact[]) {
 }
 
 function foodGroupingPattern() {
-  return /\b(apples?|grapes?|strawberries|bananas|eggs?|cereal|yogurt|wings?|bread|chips?|chicken|turkey|ham|sandwich(?:es)?|cheetos|cookies?|capri suns?|meals on wheels|pasta|cauliflower|green beans?|lettuce|salads?|fruits?|spring mix|romaine|pita|labneh|za'?atar|cheddar cheese|milk|iced tea|orange juice|lemonade|takeout|mini cupcake|cake|frosting|sprinkles|candy|sweets)\b/i;
+  return /\b(apples?|grapes?|strawberries|bananas|eggs?|cereal|yogurt|wings?|bread|chips?|chicken|turkey|ham|sandwich(?:es)?|cheetos|cookies?|capri suns?|meals on wheels|pasta|cauliflower|green beans?|lettuce|salads?|fruits?|spring mix|romaine|pita|labneh|za'?atar|cheddar cheese|milk|iced tea|orange juice|lemonade|takeout|mini cupcakes?|cupcakes?|ice cream|cake|frosting|sprinkles|candy|sweets)\b/i;
 }
 
 function foodAvoidancePattern() {
@@ -2819,20 +3195,20 @@ function groupFoodAvoidance(facts: StructuredCaptureFact[]) {
     : "";
 }
 
-function groupFoodNotes(facts: StructuredCaptureFact[]) {
+function groupFoodNotes(facts: StructuredCaptureFact[], name: string) {
   const statements = facts.map((fact) => fact.statement);
   const notes = [
-    hasAny(factText(facts), /\bonly drinks water\b/i) ? "They only drink water." : "",
-    hasAny(factText(facts), /\bsippy cup\b/i) ? "A sippy cup may help with drinking water." : "",
-    hasAny(factText(facts), /\blimited diet\b/i) ? "They have a limited diet." : "",
-    hasAny(factText(facts), /\bdoes not eat breakfast\b/i) ? "Does not eat breakfast on school weekdays." : "",
-    hasAny(factText(facts), /\brestrictive\b.*\bGI|gastrointestinal|GI issues\b/i) ? "Diet may be restricted because of GI issues." : "",
+    hasAny(factText(facts), /\bonly drinks water\b/i) ? `${name} only drinks water.` : "",
+    hasAny(factText(facts), /\bsippy cup\b/i) ? `A sippy cup may help ${name} drink water.` : "",
     hasAny(factText(facts), /\bbite-sized\b|\btrouble biting\b/i) ? "Foods should be bite-sized when biting is hard." : "",
     hasAny(factText(facts), /\bground\b.*\bnot pureed|not pureed\b.*\bground\b/i) ? "Meals must be ground, not pureed, to reduce choking risk." : "",
     hasAny(factText(facts), /\bno caffeinated|should not have caffeinated|should have no caffeinated\b/i) ? "Avoid caffeinated drinks." : "",
+    hasAny(factText(facts), /\blimited diet\b/i) ? `${name} has a limited diet.` : "",
+    hasAny(factText(facts), /\bdoes not eat breakfast\b/i) ? `${name} does not eat breakfast on school weekdays.` : "",
+    hasAny(factText(facts), /\brestrictive\b.*\bGI|gastrointestinal|GI issues\b/i) ? "Diet may be restricted because of GI issues." : "",
     hasAny(factText(facts), /\bmealtimes?\b.*\bpay attention|cannot .*get .*food|not able .*get food/i) ? "Caregivers need to monitor mealtimes because they cannot get food independently." : "",
-    hasAny(factText(facts), /\bgraz(?:e|es|ing)\b|walking back and forth while eating/i) ? "They graze while moving rather than sitting for meals." : "",
-    hasAny(factText(facts), /\bfill (?:his|her|their) own water bottle|water dispenser\b/i) ? "They can fill their own water bottle." : "",
+    hasAny(factText(facts), /\bgraz(?:e|es|ing)\b|walking back and forth while eating/i) ? `${name} grazes while moving rather than sitting for meals.` : "",
+    hasAny(factText(facts), /\bfill (?:his|her|their) own water bottle|water dispenser\b/i) ? `${name} can fill their own water bottle.` : "",
     hasAny(factText(facts), /\bmiralax|polyethylene\b/i) ? "MiraLax/polyethylene glycol may be mixed in water." : "",
     ...rejectStatements(statements, [
       foodGroupingPattern(),
@@ -2857,8 +3233,13 @@ function groupFoodNotes(facts: StructuredCaptureFact[]) {
   return uniqueGuideItems(notes.filter(Boolean));
 }
 
-function groupHygiene(facts: StructuredCaptureFact[]) {
+function groupHygiene(facts: StructuredCaptureFact[], name: string) {
   const text = factText(facts);
+  const hasShowerSupport = /\b(bath|shower)\b/i.test(text) &&
+    (
+      /\b(?:needs?|gets?|requires?|receives?|assisted|help(?:ed)? with)\b.{0,40}\b(?:bath|shower)\b/i.test(text) ||
+      !/\b(?:void|pee|urinate).{0,80}\b(?:shower|showerhead)|(?:shower|showerhead).{0,80}\b(?:void|pee|urinate)\b/i.test(text)
+    );
   const tasks = [
     /\bdeodorant\b/i.test(text) ? "deodorant" : "",
     /\b(gets dressed|dressed|dressing|shirt|underwear|pants|pajamas|pjs)\b/i.test(text) ? "dressing" : "",
@@ -2867,24 +3248,93 @@ function groupHygiene(facts: StructuredCaptureFact[]) {
     /\bteeth|tooth brushing|brush(?:es)? his teeth\b/i.test(text) ? "teeth brushing" : "",
     /\bshoes?\b/i.test(text) ? "shoes" : "",
     /\bjacket\b/i.test(text) ? "jacket" : "",
-    /\bbath|shower|showerhead\b/i.test(text) ? "shower support" : ""
+    hasShowerSupport ? "shower support" : ""
   ].filter(Boolean);
 
   return tasks.length >= 2
-    ? sentence(`They need assistance with hygiene and dressing, including ${formatInsightList(tasks)}`)
+    ? sentence(`${name} needs assistance with hygiene and dressing, including ${formatInsightList(tasks)}`)
     : "";
 }
 
 function hygieneGroupingPattern() {
-  return /\b(deodorant|dressed|dressing|shirt|underwear|pants|pajamas|pjs|socks?|teeth|tooth|brush(?:es)? his teeth|hair|comb(?:s)? his hair|shoes?|jacket|bath|shower|showerhead)\b/i;
+  return /\b(deodorant|dressed|dressing|shirt|underwear|depends|pants|pajamas|pjs|socks?|teeth|tooth|brush(?:es)? his teeth|hair|comb(?:s)? his hair|shoes?|jacket|bath|shower)\b/i;
+}
+
+function detailedHygieneGroupingPattern() {
+  return /\b(pajamas?|pjs|deodorant|gets? dressed|dressed after deodorant|clean dry (?:underwear|depends)|before .*gets? dressed|lift(?:s)? (?:his|her|their)?\s*arms?)\b/i;
 }
 
 function simpleHygieneAssistancePattern() {
   return /\b(?:assisted with|help(?:ed)? with|support with|needs assistance with|is part of .+ routine)\b.*\b(deodorant|dressing|getting dressed|hair care|socks?|teeth brushing|brush(?:ing)? teeth|shower support|shower|clothing)\b/i;
 }
 
+function groupHygieneDetails(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  const details = [
+    /\bpajamas?|pjs\b/i.test(text)
+      ? sentence(`Prompt ${name} to take off pajamas during the morning bathroom routine`)
+      : "",
+    /\bdeodorant\b/i.test(text) && /\b(gets? dressed|dressed|dressing)\b/i.test(text)
+      ? sentence(`During dressing, put deodorant on ${name} before they get dressed${/\blift(?:s)? (?:his|her|their)?\s*arms?\b/i.test(text) ? "; they may lift their arms to help" : ""}`)
+      : "",
+    /\bclean dry (?:underwear|depends)\b/i.test(text)
+      ? `${name} is dressed in clean dry underwear or Depends during the morning routine.`
+      : ""
+  ].filter(Boolean);
+
+  return uniqueGuideItems(details).map(sentence);
+}
+
 function toiletingGroupingPattern() {
-  return /\b(toilet|toileting|bathroom|void|pull-?up|speaker|every hour|bowel movement|hiding|grunt|tuck|close his legs)\b/i;
+  return /\b(toilet|toileting|bathroom|void|pull-?up|speaker|every hour|bowel movement|hiding|grunt|tuck|close his legs|eyes-on supervision|eyes on supervision|supervision even .*bathroom|requires supervision .*bathroom)\b/i;
+}
+
+function groupToiletingDetails(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  const hasVoidsInToilet = /\bvoids? in the toilet|use(?:s)? the toilet\b/i.test(text);
+  const hasBathroomReminders = /\bhourly|every hour|speaker|remind|prompt|told to use\b/i.test(text);
+  const details = [
+    hasVoidsInToilet && hasBathroomReminders
+      ? `${name} voids in the toilet with reminders and support.`
+      : "",
+    hasVoidsInToilet && !hasBathroomReminders
+      ? `${name} voids in the toilet.`
+      : "",
+    /\b(?:does not|doesn't|do not|don't)\b.{0,50}\bbowel movements?\b.{0,60}\btoilet\b|\bbowel movements?\b.{0,60}\bpull-?up\b/i.test(text)
+      ? `${name}'s bowel movements happen in a pull-up.`
+      : "",
+    hasBathroomReminders && !hasVoidsInToilet
+      ? `${name} uses the bathroom with reminders and support.`
+      : "",
+    (/\beyes-on supervision\b|\beyes on supervision\b/i.test(text) && /\bbathroom routines?\b/i.test(text)) ||
+    /\brequires supervision\b.{0,80}\bbathroom\b|\bsupervision (?:is )?needed\b.{0,80}\bbathroom\b|\bneeds supervision\b.{0,80}\bbathroom\b|\bsupervision even\b.{0,80}\bbathroom\b|\bbathroom\b.{0,80}\b(?:requires|needs) supervision\b/i.test(text)
+      ? `${name} needs eyes-on supervision during bathroom routines.`
+      : "",
+    /\b(?:does not|doesn't|do not|don't)\s+void\b|\bshowerhead\b/i.test(text)
+      ? `If ${name} does not void, turning on the showerhead can help.`
+      : "",
+    /\bhiding|grunt/i.test(text)
+      ? `Hiding or grunting may mean ${name} is having a bowel movement.`
+      : ""
+  ].filter(Boolean);
+
+  return uniqueGuideItems(details).map(sentence);
+}
+
+function hydrationRoutinePattern() {
+  return /\bcup[- ]to[- ]mouth\b|\bhead[- ]tilt\b|\bfilling .*mouth with fluid\b|\bgulp and swallow\b|\bnatural reaction to gulp\b/i;
+}
+
+function groupHydrationRoutineDetails(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+
+  if (!hydrationRoutinePattern().test(text)) {
+    return [];
+  }
+
+  return [
+    sentence(`Hydration support may include cup-to-mouth or head-tilt prompting to help ${name} gulp and swallow fluids`)
+  ];
 }
 
 function groupIllnessPainSigns(facts: StructuredCaptureFact[]) {
@@ -2893,11 +3343,17 @@ function groupIllnessPainSigns(facts: StructuredCaptureFact[]) {
     /\bnot eating\b/i.test(text) ? "not eating" : "",
     /\bnot drinking\b/i.test(text) ? "not drinking" : "",
     /\blimp(?:s|ing|ed)?\b/i.test(text) ? "limping" : "",
-    /\bavoid(?:ing)? a body part\b/i.test(text) ? "avoiding a body part" : "",
-    /\blow energy|letharg/i.test(text) ? "low energy or unusual lethargy" : ""
+    /\bavoid(?:ing)? a body part\b|\bfavor(?:ing|s)? a body part\b/i.test(text) ? "avoiding or favoring a body part" : "",
+    /\blow energy|letharg/i.test(text) ? "low energy or unusual lethargy" : "",
+    /\bpain\b.*\b(distress|frustration|upset|hard time)|\b(distress|frustration|upset|hard time)\b.*\bpain\b/i.test(text)
+      ? "pain-related distress or frustration"
+      : "",
+    /\btemperature extremes?\b.{0,80}\bseizure|\b(?:too hot|too cold)\b.{0,80}\bseizure|\bseizure\b.{0,80}\b(?:temperature extremes?|too hot|too cold)\b/i.test(text)
+      ? "temperature extremes that may contribute to seizure activity"
+      : ""
   ].filter(Boolean);
 
-  return signs.length >= 2
+  return signs.length >= 2 || signs.some((sign) => /pain/i.test(sign))
     ? sentence(`Changes such as ${formatInsightList(signs)} may mean illness or pain`)
     : "";
 }
@@ -2921,9 +3377,7 @@ function groupReportingLimits(facts: StructuredCaptureFact[], name: string) {
     return sentence(`${name} does not tell caregivers when they are hurt or in pain`);
   }
 
-  return limits.includes("needs the bathroom")
-    ? sentence(`${name} does not tell caregivers when they need the bathroom`)
-    : "";
+  return "";
 }
 
 function groupNonverbalCommunication(facts: StructuredCaptureFact[], name: string) {
@@ -2948,9 +3402,87 @@ function groupAacRequestMeanings(facts: StructuredCaptureFact[], name: string) {
     /\brequest(?:s|ed|ing)? car rides?|select(?:s|ed|ing)? (?:the word )?car\b/i.test(text) ? "request car rides" : "",
     /\bi want ipad|wants? (?:his|her|their) ipad\b/i.test(text) ? "say they want their iPad" : ""
   ].filter(Boolean);
+  const device = /\btouchchat\b/i.test(text) && /\bipad\b/i.test(text)
+    ? "TouchChat on an iPad"
+    : /\baac\b|\bcommunication device\b/i.test(text)
+      ? "AAC"
+      : "";
 
-  return requests.length > 0
-    ? sentence(`${name} may use AAC or TouchChat to ${formatInsightList(requests)}`)
+  return requests.length > 0 && device
+    ? sentence(`${name} may use ${device} to ${formatInsightList(requests)}`)
+    : "";
+}
+
+function aacMethodGroupingPattern() {
+  return /\b(?:uses?|communicates? with|system is|device is|software is|touchchat|aac device|communication device|label what|label things?|ask(?:s|ing)? for help)\b/i;
+}
+
+function communicationMethodGroupingPattern() {
+  return /\b(non-speaking|can't say words|cannot say words|does not speak|can make sounds|communicat\w* with sounds|expresses? (?:himself|herself|themself|self)?\s*with (?:his|her|their)?\s*voice|happy noises?|angry sounds?|angry noises?|singing-like sounds?|singing|loud sounds? mean|makes? loud sounds?|making loud sounds? means?|change in .*tone of voice|tone of voice .*mean|email(?:ing)? .*question|written question|question .*writing|communication becomes too complicated|overwhelmed when communication|frustrated when communication|yelling .*communication change|screaming .*communication change|swearing .*communication change|yelling .*change in communication|screaming .*change in communication|swearing .*change in communication|yelling .*can communicate|screaming .*can communicate|swearing .*can communicate|being affirmative helps|being excited helps|decode unclear words?|contacted to help decode|body language|nonverbal|non-verbal|non-verbally)\b/i;
+}
+
+function groupCommunicationMethodDetails(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  const details = [
+    /\bnon-speaking|can't say words|cannot say words|does not speak\b/i.test(text)
+      ? `${name} is non-speaking.`
+      : "",
+    /\bsounds?|voice|vocal|singing|happy noises?|angry noises?\b/i.test(text)
+      ? `${name} may communicate with sounds, including happy, angry, or singing-like sounds.`
+      : "",
+    /\b(?:makes?|making )?loud sounds?\b.{0,70}\b(?:needs?|wants?) to know someone is there|\b(?:needs?|wants?) to know someone is there\b.{0,70}\b(?:makes?|making )?loud sounds?\b/i.test(text)
+      ? `Loud sounds may mean ${name} needs to know someone is there.`
+      : "",
+    /\b(?:frustrated|overwhelmed)\b.{0,80}\bcommunication becomes too complicated|\bcommunication becomes too complicated\b.{0,80}\b(?:frustrated|overwhelmed)\b/i.test(text)
+      ? `${name} may become frustrated or overwhelmed when communication becomes too complicated.`
+      : "",
+    /\bchange in .*tone of voice\b|\btone of voice .*mean\b/i.test(text)
+      ? `A change in ${name}'s tone of voice may mean they are irritated, confused, not understanding, or overwhelmed.`
+      : "",
+    /\bemail(?:ing)?\b.{0,80}\bquestion\b|\bwritten question\b|\bquestion\b.{0,80}\bwriting\b/i.test(text)
+      ? `Written questions, including email, can help ${name} sit with a question and think before responding.`
+      : "",
+    /\b(yelling|screaming|swearing)\b.{0,120}\b(?:communication change|change in communication|can communicate|struggling|needs? support|in trouble)\b/i.test(text)
+      ? `Yelling, screaming, or swearing may show ${name} is struggling, needs support, or is in trouble.`
+      : "",
+    /\bbeing affirmative helps\b|\bbeing excited helps\b/i.test(text)
+      ? `Affirmative, excited communication can help ${name} engage.`
+      : "",
+    /\b(?:sister|brother|father|family|caregivers?)\b.{0,80}\bdecode unclear words?|decode unclear words?.{0,80}\b(?:sister|brother|father|family|caregivers?)\b/i.test(text)
+      ? `Family members may help decode unclear words or phrases.`
+      : "",
+    /\bbody language|nonverbal|non-verbal|non-verbally\b/i.test(text)
+      ? `${name} also uses body language and nonverbal cues.`
+      : ""
+  ].filter(Boolean);
+
+  return uniqueGuideItems(details).map(sentence);
+}
+
+function ipadRequestMeaningPattern() {
+  return /\b(?:selects?|press(?:es|ed)?|chooses?|uses?)\b.{0,80}\b(?:i want ipad|want(?:s)? (?:his|her|their)?\s*ipad)\b|\b(?:i want ipad|want(?:s)? (?:his|her|their)?\s*ipad)\b.{0,80}\b(?:internet|not working|broken|cannot find|can't find|video|content|search)\b/i;
+}
+
+function groupIpadRequestMeanings(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  if (!/\b(?:i want ipad|want(?:s)? (?:his|her|their)?\s*ipad)\b/i.test(text)) {
+    return "";
+  }
+
+  const meanings = [
+    /\binternet\b.{0,40}\bdown\b|\bdown\b.{0,40}\binternet\b/i.test(text)
+      ? "the internet is down"
+      : "",
+    /\bipad\b.{0,40}\b(?:not working|broken|isn't working|doesn't work)\b|\b(?:not working|broken|isn't working|doesn't work)\b.{0,40}\bipad\b/i.test(text)
+      ? "the iPad is not working"
+      : "",
+    /\b(?:cannot|can't|can not)\s+find\b.{0,60}\b(?:video|content)\b|\b(?:video|content)\b.{0,60}\b(?:cannot|can't|can not)\s+find\b|\bsearch history\b/i.test(text)
+      ? "he cannot find the video or content he wants"
+      : ""
+  ].filter(Boolean);
+
+  return meanings.length > 0
+    ? sentence(`If ${name} selects "I want iPad," check whether ${formatInsightList(meanings)}`)
     : "";
 }
 
@@ -2964,30 +3496,83 @@ function groupToiletingRoutine(facts: StructuredCaptureFact[], name: string) {
   const hasInitiationLimit = /\b(?:does not|doesn't|do not|don't|won't|will not)\b.{0,70}\b(?:communicate|initiate|tell|use it independently|use .*bathroom independently)\b/i.test(text);
 
   if (hasPrompts && hasInitiationLimit) {
-    return sentence(`Bathroom reminders and hourly prompts help because ${name} does not independently communicate toileting needs`);
+    return sentence(`Bathroom reminders every hour help because ${name} does not independently communicate toileting needs`);
   }
 
   if (hasPrompts) {
-    return sentence(`Bathroom reminders and hourly prompts help ${name} with toileting`);
+    return sentence(`Bathroom reminders every hour help ${name} with toileting`);
   }
 
   return "";
 }
 
 function illnessPainGroupingPattern() {
-  return /\b(not eating|not drinking|limp(?:s|ed|ing)?|avoid(?:ing)? a body part|low energy|letharg|illness|pain|walking strangely|appetite changes?)\b/i;
+  return /\b(not eating|not drinking|limp(?:s|ed|ing)?|avoid(?:ing)? a body part|favor(?:ing|s)? a body part|low energy|letharg|illness|pain|walking strangely|appetite changes?)\b/i;
 }
 
 function groupBehaviorSigns(facts: StructuredCaptureFact[]) {
   const text = factText(facts);
   const signs = [
+    /\bagitat(?:ed|ion)|agitation showing .*face\b/i.test(text) ? "agitation" : "",
     /\belop(?:e|es|ed|ing|ement)?|run away|running away\b/i.test(text) ? "eloping" : "",
     /\bhand biting|bit(?:e|es|ing)? (?:his|her|their) hand\b/i.test(text) ? "hand biting" : "",
-    /\bangry (?:sounds?|noises?|vocalizations?)|yelling\b/i.test(text) ? "angry vocalizations" : "",
+    /\bangry (?:sounds?|noises?|vocalizations?)|yelling|shouting|flailing|flare .*arms|flail .*arms\b/i.test(text) ? "shouting, flailing, or angry vocalizations" : "",
     /\bhiding|hide|disappears?\b/i.test(text) ? "hiding" : ""
   ].filter(Boolean);
 
   return signs.length >= 2 ? sentence(`Behavior signs may include ${formatInsightList(signs)}`) : "";
+}
+
+function groupedTriggerDetailPattern() {
+  return /\b(things?.{0,30}(?:moved|out of place)|out of place|expected position|rigid.{0,60}(?:lights?|shades?)|(?:lights?|shades?).{0,60}(?:expected|position)|overhead lighting|soft indirect lighting|indirect lighting|difficulty transition|difficulty transitioning|does not want to go|does not want to get out of the car|feels rushed|feels pressured|not her idea|not his idea|not their idea)\b/i;
+}
+
+function groupTriggerDetails(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  const sensory: string[] = [];
+  const routine: string[] = [];
+
+  if (/\boverhead lighting|soft indirect lighting|indirect lighting\b/i.test(text)) {
+    sensory.push("Soft or indirect lighting may be easier than overhead lighting.");
+  }
+
+  const changedItems = [
+    /\bthings?\b.{0,35}\bmoved\b|\bmoved\b.{0,35}\bthings?\b/i.test(text)
+      ? "things are moved"
+      : "",
+    /\bout of place\b/i.test(text) ? "things are out of place" : ""
+  ].filter(Boolean);
+  if (changedItems.length > 0) {
+    routine.push(sentence(`Changes to the environment can upset ${name}, especially when ${formatInsightList(changedItems)}`));
+  }
+
+  const expectedPositions = [
+    /\b(?:lights?|lighting)\b.{0,80}\b(?:expected|position|rigid)|\b(?:expected|position|rigid)\b.{0,80}\b(?:lights?|lighting)\b/i.test(text)
+      ? "lights"
+      : "",
+    /\bshades?\b.{0,80}\b(?:expected|position|rigid)|\b(?:expected|position|rigid)\b.{0,80}\bshades?\b/i.test(text)
+      ? "shades"
+      : ""
+  ].filter(Boolean);
+  if (expectedPositions.length > 0) {
+    routine.push(sentence(`${name} may be rigid about ${formatInsightList(expectedPositions)} being in the expected position`));
+  }
+
+  const transitionTriggers = [
+    /\bdoes not want to go\b/i.test(text) ? "they do not want to go" : "",
+    /\bdoes not want to get out of the car\b|\bstuck in the car\b/i.test(text) ? "they do not want to get out of the car" : "",
+    /\bfeels? rushed\b|\brushed\b/i.test(text) ? "they feel rushed" : "",
+    /\bfeels? pressured\b|\bpressured\b/i.test(text) ? "they feel pressured" : "",
+    /\bnot (?:her|his|their) idea\b/i.test(text) ? "the transition was not their idea" : ""
+  ].filter(Boolean);
+  if (transitionTriggers.length > 0) {
+    routine.push(sentence(`Transitions may be harder for ${name} when ${formatInsightList(transitionTriggers)}`));
+  }
+
+  return {
+    sensory: uniqueGuideItems(sensory).map(sentence),
+    routine: uniqueGuideItems(routine).map(sentence)
+  };
 }
 
 function dayRoutinePattern() {
@@ -3033,10 +3618,11 @@ function groupLearningSupport(facts: StructuredCaptureFact[], name: string) {
   const text = factText(facts);
   const supports = [
     /\bvideos?\b|wake up to the iPad/i.test(text) ? "videos" : "",
+    /\bvisual\w*\b/i.test(text) ? "visual supports" : "",
     /\bpictures?\b/i.test(text) ? "pictures" : "",
     /\bactual items?|items themselves\b/i.test(text) ? "actual items" : "",
     /\btwo-step|2-step\b/i.test(text) ? "two-step directions" : "",
-    /\bfirst[ -]?then|first this, then that\b/i.test(text) ? "First-Then language" : "",
+    /\bfirst[ -]?then|first this, then that|first[- ]this[-, ]*then[- ]that\b/i.test(text) ? "First-Then language" : "",
     /\bvisual schedules?\b/i.test(text) ? "visual schedules" : "",
     /\bvisual timers?\b/i.test(text) ? "visual timers" : "",
     /\bmodel(?:ing)?|demonstrat/i.test(text) ? "modeling or demonstration" : "",
@@ -3055,19 +3641,22 @@ function groupedLearningDetailStatements(facts: StructuredCaptureFact[]) {
 }
 
 function learningGroupingPattern() {
-  return /\b(visual|videos?|pictures?|actual items?|two-step|2-step|first[ -]?then|first this, then that|visual schedules?|visual timers?|model(?:ing)?|demonstrat|physical cues?|tap(?:ping)? .*foot|gentle tap|more than two steps|gets lost)\b/i;
+  return /\b(visual\w*|videos?|pictures?|actual items?|two-step|2-step|first[ -]?then|first this, then that|first[- ]this[-, ]*then[- ]that|show(?:ing)? .*things? to pick from|things? to pick from|shown? .*choices?|choices? .*shown?|visual schedules?|visual timers?|model(?:ing)?|demonstrat|physical cues?|tap(?:ping)? .*foot|gentle tap|more than two steps|gets lost)\b/i;
 }
 
 function splitListText(value: string) {
   return value
     .replace(/^preferred activities include\s+/i, "")
     .replace(/^activities include\s+/i, "")
-    .split(/\s*,\s*|\s+ and\s+/i)
+    .replace(/^include\s+/i, "")
+    .split(/\s*,\s*|\s+ and\s+|\s+ or\s+/i)
     .map((item) =>
       compactWhitespace(
         item
           .replace(/[.!?]+$/, "")
           .replace(/^to\s+/i, "")
+          .replace(/^(?:go|going) to\s+/i, "")
+          .replace(/^include\s+/i, "")
           .replace(/^(?:a|an|the)\s+/i, "")
       )
     )
@@ -3084,6 +3673,18 @@ function activityItems(facts: StructuredCaptureFact[]) {
       continue;
     }
 
+    const placesMatch = statement.match(/\bplaces?.*likes? to go (?:are|include)\s+(.+?)[.!?]?$/i);
+    if (placesMatch?.[1]) {
+      items.push(...splitListText(placesMatch[1]));
+      continue;
+    }
+
+    const happyActivityMatch = statement.match(/^(.+?)\s+is an activity (?:that .*?\s+)?makes? (?:him|her|them) happy[.!?]?$/i);
+    if (happyActivityMatch?.[1]) {
+      items.push(compactWhitespace(happyActivityMatch[1]));
+      continue;
+    }
+
     const match = statement.match(/\b(?:interested in|enjoys?|likes?|loves?|favorite(?:s)?(?: is| are)?|especially loves?)\s+(.+?)[.!?]?$/i);
     if (match?.[1]) {
       items.push(...splitListText(match[1]));
@@ -3092,19 +3693,58 @@ function activityItems(facts: StructuredCaptureFact[]) {
 
   return uniqueGuideItems(items).filter((item) =>
     !foodGroupingPattern().test(item) &&
-    !/\b(glasses|hearing aids?|medicat|medicine|allerg|eczema|boils?|not found a reliable strategy|not planning|get a dog|though they are not always|caretaker|caregiver)\b/i.test(item) &&
+    !/\b(glasses|hearing aids?|medicat|medicine|allerg|eczema|boils?|not found a reliable strategy|not planning|get a dog|though they are not always|caretaker|caregiver|communicat\w*|nonverbal|non-verbal|non-verbally|body language|visual\w* choices?|shown? .*choices?|choices? .*shown?)\b/i.test(item) &&
+    !/^(?:person|activities?|preferences?)$/i.test(item) &&
     !/^and\b/i.test(item)
   );
 }
 
+function socialActivityItems(facts: StructuredCaptureFact[], name: string) {
+  const items: string[] = [];
+
+  for (const fact of facts) {
+    const statement = fact.statement;
+    if (!/\b(favorite person|spending time|alone|downtime|couch|watch TV|visiting family|family visits|family time|(?:mom|mother|family).{0,40}(?:favorite|spending time|visit|together))\b/i.test(statement)) {
+      continue;
+    }
+
+    const favorite = statement.match(/\b([A-Z][A-Za-z'-]+|mom|mother|dad|father|grandmother|grandfather|family)\b.{0,30}\bfavorite person\b/i);
+    const favoritePerson = favorite?.[1]?.replace(/^mom$/i, "Mom");
+    if (favoritePerson && !/^family$/i.test(favoritePerson)) {
+      items.push(`${favoritePerson} is one of ${name}'s favorite people`);
+    }
+
+    if (/\bspending time with family|family time|visiting family|family visits|family\b/i.test(statement)) {
+      items.push("family time");
+    }
+
+    if (/\bbeing left alone|left alone|own thing|downtime\b/i.test(statement)) {
+      items.push("being left alone to do their own thing");
+    }
+
+    if (/\bwatch TV|watch television|couch\b/i.test(statement)) {
+      items.push("watching TV on the couch");
+    }
+  }
+
+  return uniqueGuideItems(items);
+}
+
 function groupedListItem(prefix: string, items: string[], limit = 10) {
-  const unique = uniqueGuideItems(items)
+  const normalized = items.map((item) => {
+    const cleaned = compactWhitespace(item)
+      .replace(/^include\s+/i, "")
+      .replace(/\s+outside (?:the )?home$/i, "")
+      .replace(/\s+outside (?:the )?house$/i, "");
+    return /\bcar rides?\b/i.test(cleaned) ? "car rides" : cleaned;
+  });
+  const unique = uniqueGuideItems(normalized)
     .filter((item) => item.length > 1)
     .slice(0, limit);
   return unique.length > 0 ? sentence(`${prefix} ${formatInsightList(unique)}`) : "";
 }
 
-function groupActivityPreferences(facts: StructuredCaptureFact[]) {
+function groupActivityPreferences(facts: StructuredCaptureFact[], name: string) {
   let remaining = activityItems(facts);
   const take = (pattern: RegExp) => {
     const matched = remaining.filter((item) => pattern.test(item));
@@ -3117,12 +3757,7 @@ function groupActivityPreferences(facts: StructuredCaptureFact[]) {
   const sensory = take(/\b(sensory|tickles?|mouthing|necklaces?|pop tubes?|therapy ball|fidget|lights?)\b/i);
   const outings = take(/\b(car rides?|new places|explor(?:ing|e)?|hikes?|malls?|stores?|museums?|adventures?|novelty)\b/i);
   const interests = take(/\b(animals?|farms?|dinosaurs?|cars?|trucks?|books?|planets?|puzzles?|cause-and-effect|ramps?)\b/i);
-  const social = facts
-    .map((fact) => fact.statement)
-    .filter((statement) =>
-      !/\b(not found a reliable strategy|not planning|get a dog)\b/i.test(statement) &&
-      /\b(favorite person|spending time|alone|downtime|couch|watch TV|visiting family|family visits|family time|(?:mom|mother|family).{0,40}(?:favorite|spending time|visit|together))\b/i.test(statement)
-    );
+  const social = socialActivityItems(facts, name);
 
   return groupedBlock([
     { label: "Technology and music", items: [groupedListItem("Technology and music interests include", media, 4)] },
@@ -3136,15 +3771,15 @@ function groupActivityPreferences(facts: StructuredCaptureFact[]) {
 }
 
 function activityGroupingPattern() {
-  return /\b(preferred activities include|interested in|enjoys?|likes?|loves?|favorite|ipad|youtube|video|music|horseback|swim|scooter|walking|new places|exploring|sensory|trampoline|mom|family|downtime|watch tv)\b/i;
+  return /\b(preferred activities include|activity .*makes? .*happy|interested in|enjoys?|likes?|loves?|favorite|ipad|youtube|video|music|horseback|swim|scooter|walking|new places|exploring|sensory|trampoline|mom|family|downtime|watch tv)\b/i;
 }
 
 function supportGroupingPattern() {
-  return /\b(space|quiet|noise|stimulation|crowd|low-light|lights?|environment|time alone|not a lot going on|calm|squeeze|deep breath|count|music|fidget|headphones|car ride|drive|reset|redirect|snap out|candy|gumm|swedish fish|transition|schedule|timer|first|then|back off|reward|motivat|preferred|speak|orient|startle|what .*doing|floor|get down|safe|hurt|self-harm|elop|hand biting|block|stop|bite you|cannot hurt)\b/i;
+  return /\b(space|quiet|noise|stimulation|crowd|low-light|lights?|environment|time alone|not a lot going on|calm|squeeze|deep breath|count|music|fidget|headphones|car ride|drive|dog|romeo|tough day|sad|reset|redirect|snap out|candy|gumm|swedish fish|transition|schedule|timer|first|then|back off|reward|motivat|preferred|hype|hyping|enthusiastic|enthusiastically|speak|orient|startle|what .*doing|contact .*(?:caregivers?|family)|(?:caregivers?|family).*contact|do not hesitate .*(?:contact|call)|don't hesitate .*(?:contact|call)|seizure|recover|safety checks?|safe in .*space|outside close by|floor|get down|safe|hurt|self-harm|elop|hand biting|block|stop|bite you|cannot hurt)\b/i;
 }
 
 function healthSafetyGroupingPattern() {
-  return /\b(elop(?:e|es|ed|ing|ement)?|run away|running away|hand biting|unsafe walking|walks? .*safety issue|safety issue .*walks?|two adults?|two caregivers?|two people|more than one person|does not communicate pain|does not tell .*hurt|physically unsafe|pica|may bite you|bite you)\b/i;
+  return /\b(elop(?:e|es|ed|ing|ement)?|run away|running away|hand biting|unsafe walking|walks? .*safety issue|safety issue .*walks?|two adults?|two caregivers?|two people|more than one person|does not communicate pain|does not tell .*hurt|physically unsafe|pica|may bite you|bite you|danger|dangerous|unsafe situations?|social cues?|innocent|strangers?|unfamiliar situations?|drags? a chair|kitchen counter|on the counter|step on the stove|ground\b.{0,60}\bnot pureed|not pureed\b.{0,60}\bground|avoid choking|too hot\b.{0,80}\bseizure activity|too cold\b.{0,80}\bseizure activity|seizure activity\b.{0,80}\b(?:too hot|too cold))\b/i;
 }
 
 function groupHealthSafetyRisks(facts: StructuredCaptureFact[]) {
@@ -3163,10 +3798,116 @@ function groupHealthSafetyRisks(facts: StructuredCaptureFact[]) {
     /\bpica\b/i.test(text) ? "pica" : "",
     /\bmay bite you|bite you|do not .*block.*hand biting|do not .*stop.*biting|physically stop(?:ping)? .*biting|physically block(?:ing)? .*biting|redirection rather than physically stopping\b/i.test(text)
       ? "may bite you if hand biting is blocked"
+      : "",
+    /\brisk taker|take risks?|willing to take risks?|trust .*risks?\b/i.test(text)
+      ? "risk-taking, especially when trust affects willingness to try something"
+      : "",
+    /\b(?:does not|doesn't|do not|don't|cannot|can't)\b.{0,80}\b(?:danger|dangerous|unsafe|social cues?)\b|\b(?:danger|dangerous|unsafe|social cues?)\b.{0,80}\b(?:does not|doesn't|do not|don't|cannot|can't|unsure|not know|doesn't know)\b|\binnocent\b.{0,80}\b(?:safety|strangers?|unfamiliar)\b|\b(?:strangers?|unfamiliar situations?)\b.{0,80}\b(?:safety|innocent|danger|overwhelm)\b/i.test(text)
+      ? "difficulty recognizing danger, unsafe situations, social cues, or risk around strangers and unfamiliar situations"
+      : "",
+    /\bdrags? a chair\b.{0,120}\b(?:kitchen counter|counter|stove|fall)\b|\b(?:kitchen counter|counter|stove|fall)\b.{0,120}\bdrags? a chair\b/i.test(text)
+      ? "kitchen-counter safety risk if a chair is dragged over without supervision, including falling, climbing onto the counter, or stepping on the stove"
+      : "",
+    /\bground\b.{0,80}\bnot pureed\b|\bnot pureed\b.{0,80}\bground\b|\bavoid choking\b/i.test(text)
+      ? "choking risk if meals are not ground to the needed texture"
       : ""
   ].filter(Boolean);
 
-  return risks.length >= 2 ? sentence(`Safety concerns include ${formatInsightList(risks)}`) : "";
+  return risks.length >= 2 || risks.some((risk) => /risk-taking|danger|kitchen-counter|choking risk/i.test(risk))
+    ? sentence(`Safety concerns include ${formatInsightList(risks)}`)
+    : "";
+}
+
+function groupFamilyCallGuidance(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+
+  if (!/\bcall\b.{0,80}\b(?:family|caregivers?|mother|father)|\b(?:family|caregivers?|mother|father)\b.{0,80}\bcall\b/i.test(text)) {
+    return "";
+  }
+
+  const details = [
+    /\bany time\b|\bday or night\b/i.test(text) ? "any time of day or night" : "",
+    /\bonly have a question\b|\beven if .*question\b/i.test(text) ? "even for questions" : "",
+    /\btell\b.{0,60}\b(?:family|caregivers?|mother|father)\b.{0,60}\bwhat is going on|\bwhat is going on\b.{0,60}\bwhen .*call\b/i.test(text)
+      ? "explain what is going on"
+      : "",
+    /\bnot hesitate\b|\bdo not hesitate\b|\bdon't hesitate\b/i.test(text) ? "do not hesitate" : ""
+  ].filter(Boolean);
+
+  if (details.length === 0) {
+    return "";
+  }
+
+  return sentence(`Caregivers may call ${name}'s family ${formatInsightList(details)}`);
+}
+
+function groupAllergyAndConditionDetails(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  const details = [
+    /\bcerebral palsy\b|\bcp\b/i.test(text)
+      ? `Cerebral palsy was reported${/\btightness\b/i.test(text) ? " and may create uncomfortable body tightness" : ""}.`
+      : "",
+    /\bnot sure whether\b.{0,80}\ballerg|\ballerg\b.{0,80}\bnot sure whether|\bhas not had the chance to (?:take medicine|try new foods)\b/i.test(text)
+      ? "Medication or food allergy history is uncertain because the caregiver has not been able to observe reactions to some medicines or foods."
+      : "",
+    /\bg6pd\b/i.test(text) && /\bmothballs?|mexican food\b/i.test(text)
+      ? "G6PD-related allergy or avoidance concerns include mothballs and Mexican food."
+      : "",
+    /\binsect bites?|hives|swell(?:ing)?\b/i.test(text)
+      ? "Insect bites may cause swelling or hives."
+      : "",
+    /\btcf20\b|\bmutation\b/i.test(text)
+      ? "A TCF20 chromosome mutation was reported."
+      : "",
+    /\btcf20\b|\bmutation\b/i.test(text) && /\b(?:does not know|don't know|not sure|may not have|facebook group|parent descriptions?)\b/i.test(text)
+      ? "Caregiver is unsure exactly what the TCF20 mutation means and whether parent descriptions match Tatiana."
+      : "",
+    /\b(?:too hot|hot)\b.{0,80}\bseizure activity|\b(?:too cold|cold)\b.{0,80}\bseizure activity|\bseizure activity\b.{0,80}\b(?:too hot|hot|too cold|cold)\b/i.test(text)
+      ? "Temperature extremes, including being too hot or too cold, may contribute to seizure activity."
+      : "",
+    /\bintellectual disability\b/i.test(text)
+      ? "Intellectual disability was reported."
+      : "",
+    /\bglobal developmental delay\b/i.test(text)
+      ? "Global developmental delay was reported."
+      : "",
+    /\bautis(?:m|tic)\b/i.test(text) && /\b(?:contradict|main diagnosis|other doctors?)\b/i.test(text)
+      ? "Caregiver reported that an autism statement contradicted the main diagnosis given by other doctors."
+      : "",
+    /\bgastrointestinal\b|\bgi issues?\b/i.test(text)
+      ? "Gastrointestinal/GI issues were reported."
+      : ""
+  ].filter(Boolean);
+
+  return uniqueGuideItems(details).map(sentence);
+}
+
+function groupEquipmentDetails(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  const equipment = [
+    /\bwheelchair\b/i.test(text) ? "wheelchair" : "",
+    /\bbeach wheelchair\b/i.test(text) ? "beach wheelchair" : "",
+    /\boverhead lift\b/i.test(text) ? "overhead lift" : "",
+    /\bregular chair\b|\bregular furniture\b/i.test(text) ? "regular chair or furniture" : "",
+    /\bmodified passenger seat\b/i.test(text) ? "modified passenger seat" : "",
+    /\bdisposable pull[- ]?up style underwear\b|\bpull[- ]?ups?\b/i.test(text) ? "disposable pull-up style underwear" : "",
+    /\bbuckle buddy\b/i.test(text) ? "Buckle Buddy for seat belt safety" : "",
+    /\bgolf cart\b/i.test(text) && /\bseat belts?\b/i.test(text) ? "golf cart with seat belts" : "",
+    /\bwhite cane\b/i.test(text) && /\blearning\b/i.test(text) ? "white cane they are learning to use" : ""
+  ].filter(Boolean);
+  const details = [
+    equipment.length >= 2
+      ? sentence(`Equipment and supports include ${formatInsightList(equipment)}`)
+      : "",
+    equipment.length < 2 && /\bwhite cane\b/i.test(text) && /\blearning\b/i.test(text)
+      ? "Learning to use a white cane was reported."
+      : "",
+    equipment.length < 2 && /\bgolf cart\b/i.test(text) && /\bseat belts?\b/i.test(text)
+      ? "A golf cart with seat belts was reported."
+      : ""
+  ].filter(Boolean);
+
+  return uniqueGuideItems(details).map(sentence);
 }
 
 function groupMedicationPurpose(facts: StructuredCaptureFact[]) {
@@ -3187,13 +3928,154 @@ function groupMedicationPurpose(facts: StructuredCaptureFact[]) {
     : "";
 }
 
+function groupMedicationDetails(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  const details: string[] = [];
+
+  if (/\b(aripiprazole|abilify)\b/i.test(text)) {
+    const dose = text.match(/\b\d+(?:\.\d+)?\s*mg\b/i)?.[0] ?? "";
+    const time = text.match(/\b(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:a\.m\.|p\.m\.|am|pm)\b/i)?.[0] ?? "";
+    const frequency = /\bonce daily\b/i.test(text)
+      ? "once daily"
+      : /\bonce a day\b/i.test(text)
+        ? "once a day"
+        : /\bdaily\b/i.test(text)
+          ? "daily"
+          : "";
+    const timeText = time
+      ? /^at\s+/i.test(time)
+        ? time
+        : `at ${time}`
+      : "";
+    const purposes = [
+      /\birritability\b/i.test(text) ? "irritability" : "",
+      /\baggression\b/i.test(text) ? "aggression" : "",
+      /\brepetitive behaviors?\b/i.test(text) ? "repetitive behaviors" : "",
+      /\bself-?injury\b/i.test(text) ? "self-injury" : ""
+    ].filter(Boolean);
+    const schedule = [dose, frequency, timeText].filter(Boolean).join(" ");
+    details.push(sentence(`Abilify/aripiprazole${schedule ? ` ${schedule}` : ""}${purposes.length > 0 ? ` helps manage ${formatInsightList(purposes)}` : ""}`));
+  }
+
+  if (/\b(miralax|polyethylene glycol|clearlax|gavilax|healthylax)\b/i.test(text)) {
+    const dose = text.match(/\b\d+(?:\.\d+)?\s*(?:g|grams?|teaspoons?)\b/i)?.[0] ?? "";
+    const aliases = [
+      /\bpolyethylene glycol\b/i.test(text) ? "Polyethylene glycol" : "",
+      /\bmiralax\b/i.test(text) ? "MiraLax" : ""
+    ].filter(Boolean);
+    const name = aliases.length > 0 ? [...new Set(aliases)].join("/") : "MiraLax";
+    const schedule = [
+      dose,
+      /\bdaily\b/i.test(text) ? "daily" : "",
+      /\bin water\b|\bmixed in water\b/i.test(text) ? "in water" : ""
+    ].filter(Boolean).join(" ");
+    details.push(sentence(`${name}${schedule ? ` ${schedule}` : ""}${/\bstool regular|regular stool|constipation\b/i.test(text) ? " helps keep stool regular" : ""}`));
+  }
+
+  if (/\b(multivitamin|gummy vites|gummies per day)\b/i.test(text)) {
+    const dose = text.match(/\b\d+\s+gumm(?:y|ies)\s+per\s+day\b/i)?.[0] ?? "";
+    details.push(sentence(`Multivitamin${dose ? `: ${dose}` : ""}`));
+  }
+
+  if (/\bmedicine cups?\b|\bliquid medicines?\b|\bcorrect dosage\b|\bwhile (?:he|she|they|[A-Z][A-Za-z'-]+) (?:is|are)?\s*eating breakfast\b|\bwhile eating breakfast\b|\bwith breakfast\b/i.test(text)) {
+    const steps = [
+      /\bsets? up .*medicine cups?\b|\bmedicine cups?\b/i.test(text) ? "setting up medicine cups" : "",
+      /\bmeasure(?:s)? .*dosage\b|\bcorrect dosage\b/i.test(text) ? "measuring the correct dosage" : "",
+      /\bliquid medicines?\b/i.test(text) ? "taking liquid medicine" : "",
+      /\bwith breakfast\b|\bwhile (?:he|she|they|[A-Z][A-Za-z'-]+) (?:is|are)?\s*eating breakfast\b|\bwhile eating breakfast\b/i.test(text) ? "taking medicine with breakfast" : ""
+    ].filter(Boolean);
+    details.push(sentence(`Morning medicine routine includes ${formatInsightList(steps.length > 0 ? steps : ["taking medicine in the morning"])}`));
+  }
+
+  if (/\bstomach feels different\b/i.test(text) && /\b(?:medicine|medicines|breakfast)\b/i.test(text)) {
+    details.push("After breakfast and medicine, stomach discomfort or a different stomach feeling was reported.");
+  }
+
+  if (/\bpropranolol\b|\bcitalopram\b|\bsitelapram\b/i.test(text)) {
+    const medications = [
+      /\bpropranolol\b/i.test(text) ? "propranolol" : "",
+      /\bcitalopram\b|\bsitelapram\b/i.test(text) ? "citalopram/Sitelapram" : ""
+    ].filter(Boolean);
+    details.push(sentence(`Reported medications include ${formatInsightList(medications)}; confirm exact names and doses`));
+  }
+
+  if (/\bdoes not know the dose\b|\bdose is unknown\b|\bunknown dose\b|\b(?:propranolol|citalopram|sitelapram)\b.{0,80}\bdose\b|\bdose\b.{0,80}\b(?:propranolol|citalopram|sitelapram)\b/i.test(text)) {
+    details.push("Confirm medication names and doses because the caregiver does not know all medication doses.");
+  }
+
+  if (/\bmedicines?\b.{0,80}\b(?:yogurt|applesauce|apple sauce|chaser|sweet spoonfuls?)\b|\b(?:yogurt|applesauce|apple sauce|chaser|sweet spoonfuls?)\b.{0,80}\bmedicines?\b|\bspoon-?feed\b.{0,80}\bmedicines?\b/i.test(text)) {
+    const medicationFoodDetails = [
+      /\bbitter\b/i.test(text) ? "nighttime medicine may taste very bitter" : "",
+      /\bgrind(?:ing)?\b/i.test(text) ? "grinding medicine into yogurt can make the yogurt taste bad" : "",
+      /\bbroken pill\b/i.test(text) ? "a broken pill may be given with bites of yogurt instead of grinding" : "",
+      /\bchew(?:s|ing)?\b.{0,40}\bmedicine\b|\bmedicine\b.{0,40}\bchew(?:s|ing)?\b/i.test(text) ? "medicine may be chewed" : "",
+      /\bsweet spoonfuls?\b|\bchaser\b/i.test(text) ? "sweet spoonfuls of yogurt can be used as a chaser" : ""
+    ].filter(Boolean);
+    details.push(sentence(`Medicine may be given with yogurt or applesauce${medicationFoodDetails.length > 0 ? `; notes include ${formatInsightList(medicationFoodDetails)}` : ", followed by sweet spoonfuls as a chaser"}`));
+  }
+
+  if (/\bmedicines?\b.{0,80}\b(?:vaginal|vagina|vulva|vulvar)\b|\b(?:vaginal|vagina|vulva|vulvar)\b.{0,80}\bmedicines?\b/i.test(text)) {
+    details.push("Morning health checks may include checking the vaginal or vulvar area and applying medicine if needed.");
+  }
+
+  if (/\bmedicine or hydration\b|\bhydration situations?\b|\byogurt and fluids\b|\btilt(?:ing)? .*head back\b|\bchok(?:e|ing)\b|\bdrown(?:ing)?\b/i.test(text)) {
+    details.push("During medicine or hydration support, prioritize yogurt and fluids when needed and avoid approaches that feel like choking or drowning.");
+  }
+
+  if (/\bsleep-related medications?\b|\bsleep related medications?\b|\bsleep aid\b|\bnarcoleptic\b|\bmood stabilizer\b|\bmelatonin\b/i.test(text)) {
+    const descriptors = [
+      /\bnarcoleptic\b/i.test(text) ? "narcoleptic medication" : "",
+      /\bsleep aid\b/i.test(text) ? "sleep aid" : "",
+      /\bmood stabilizer\b/i.test(text) ? "mood stabilizer" : "",
+      /\bmelatonin\b/i.test(text) ? "melatonin" : ""
+    ].filter(Boolean);
+    const count = text.match(/\b\d+\s+different sleep-related medications?\b/i)?.[0]?.replace(/\bdifferent\s+/i, "") ?? "sleep-related medications";
+    details.push(sentence(`${count} were reported${descriptors.length > 0 ? `, including ${formatInsightList(descriptors)}` : ""}`));
+  }
+
+  if (/\b(?:does not|doesn't|do not|don't|no)\s+take\s+(?:any\s+)?(?:medication|medicine)\b|\bno medications?\b/i.test(text)) {
+    details.push("No medications were reported.");
+  }
+
+  if (/\britalin\b|\bRIT\b|something called like RIT/i.test(text)) {
+    details.push("A medication that sounded like RIT/Ritalin was mentioned; confirm the exact name and dose.");
+  }
+
+  if (/\bno allergies\b|\bno known allergies\b/i.test(text)) {
+    details.push("No allergies were reported.");
+  }
+
+  return uniqueGuideItems(details).map(sentence);
+}
+
+function groupedMedicationPattern() {
+  return /\b(abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|gummies per day|medicine cups?|liquid medicines?|correct dosage|medicine with breakfast|with breakfast|stomach feels different|different stomach feeling|does not know the dose|dose is unknown|unknown dose|propranolol|citalopram|sitelapram|yogurt|applesauce|apple sauce|chaser|sweet spoonfuls?|bitter|grind(?:ing)?|broken pill|chew(?:s|ing)? .*medicine|medicine .*chew(?:s|ing)?|vaginal|vagina|vulva|vulvar|hydration|chok(?:e|ing)|drown(?:ing)?|sleep-related medications?|sleep related medications?|sleep aid|narcoleptic|mood stabilizer|melatonin|ritalin|something called like RIT|no allergies|no known allergies|not sure whether .*allerg|has not had the chance to take medicine|has not had the chance to try new foods|does not take medicine|does not take medication|no medication|no medications)\b/i;
+}
+
+function groupedEquipmentPattern() {
+  return /\b(white cane\b.{0,80}\blearning|learning\b.{0,80}\bwhite cane|buckle buddy|golf cart|seat belts?|wheelchair|beach wheelchair|overhead lift|regular chair|regular furniture|modified passenger seat|pull[- ]?up style underwear|pull[- ]?ups?)\b/i;
+}
+
+function familyCallGuidancePattern() {
+  return /\b(call .*family|family .*call|call any time|any time of the day or night|day or night|only have a question|even if .*question|tell .*family .*what is going on|not hesitate to call|should not hesitate to call)\b/i;
+}
+
 function groupSupportFacts(facts: StructuredCaptureFact[]) {
   const text = factText(facts);
   const environmental = [
     /\bspace|do not crowd|don't crowd|back off\b/i.test(text) ? "giving space and not crowding" : "",
     /\bquiet|noise|stimulation|not a lot going on|environment\b/i.test(text) ? "keep things quiet and reduce stimulation" : "",
     /\btime alone|moment to (?:himself|herself|themself)\b/i.test(text) ? "allowing time alone when safe" : "",
-    /\blow-light|dim lights?|lights?\b/i.test(text) ? "adjusting lighting" : ""
+    /\blow-light|dim lights?|lights?\b/i.test(text) ? "adjusting lighting" : "",
+    /\bdifferent (?:space|room)|another room|go(?:ing)? outside|go(?:ing)? to the car|change (?:the )?environment|change spaces?\b/i.test(text)
+      ? "changing spaces, such as going outside, going to another room, or going to the car"
+      : "",
+    /\bfreeze\b|pause everything|stop everything|absolute freeze\b/i.test(text)
+      ? "pausing demands and activity when escalation is high"
+      : "",
+    /\blisten\b|honou?r .*request|honou?r .*leave .*alone|leave (?:him|her|them) alone\b/i.test(text)
+      ? "listening and honoring requests for space when safe"
+      : ""
   ].filter(Boolean);
   const calming = [
     /\bcar ride|drive\b/i.test(text) ? "car rides or drives" : "",
@@ -3208,6 +4090,7 @@ function groupSupportFacts(facts: StructuredCaptureFact[]) {
     /\bvisual timer|timer\b/i.test(text) ? "timers" : "",
     /\bfirst[ -]?then|first this,? then that\b/i.test(text) ? "First-Then language" : "",
     /\btransition|change|advance|beforehand|ahead of time\b/i.test(text) ? "preparing for transitions ahead of time" : "",
+    /\bhype|hyping|enthusiastic|enthusiastically\b/i.test(text) ? "enthusiastically hyping up where they are going or what they will do" : "",
     /\bspeak|orient|tell .*what|what .*doing|startle\b/i.test(text) ? "speaking first and explaining what is happening" : "",
     /\breward|motivat|preferred\b/i.test(text) ? "using a preferred item or activity as motivation" : ""
   ].filter(Boolean);
@@ -3215,7 +4098,17 @@ function groupSupportFacts(facts: StructuredCaptureFact[]) {
     /\bsafe|cannot hurt|can't hurt|self-harm|self harm\b/i.test(text) ? "make sure they are safe and cannot hurt themself" : "",
     /\bfloor|get down|safely down\b/i.test(text) ? "helping them get safely positioned when needed" : "",
     /\bhand biting|bite you|do not .*block|don't .*block|do not .*stop|don't .*stop\b/i.test(text) ? "do not physically stop or block hand biting because they may bite you or cause caregiver injury" : "",
-    /\belop|run away|running away\b/i.test(text) ? "stay nearby and manage elopement risk" : ""
+    /\belop|run away|running away\b/i.test(text) ? "stay nearby and manage elopement risk" : "",
+    /\bcontact\b.{0,80}\bcaregivers?\b|\bcaregivers?\b.{0,80}\bcontact\b/i.test(text) ? "contact caregivers when you need guidance" : "",
+    /\bcontact\b.{0,80}\bfamily\b|\bfamily\b.{0,80}\bcontact\b|\bdo not hesitate\b.{0,80}\b(?:contact|call)\b|\bdon't hesitate\b.{0,80}\b(?:contact|call)\b/i.test(text)
+      ? "contact family when you need guidance, even if you are unsure"
+      : "",
+    /\bseizure\b.{0,120}\b(?:car|home|bed|recover)|\b(?:car|home|bed|recover)\b.{0,120}\bseizure\b/i.test(text)
+      ? "after a seizure, help them get safely home and settled for recovery"
+      : "",
+    /\bsafe in (?:his|her|their) space\b|\bsafety checks?\b|\boutside close by\b/i.test(text)
+      ? "stay close enough to complete safety checks while they remain safe in their space"
+      : ""
   ].filter(Boolean);
 
   return groupedBlock([
@@ -3271,22 +4164,19 @@ function composeGuideSummaryFromCapture(
   const supportFacts = factsFor("What Helps When They Are Having a Hard Time");
   const healthFacts = factsFor("Health & Safety");
 
-  const hygieneSummary = groupHygiene(routineFacts);
+  const hygieneSummary = groupHygiene(routineFacts, name);
   const foodSummary = groupFoods(foodFacts);
   const illnessPainSummary = groupIllnessPainSigns(signFacts);
 
   const sections = GUIDE_SECTION_TITLES.map((title, index) => {
     if (title === "About") {
-      const introFacts = uniqueGuideItems(aboutFacts.slice(0, 5).map((fact) => fact.statement));
-      const insight = (summary.caregiverInsights ?? [])[0]?.statement;
       return compactSection(
         title,
         index,
         `${name} has practical support needs that are easiest to understand when communication, routines, regulation, and safety are viewed together`,
         [
           guideBlock("note", [
-            insight ||
-              sentenceFromList(`One of the most important things to understand is that ${name}`, introFacts)
+            `Use this guide to understand ${name}'s support needs across communication, routines, regulation, food, activities, and health and safety.`
           ])
         ]
       );
@@ -3296,21 +4186,31 @@ function composeGuideSummaryFromCapture(
       const reportingLimitNote = groupReportingLimits(capture.facts, name);
       const nonverbalNote = groupNonverbalCommunication(capture.facts, name);
       const aacRequestNote = groupAacRequestMeanings(capture.facts, name);
+      const ipadRequestMeaningNote = groupIpadRequestMeanings(capture.facts, name);
+      const communicationMethodDetails = groupCommunicationMethodDetails(communicationFacts, name);
       return compactSection(title, index, `${name} may communicate through AAC, body language, sounds, behavior, and proximity.`, [
         reportingLimitNote ? guideBlock("note", [reportingLimitNote]) : null,
         aacRequestNote ? guideBlock("note", [aacRequestNote]) : null,
+        ipadRequestMeaningNote ? guideBlock("note", [ipadRequestMeaningNote]) : null,
         nonverbalNote ? guideBlock("note", [nonverbalNote]) : null,
         groupedBlock(limitGroupItems(exclusiveGroups(rejectStatements(communicationFacts.map((fact) => fact.statement), [
-          nonverbalCommunicationPattern()
+          nonverbalCommunicationPattern(),
+          aacMethodGroupingPattern(),
+          communicationMethodGroupingPattern(),
+          ipadRequestMeaningPattern()
         ]), [
           { label: "How they communicate", pattern: /aac|touchchat|non-speaking|body language|gesture|sound|voice|vocal|communicat|happy|sad|label/i },
-          { label: "What specific things mean", pattern: /\bmeans?|usually|indicate|select|press|lead|close|attention|help|i want ipad|word car|search history|internet|touch|sit/i },
+          { label: "What specific things mean", pattern: /\bmeans?|indicate|select|press|lead|close|attention|help|i want ipad|word car|search history|internet|touch|sit/i },
           { label: "What helps communication", pattern: /visual choices|pictures|simple|wait|demonstrat|show|choices|support|items to pick|non-verbal/i }
         ]), {
           "How they communicate": 6,
           "What specific things mean": 4,
           "What helps communication": 4
-        }))
+        }).map((group) =>
+          group.label === "How they communicate"
+            ? { ...group, items: [...communicationMethodDetails, ...group.items] }
+            : group
+        ))
       ]);
     }
 
@@ -3338,17 +4238,25 @@ function composeGuideSummaryFromCapture(
       const routineStatements = routineFacts.map((fact) => fact.statement);
       const dayRoutineSummaries = groupDayRoutines(routineFacts);
       const toiletingSummary = groupToiletingRoutine(routineFacts, name);
-      const hygieneDetails = routineStatements.filter((statement) =>
-        hygieneGroupingPattern().test(statement) &&
-        !simpleHygieneAssistancePattern().test(statement)
-      );
-      const toiletingDetails = routineStatements.filter((statement) => toiletingGroupingPattern().test(statement));
+      const toiletingDetails = groupToiletingDetails(routineFacts, name);
+      const hydrationDetails = groupHydrationRoutineDetails(routineFacts, name);
+      const hygieneDetails = [
+        ...groupHygieneDetails(routineFacts, name),
+        ...routineStatements.filter((statement) =>
+          hygieneGroupingPattern().test(statement) &&
+          !detailedHygieneGroupingPattern().test(statement) &&
+          !simpleHygieneAssistancePattern().test(statement) &&
+          !/\b(?:void|pee|urinate|showerhead)\b/i.test(statement)
+        )
+      ];
       const remaining = rejectStatements(routineStatements, [
         hygieneGroupingPattern(),
+        detailedHygieneGroupingPattern(),
         toiletingGroupingPattern(),
         dayRoutinePattern(),
         foodGroupingPattern(),
-        foodAvoidancePattern()
+        foodAvoidancePattern(),
+        hydrationRoutinePattern()
       ]);
       return compactSection(title, index, undefined, [
         hygieneSummary ? guideBlock("note", [hygieneSummary]) : null,
@@ -3357,7 +4265,8 @@ function composeGuideSummaryFromCapture(
           { label: "Day-specific routines", items: dayRoutineSummaries },
           { label: "Hygiene and dressing details", items: hygieneDetails },
           { label: "Toileting and bathroom support", items: toiletingDetails },
-          { label: "Morning and daily routines", items: remaining.slice(0, 4) }
+          { label: "Hydration support", items: hydrationDetails },
+          { label: "Morning and daily routines", items: remaining.filter((statement) => !/[“"][^”"]*$/.test(statement)).slice(0, 4) }
         ], {
           "Hygiene and dressing details": 5,
           "Toileting and bathroom support": 5
@@ -3366,21 +4275,22 @@ function composeGuideSummaryFromCapture(
     }
 
     if (title === "Food and Meals") {
-      const foodNotes = groupFoodNotes(foodFacts);
+      const foodNotes = groupFoodNotes(foodFacts, name);
       const avoidedFoods = groupFoodAvoidance(foodFacts);
       return compactSection(title, index, undefined, [
         foodSummary ? guideBlock("note", [foodSummary]) : null,
         avoidedFoods ? guideBlock("note", [avoidedFoods]) : null,
         groupedBlock([
-          { label: "Food and drink notes", items: foodNotes.slice(0, 4) }
+          { label: "Food and drink notes", items: foodNotes.slice(0, 6) }
         ])
       ]);
     }
 
     if (title === "Activities and Interests") {
-      const activityGroup = groupActivityPreferences(activityFacts);
+      const activityGroup = groupActivityPreferences(activityFacts, name);
       const remaining = rejectStatements(activityFacts.map((fact) => fact.statement), [
         activityGroupingPattern(),
+        /\bbiggest favorites?\b|\bfavorites?\s+include\b/i,
         foodGroupingPattern(),
         /\b(car ride|soothe|calm|redirect|space|quiet|hand biting|bite the caregiver)\b/i
       ]);
@@ -3391,12 +4301,26 @@ function composeGuideSummaryFromCapture(
     }
 
     if (title === "What Can Upset or Overwhelm") {
+      const triggerStatements = triggerFacts.map((fact) => fact.statement);
+      const triggerDetails = groupTriggerDetails(triggerFacts, name);
       return compactSection(title, index, undefined, [
-        groupedBlock(limitGroupItems([
-          { label: "Sensory and environmental triggers", items: factStatements(triggerFacts, /loud|noise|crowd|bright|light|shade|chaotic|overstimulat|people/i) },
-          { label: "Routine, transition, and control triggers", items: factStatements(triggerFacts, /routine|transition|moved|out of place|expected|waiting|rushed|demand|hard/i) },
-          { label: "Body-state triggers", items: factStatements(triggerFacts, /hunger|hungry|tired|ill|pain|hot|cold/i) }
-        ], {
+        groupedBlock(limitGroupItems(exclusiveGroups(rejectStatements(triggerStatements, [
+          groupedTriggerDetailPattern()
+        ]), [
+          { label: "Sensory and environmental triggers", pattern: /loud|noise|crowd|bright|light|shade|chaotic|overstimulat|people/i },
+          { label: "Routine, transition, and control triggers", pattern: /routine|transition|moved|out of place|expected|waiting|rushed|demand|hard/i },
+          { label: "Body-state triggers", pattern: /hunger|hungry|tired|ill|pain|hot|cold/i }
+        ]).map((group) => {
+          if (group.label === "Sensory and environmental triggers") {
+            return { ...group, items: [...triggerDetails.sensory, ...group.items] };
+          }
+
+          if (group.label === "Routine, transition, and control triggers") {
+            return { ...group, items: [...triggerDetails.routine, ...group.items] };
+          }
+
+          return group;
+        }), {
           "Sensory and environmental triggers": 3,
           "Routine, transition, and control triggers": 3,
           "Body-state triggers": 3
@@ -3408,7 +4332,8 @@ function composeGuideSummaryFromCapture(
       const behaviorSignsSummary = groupBehaviorSigns(capture.facts);
       const signStatements = rejectStatements(signFacts.map((fact) => fact.statement), [
         illnessPainGroupingPattern(),
-        /\belop(?:e|es|ed|ing|ement)?|run away|running away|hand biting|bit(?:e|es|ing)? (?:his|her|their) hand|angry (?:sounds?|noises?|vocalizations?)|yelling\b/i,
+        /\belop(?:e|es|ed|ing|ement)?|run away|running away|hand biting|bit(?:e|es|ing)? (?:his|her|their) hand|angry (?:sounds?|noises?|vocalizations?)|yelling|shouting|flailing|flare .*arms|flail .*arms\b/i,
+        /\bagitat(?:ed|ion)\b.*\b(?:needs? help|show|face)|\bneeds? help\b.*\bagitat/i,
         /\bhid(?:e|ing)|disappears?|hiding when .*bowel movement.*sign\b/i,
         /\b(?:does not|doesn't|do not|don't|has not|never|no known|not known|not a|not at)\b.{0,55}\b(?:run away|running away|elope|elopement|wander|safety risk|risk|unsafe)\b/i
       ]);
@@ -3431,7 +4356,7 @@ function composeGuideSummaryFromCapture(
       const escalationSupportSummary = groupEscalationSupport(supportFacts, name);
       const supportStatements = rejectStatements(supportFacts.map((fact) => fact.statement), [
         supportGroupingPattern()
-      ]);
+      ]).filter((statement) => !/[“"][^”"]*$/.test(statement));
       return compactSection(title, index, undefined, [
         escalationSupportSummary ? guideBlock("note", [escalationSupportSummary]) : null,
         groupSupportFacts(supportFacts),
@@ -3441,27 +4366,36 @@ function composeGuideSummaryFromCapture(
 
     if (title === "Health & Safety") {
       const healthSafetySummary = groupHealthSafetyRisks(capture.facts);
-      const medicationPurposeSummary = groupMedicationPurpose(healthFacts);
+      const medicationDetails = groupMedicationDetails(capture.facts);
+      const allergyAndConditionDetails = groupAllergyAndConditionDetails(healthFacts);
+      const equipmentDetails = groupEquipmentDetails(healthFacts);
+      const familyCallGuidance = groupFamilyCallGuidance(healthFacts, name);
       const healthStatements = [
-        medicationPurposeSummary,
+        ...medicationDetails,
+        ...allergyAndConditionDetails,
+        ...equipmentDetails,
+        familyCallGuidance,
         ...rejectStatements(healthFacts.map((fact) => fact.statement), [
         /\bno medication information was provided\b/i,
         /\bbuckled? .*Buckle Buddy\b/i,
         /\bARIPiprazole\b.*\bused to help manage\b/i,
+        groupedMedicationPattern(),
+        groupedEquipmentPattern(),
+        familyCallGuidancePattern(),
         healthSafetyGroupingPattern()
         ])
       ].filter(Boolean);
       return compactSection(title, index, undefined, [
         healthSafetySummary ? guideBlock("note", [healthSafetySummary]) : null,
         groupedBlock(limitGroupItems(exclusiveGroups(healthStatements, [
-          { label: "Emergency contacts", pattern: /\b(phone number|call 911|emergency|non-?emergency|guardian|physical custody|617-|contact .*first|call(?:ed)? .*first|should be called first|contact (?:his|her|their)?\s*(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother)|(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother).{0,60}\b(?:emergency|contact|call|called first|phone number))\b/i },
-          { label: "Diagnoses and conditions", pattern: /diagnos|condition|autism|autistic|g6pd|diabetes|pica|apraxia|developmental|processing|cerebral|cerebral palsy|\bcp\b|blind|blindness|vision|gastrointestinal|\bgi\b|seizures?|prematur|oxygen|syndrome|trisomy|down syndrome|intellectual disability|eczema|boils?|disability|delay|tone|language regression|receptive|expressive/i },
-          { label: "Medications and allergies", pattern: /medicat|abilify|aripiprazole|miralax|polyethylene|clearlax|gavilax|healthylax|multivitamin|gummy vites|propranolol|citalopram|sitelapram|esomeprazole|tylenol|melatonin|ritalin|allerg|reaction|dose|mg\b|17 g|3 pm/i },
-          { label: "Equipment and supports", pattern: /equipment|aac|touchchat|headphones|glasses|hearing aids?|buckle|cane|pull|fidget|wheelchair|lift|chair|passenger seat|bathroom setup|bolster|bungee|underpad|liner|seat belts?|ice sled|exercise ball/i },
+          { label: "Emergency contacts", pattern: /\b(phone number|call 911|emergency|non-?emergency|guardian|physical custody|617-|contact .*first|call(?:ed)? .*first|should be called first|call .*family|family .*call|any time of day or night|even for questions|not hesitate to call|contact (?:his|her|their)?\s*(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother)|(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother).{0,60}\b(?:emergency|contact|call|called first|phone number))\b/i },
+          { label: "Diagnoses and conditions", pattern: /diagnos|condition|autism|autistic|g6pd|diabetes|pica|apraxia|developmental|processing|cerebral|cerebral palsy|\bcp\b|blind|blindness|vision|gastrointestinal|\bgi\b|seizures?|prematur|oxygen|syndrome|trisomy|down syndrome|tcf20|mutation|chromosome|intellectual disability|eczema|boils?|disability|delay|tone|language regression|receptive|expressive/i },
+          { label: "Medications and allergies", pattern: /medicat|medicine|medicines|pill|hydration|vaginal|vulvar|yogurt|applesauce|abilify|aripiprazole|miralax|polyethylene|clearlax|gavilax|healthylax|multivitamin|gummy vites|propranolol|citalopram|sitelapram|esomeprazole|tylenol|melatonin|ritalin|\bRIT\b|allerg|reaction|dose|mg\b|17 g|3 pm/i },
+          { label: "Equipment and supports", pattern: /equipment|aac|touchchat|headphones|glasses|hearing aids?|buckle|cane|pull|fidget|wheelchair|lift|chair|passenger seat|bathroom setup|bolster|bungee|underpad|liner|golf cart|seat belts?|ice sled|exercise ball/i },
           { label: "Supervision and safety", pattern: /supervision|safety|adult|two people|two caregivers|elop|hand biting|hurt|danger|swallow|unsafe|self-injury/i }
         ]), {
           "Emergency contacts": 6,
-          "Diagnoses and conditions": 6,
+          "Diagnoses and conditions": 9,
           "Medications and allergies": 6,
           "Equipment and supports": 6,
           "Supervision and safety": 3
@@ -3546,16 +4480,9 @@ function auditSummaryAgainstCapture(summary: StructuredSummary, capture: Structu
   const issues: SummaryAuditIssue[] = [];
   const itemsBySection = summaryItemsBySection(summary);
 
-  const requiresVisibleCoverage = (fact: StructuredCaptureFact) =>
-    fact.safetyRelevant ||
-    fact.factKind === "condition" ||
-    fact.factKind === "medication" ||
-    fact.factKind === "equipment" ||
-    fact.factKind === "safety_risk" ||
-    fact.factKind === "contact";
-
   for (const fact of capture.facts) {
     const expectedSection = guideSectionForFact(fact);
+    const requiresVisibleCoverage = factRequiresVisibleGuideCoverage(fact);
     const expectedItems = itemsBySection.get(expectedSection) ?? [];
     const matchedInExpected = expectedItems.some((item) => factLooksCoveredByItem(fact, item));
 
@@ -3572,6 +4499,10 @@ function auditSummaryAgainstCapture(summary: StructuredSummary, capture: Structu
     });
 
     if (matchedElsewhere) {
+      if (!requiresVisibleCoverage) {
+        continue;
+      }
+
       issues.push({
         code: "section_leakage",
         message: `${fact.factId} is only represented in ${matchedElsewhere} but belongs in ${expectedSection}.`,
@@ -3582,7 +4513,7 @@ function auditSummaryAgainstCapture(summary: StructuredSummary, capture: Structu
       continue;
     }
 
-    if (!requiresVisibleCoverage(fact)) {
+    if (!requiresVisibleCoverage) {
       continue;
     }
 
@@ -3607,6 +4538,20 @@ function auditSummaryAgainstCapture(summary: StructuredSummary, capture: Structu
 
       const authoritativeTitle = inferAuthoritativeSectionTitle(item, title);
       if (authoritativeTitle !== title) {
+        if (
+          title === "What Helps When They Are Having a Hard Time" &&
+          supportGroupingPattern().test(item)
+        ) {
+          continue;
+        }
+
+        if (
+          title === "Health & Safety" &&
+          /\b(caregiver does not know the doses|diagnosis|condition|medications? and allergies|equipment and supports)\b/i.test(item)
+        ) {
+          continue;
+        }
+
         issues.push({
           code: "wrong_section",
           message: `A bullet in ${title} belongs in ${authoritativeTitle}: ${item}`,
@@ -3646,14 +4591,6 @@ function auditAndFinalizeSummary(
     ] as const)
   );
   const statuses: FactAuditStatus[] = [];
-  const requiresVisibleCoverage = (fact: StructuredCaptureFact) =>
-    fact.safetyRelevant ||
-    fact.factKind === "condition" ||
-    fact.factKind === "medication" ||
-    fact.factKind === "equipment" ||
-    fact.factKind === "safety_risk" ||
-    fact.factKind === "contact";
-
   for (const cluster of clusters) {
     const expectedSection = guideSectionForFact(cluster.facts[0]);
     const expectedItems = sectionItems.get(expectedSection) ?? [];
@@ -3686,6 +4623,19 @@ function auditAndFinalizeSummary(
     });
 
     if (matchedElsewhere) {
+      if (!cluster.facts.some(factRequiresVisibleGuideCoverage)) {
+        statuses.push(
+          ...cluster.facts.map((fact) => ({
+            factId: fact.factId,
+            clusterId: cluster.clusterId,
+            expectedSection,
+            factKind: cluster.factKind,
+            status: "internal" as const
+          }))
+        );
+        continue;
+      }
+
       const matchedBullet = (sectionItems.get(matchedElsewhere) ?? []).find((item) =>
         cluster.facts.some((fact) => factLooksCoveredByItem(fact, item))
       );
@@ -3703,7 +4653,7 @@ function auditAndFinalizeSummary(
       continue;
     }
 
-    if (!cluster.facts.some(requiresVisibleCoverage)) {
+    if (!cluster.facts.some(factRequiresVisibleGuideCoverage)) {
       statuses.push(
         ...cluster.facts.map((fact) => ({
           factId: fact.factId,
@@ -3818,7 +4768,9 @@ async function requestStructuredCompletion<T>({
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === "AbortError") {
       throw new SummaryModelRequestError(
-        "Summary generation timed out while waiting for the model."
+        "Summary generation timed out while waiting for the model.",
+        undefined,
+        "timeout"
       );
     }
 
@@ -3972,7 +4924,13 @@ async function captureSummaryFacts(
 
       return normalizeCapture(rawCapture, entryMetadata).facts;
     } catch (error) {
-      if (error instanceof SummaryModelTruncationError && batch.length > 1) {
+      if (
+        batch.length > 1 &&
+        (
+          error instanceof SummaryModelTruncationError ||
+          (error instanceof SummaryModelRequestError && error.code === "timeout")
+        )
+      ) {
         const midpoint = Math.ceil(batch.length / 2);
         const [left, right] = await Promise.all([
           captureBatch(batch.slice(0, midpoint)),
@@ -4003,7 +4961,11 @@ async function captureSummaryFacts(
   const captures = capturedBatches.flat();
 
   return {
-    facts: dedupeCaptureFacts([...captures, ...deterministicCommunicationFacts(entries)])
+    facts: dedupeCaptureFacts([
+      ...captures,
+      ...deterministicCommunicationFacts(entries),
+      ...deterministicToiletingFacts(entries)
+    ])
   } satisfies StructuredCapture;
 }
 

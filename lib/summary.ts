@@ -178,11 +178,21 @@ function itemLooksLikeNegativeRisk(item: string) {
   );
 }
 
+const OVERVIEW_GROUP_LABEL_PATTERN =
+  /\b(?:How they communicate|What specific things mean|What helps communication|How they learn|Visual and concrete supports|Day-specific routines|Hygiene and dressing details|Toileting and bathroom support|Morning and daily routines|Food and drink notes|Technology and music|Movement and physical activities|Sensory activities|Outings and exploration|Interests and toys|Social preferences and downtime|Other activities and preferences|Additional activity notes|Sensory and environmental triggers|Routine, transition, and control triggers|Body-state triggers|Body signs|Behavior signs|Communication signs|Environmental supports|Calming supports|Transitions and motivation|Safety in the moment|Additional support notes|Emergency contacts|Diagnoses and conditions|Medications and allergies|Equipment and supports|Supervision and safety|Quick tips):\s*/gi;
+
 function cleanOverviewItem(item: string) {
-  return item.replace(
-    /^(?:How they communicate|What specific things mean|What helps communication|How they learn|Visual and concrete supports|Day-specific routines|Hygiene and dressing details|Toileting and bathroom support|Morning and daily routines|Food and drink notes|Technology and music|Movement and physical activities|Sensory activities|Outings and exploration|Interests and toys|Social preferences and downtime|Other activities and preferences|Additional activity notes|Sensory and environmental triggers|Routine, transition, and control triggers|Body-state triggers|Body signs|Behavior signs|Communication signs|Environmental supports|Calming supports|Transitions and motivation|Safety in the moment|Additional support notes|Emergency contacts|Diagnoses and conditions|Medications and allergies|Equipment and supports|Supervision and safety|Quick tips):\s*/i,
-    ""
+  const cleaned = compactWhitespace(
+    item
+      .replace(OVERVIEW_GROUP_LABEL_PATTERN, "")
+      .replace(/^(?:Environmental supports|Calming supports|Transition supports|Technology and music interests|Movement activities|Sensory activities|Outings and exploration|Interests|Social connection and downtime|Other activities and preferences)\s+include\s+/i, "")
+      .replace(/\s+([.,;:!?])/g, "$1")
   );
+  if (!cleaned || !/^[a-z]/.test(cleaned) || /^iPad\b/.test(cleaned)) {
+    return cleaned;
+  }
+
+  return `${cleaned.charAt(0).toUpperCase()}${cleaned.slice(1)}`;
 }
 
 const FALLBACK_STEP_TO_SECTION_TITLE: Record<string, PreferredSummarySectionTitle> = {
@@ -1173,16 +1183,38 @@ function selectBestSupports(sections: SummarySection[]) {
     firstMeaningfulItem(sections, "Activities and Interests");
 }
 
-function buildOverview(sections: SummarySection[]) {
+function selectCommunicationOverview(sections: SummarySection[]) {
   const communicationItems =
     sections
       .find((section) => section.title === "Communication")
       ?.items.filter((item) => !isNoInformationItem(item)) ?? [];
-  const communicationMethods = communicationItems
-    .filter((item) => /\b(aac|touchchat|communication device|non-speaking|speak)\b/i.test(item))
-    .slice(0, 2)
-    .join(" ");
-  const communication = cleanOverviewItem(communicationMethods || communicationItems[0] || "");
+
+  return bestScoredItem(communicationItems, (item) => {
+    let score = 1;
+    if (/\b(non-speaking|does not speak|cannot say words)\b/i.test(item)) {
+      score += 5;
+    }
+    if (/\b(aac|touchchat|communication device|ipad)\b/i.test(item)) {
+      score += 5;
+    }
+    if (/\b(body language|sounds?|gesture|lead|touch|proximity|close)\b/i.test(item)) {
+      score += 3;
+    }
+    if (/\b(help|i want ipad|request|label)\b/i.test(item)) {
+      score += 2;
+    }
+    if (/\bdoes not tell caregivers when\b/i.test(item)) {
+      score -= 3;
+    }
+    if (item.length > 220) {
+      score -= 4;
+    }
+    return score;
+  }) || communicationItems[0] || "";
+}
+
+function buildOverview(sections: SummarySection[]) {
+  const communication = cleanOverviewItem(selectCommunicationOverview(sections));
   const keyNeeds = cleanOverviewItem(selectKeyNeeds(sections));
   const allItems = sections.flatMap((section) => section.items).join(" ");
   const riskLabels = [

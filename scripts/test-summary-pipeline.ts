@@ -336,17 +336,44 @@ async function testGuideLayoutGroupingWithMockedFacts() {
 
     if (schemaName === "caregiver_handoff_structured_capture") {
       const facts = [
+        ["Communication", "communication_method", "AAC", "Gavin is non-speaking."],
+        ["Communication", "communication_method", "AAC", "Gavin communicates with sounds."],
+        ["Communication", "communication_method", "AAC", "Gavin communicates with AAC."],
+        ["Communication", "communication_method", "AAC", "Gavin's AAC system is TouchChat on an iPad."],
+        ["Communication", "communication_method", "AAC", "Gavin uses TouchChat on an iPad to ask for help."],
+        ["Communication", "communication_method", "AAC", "Gavin uses TouchChat on an iPad to label what he wants."],
+        ["Communication", "communication_signal", "AAC", "If Gavin selects “I want iPad,” it may mean the internet is down."],
+        ["Communication", "communication_signal", "AAC", "If Gavin selects “I want iPad,” it may mean his iPad is not working."],
+        ["Communication", "communication_signal", "AAC", "If Gavin selects “I want iPad,” it may mean he cannot find the video he wants."],
+        ["Communication", "communication_signal", "Places", "Usually places Gavin likes to go are IKEA or Bass Pro Shops in Foxborough."],
         ["Daily Schedule", "routine", "Hygiene", "He is assisted with deodorant."],
         ["Daily Schedule", "routine", "Hygiene", "He is assisted with dressing."],
         ["Daily Schedule", "routine", "Hygiene", "He is assisted with hair care."],
         ["Daily Schedule", "routine", "Hygiene", "He is assisted with socks."],
         ["Daily Schedule", "routine", "Hygiene", "He is assisted with teeth brushing."],
+        ["Daily Schedule", "routine", "Hygiene", "Deodorant is put on Gavin before he gets dressed in the morning."],
+        ["Daily Schedule", "routine", "Hygiene", "Gavin gets dressed after deodorant is put on in the morning."],
+        ["Daily Schedule", "routine", "Hygiene", "Gavin will lift his arms when deodorant is being put on."],
+        ["Daily Schedule", "routine", "Toileting", "If Gavin does not void, turning on the showerhead can help."],
         ["Daily Schedule", "routine", "Food", "He eats cheddar cheese."],
         ["Daily Schedule", "routine", "Food", "He eats green beans."],
         ["Daily Schedule", "routine", "Food", "He eats lettuce."],
         ["Daily Schedule", "routine", "Food", "He eats pasta with olive oil and parmesan."],
         ["Daily Schedule", "routine", "Food", "He eats pita with labneh and zaatar."],
         ["Daily Schedule", "routine", "Food", "He eats raw cauliflower."],
+        ["Daily Schedule", "routine", "Food", "He eats ice cream, and he loves sprinkles."],
+        ["Activities & Preferences", "preference", "Activities", "Preferred activities include YouTube, music, guitar, drums, car rides, car rides, exploring, malls, cupcakes, and chase."],
+        ["Activities & Preferences", "preference", "Activities", "Mom is his favorite person."],
+        ["Activities & Preferences", "preference", "Activities", "Downtime usually means being left alone to do his own thing."],
+        ["Activities & Preferences", "preference", "Learning", "It helps Gavin if you show him things to pick from."],
+        ["Activities & Preferences", "preference", "Learning", "Using a first-this-then-that format helps Gavin."],
+        ["Activities & Preferences", "preference", "Learning", "It helps Gavin when choices are shown visually."],
+        ["Activities & Preferences", "preference", "Communication", "Communicating non-verbally works for Gavin."],
+        ["Signs They Are Having a Hard Time", "trigger", "Rigidity", "Gavin gets upset when things are moved."],
+        ["Signs They Are Having a Hard Time", "trigger", "Rigidity", "Gavin gets upset when things are out of place."],
+        ["Signs They Are Having a Hard Time", "trigger", "Rigidity", "Gavin is very rigid about lights being in the expected position."],
+        ["Signs They Are Having a Hard Time", "trigger", "Rigidity", "Gavin is very rigid about shades being in the expected position."],
+        ["Signs They Are Having a Hard Time", "trigger", "Lighting", "The home uses soft indirect lighting because overhead lighting is upsetting."],
         ["Signs They Are Having a Hard Time", "help_sign", "Illness", "If he is not drinking, check for illness or pain."],
         ["Signs They Are Having a Hard Time", "help_sign", "Illness", "If he is not eating, check for illness or pain."],
         ["Understanding and Learning", "learning", "Visual", "Gavin is very visual."],
@@ -356,6 +383,10 @@ async function testGuideLayoutGroupingWithMockedFacts() {
         ["What helps when they are having a hard time", "caregiver_action", "Calming", "Keep the environment quiet when he is having a hard time."],
         ["Health & Safety", "condition", "Diagnoses", "Gavin has Sensory Processing Difficulty."],
         ["Health & Safety", "equipment", "Equipment", "He uses noise-canceling headphones."],
+        ["Health & Safety", "medication", "Medication", "Gavin takes Abilify (Aripiprazole) 15 mg once daily at 3pm."],
+        ["Health & Safety", "medication", "Medication", "Gavin takes Abilify (Aripiprazole) for irritability, aggression, repetitive behaviors, and self-injury."],
+        ["Health & Safety", "medication", "Medication", "Gavin takes Polyethylene glycol 3350 / MiraLax daily in water."],
+        ["Health & Safety", "medication", "Medication", "Gavin takes Polyethylene glycol 3350 / MiraLax to keep stool regular."],
       ].map(([section, factKind, subcategory, statement], index) => ({
         entryId: `Entry ${index + 1}`,
         section,
@@ -443,6 +474,8 @@ async function testGuideLayoutGroupingWithMockedFacts() {
       "two-step",
     );
 
+    const plainText = summaryToPlainText(result.summary);
+
     assert.ok(result.facts.length >= 20);
     assert.equal(result.sectionSummaries.length, PREFERRED_SUMMARY_SECTION_ORDER.length);
     assert.ok(
@@ -458,19 +491,42 @@ async function testGuideLayoutGroupingWithMockedFacts() {
       "expected persisted section artifacts to include grouped blocks",
     );
     assert.match(sectionText(result.summary, "About"), /visual learner|support needs/i);
+    assert.doesNotMatch(result.summary.overview, /How they communicate|Food and drink notes|Medications and allergies/i);
+    assert.doesNotMatch(plainText, /include include|car rides,\s*car rides/i);
     assert.match(sectionText(result.summary, "Daily Routine"), /hygiene and dressing.*deodorant.*dressing.*hair care.*socks.*teeth brushing/i);
     assert.doesNotMatch(sectionText(result.summary, "Daily Routine"), /He is assisted with deodorant/i);
     assert.doesNotMatch(sectionText(result.summary, "Daily Routine"), /He is assisted with dressing/i);
+    assert.equal(countSectionMatches(result.summary, "Daily Routine", /deodorant.*dressed|dressed.*deodorant/i), 1);
+    assert.ok(countSectionMatches(result.summary, "Daily Routine", /showerhead/i) <= 1);
     assert.match(sectionText(result.summary, "Food and Meals"), /Foods include.*cheddar cheese.*green beans.*lettuce.*pasta.*pita.*raw cauliflower/i);
     assert.doesNotMatch(sectionText(result.summary, "Food and Meals"), /^Food and drink notes: He eats/im);
+    assert.doesNotMatch(sectionText(result.summary, "Activities and Interests"), /\bcupcakes?\b/i);
+    assert.doesNotMatch(sectionText(result.summary, "Activities and Interests"), /\bperson\b\./i);
+    assert.doesNotMatch(sectionText(result.summary, "Activities and Interests"), /things to pick|first-this-then|choices are shown|communicating non-verbally/i);
+    assert.doesNotMatch(sectionText(result.summary, "Communication"), /IKEA|Bass Pro/i);
+    assert.match(sectionText(result.summary, "Activities and Interests"), /IKEA|Bass Pro/i);
+    assert.match(sectionText(result.summary, "Communication"), /nonverbal|non-verbal|non-verbally/i);
+    assert.match(sectionText(result.summary, "What Can Upset or Overwhelm"), /things are moved.*things are out of place|things are out of place.*things are moved/i);
+    assert.equal(countSectionMatches(result.summary, "What Can Upset or Overwhelm", /things are (?:moved|out of place)/i), 1);
+    assert.equal(countSectionMatches(result.summary, "What Can Upset or Overwhelm", /expected position/i), 1);
+    assert.match(sectionText(result.summary, "What Can Upset or Overwhelm"), /Soft or indirect lighting/i);
     assert.match(sectionText(result.summary, "Signs They Need Help"), /not eating.*not drinking|not drinking.*not eating/i);
     assert.equal(countSectionMatches(result.summary, "Signs They Need Help", /If he is not (?:eating|drinking)/i), 0);
+    assert.ok(countSectionMatches(result.summary, "Communication", /TouchChat on an iPad/i) <= 2);
+    assert.match(sectionText(result.summary, "Communication"), /I want iPad.*internet.*not working.*video|I want iPad.*internet.*video.*not working|I want iPad.*not working.*internet.*video/i);
+    assert.equal(countSectionMatches(result.summary, "Communication", /I want iPad/i), 1);
     assert.match(sectionText(result.summary, "Understanding and Learning"), /visual/i);
     assert.match(sectionText(result.summary, "Understanding and Learning"), /videos/i);
     assert.match(sectionText(result.summary, "Understanding and Learning"), /First-Then/i);
+    assert.match(sectionText(result.summary, "Understanding and Learning"), /things to pick/i);
+    assert.match(sectionText(result.summary, "Understanding and Learning"), /choices.*shown|shown.*choices|visual/i);
     assert.match(sectionText(result.summary, "What Helps When They Are Having a Hard Time"), /space|quiet/i);
     assert.match(sectionText(result.summary, "What Helps When They Are Having a Hard Time"), /Environmental supports include/i);
     assert.match(sectionText(result.summary, "Health & Safety"), /Sensory Processing Difficulty|noise-canceling headphones/i);
+    assert.match(sectionText(result.summary, "Health & Safety"), /Abilify\/aripiprazole.*15 mg.*once daily.*3pm.*irritability.*aggression.*repetitive behaviors.*self-injury/i);
+    assert.match(sectionText(result.summary, "Health & Safety"), /polyethylene glycol\/MiraLax.*daily.*water.*stool regular/i);
+    assert.equal(countSectionMatches(result.summary, "Health & Safety", /Abilify|ARIPiprazole|aripiprazole/i), 1);
+    assert.equal(countSectionMatches(result.summary, "Health & Safety", /MiraLax|Polyethylene glycol|polyethylene glycol/i), 1);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousApiKey === undefined) {
@@ -1121,7 +1177,6 @@ function testPastedGavinSummaryCleanup() {
           title: "Signs They Are Having a Hard Time",
           items: [
             "Agitation, angry sounds, angry yelling, eloping or running away, and hand biting are signs he may need help.",
-            "Bright lights, overhead lighting, loud noise, loud chaotic environments, crowded places, and too many people are upsetting to him.",
             "Hiding or grunting may mean they are having a bowel movement.",
             "Going to the fridge repeatedly for cheese can be a sign that he is hungry and needs help.",
             "He may sign for help to indicate he needs support.",
