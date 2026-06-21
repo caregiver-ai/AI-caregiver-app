@@ -242,7 +242,7 @@ function SummaryBlockDisplay({ block }: { block: SummaryBlock }) {
   }
 
   if (block.type === "note") {
-    return <p className="text-sm leading-6 text-slate-700">{block.text}</p>;
+    return <p className="rounded-2xl bg-canvas px-4 py-3 text-sm leading-6 text-slate-700">{block.text}</p>;
   }
 
   if (block.type === "keyValue") {
@@ -286,7 +286,11 @@ export function StructuredSummarySectionDisplay({ section }: { section: SummaryS
   return (
     <div className="space-y-3">
       <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">{section.title}</h2>
-      {section.intro ? <p className="text-sm leading-6 text-slate-700">{section.intro}</p> : null}
+      {section.intro ? (
+        <p className="rounded-2xl bg-canvas px-4 py-3 text-sm leading-6 text-slate-700">
+          {section.intro}
+        </p>
+      ) : null}
       <div className="space-y-3">
         {blocks.map((block, blockIndex) => (
           <SummaryBlockDisplay key={`${section.id}-${block.type}-${blockIndex}`} block={block} />
