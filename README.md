@@ -1,6 +1,6 @@
 # Caregiver Handoff
 
-Caregiver Handoff is a guided intake app that helps family caregivers capture practical care knowledge, save progress across sessions, and produce a caregiver-ready handoff summary in English for the next person supporting the care recipient.
+Caregiver Handoff is a guided intake app that helps family caregivers capture practical care knowledge, save progress across sessions, and produce a caregiver-ready guide in English for the next person supporting the care recipient.
 
 ## Tech stack
 
@@ -21,7 +21,7 @@ Caregiver Handoff is a guided intake app that helps family caregivers capture pr
 5. Responses can be typed or recorded with audio.
 6. Audio is transcribed and, for Spanish or Mandarin, normalized into English before entering the summary pipeline.
 7. The caregiver can revisit earlier prompts, edit responses, and continue an in-progress draft later.
-8. The review step generates a structured summary, runs QA cleanup, and allows inline editing plus regeneration from the saved answers.
+8. The review step generates a caregiver-guide summary, runs QA cleanup, and allows inline editing plus regeneration from the saved answers.
 9. The completion step collects feedback and can email the finalized summary.
 
 ## Current summary pipeline
@@ -29,9 +29,9 @@ Caregiver Handoff is a guided intake app that helps family caregivers capture pr
 The current pipeline is no longer just a simple rewrite pass. It is a structured artifact pipeline with persistence and QA:
 
 1. Source turns are read from `sessions.draft_json.turns`.
-2. The model captures atomic facts from the seven-questionnaire-section input.
-3. The app groups those facts into a caregiver-guide layout with section intros, labeled groups, and compact caregiver-ready bullets.
-4. The app normalizes and audits the output for section placement, duplicate/noisy bullets, title quality, and missing critical details.
+2. The model captures atomic facts from the questionnaire input. These facts stay atomic so details are not lost.
+3. The app groups related facts into a caregiver-guide layout with section intros, labeled groups, and compact caregiver-ready guidance.
+4. The app normalizes and audits the output for section placement, duplicate/noisy bullets, title quality, visible coverage, and missing critical details.
 5. The server persists:
    - the rendered summary in `summaries`
    - atomic facts in `summary_facts`
@@ -51,6 +51,21 @@ The current output format is a structured JSON summary with:
 - `pipelineVersion`
 - `sourceTurnsHash`
 
+The caregiver-facing guide uses these sections when supported by the captured facts:
+
+- `Caring for [Name]`
+- `About [Name]`
+- `Communication`
+- `Understanding and Learning`
+- `Daily Routine`
+- `Food and Meals`
+- `Activities and Interests`
+- `What Can Upset or Overwhelm [Name]`
+- `Signs [Name] Needs Help`
+- `What Helps When [Name] Is Having a Hard Time`
+- `Health & Safety`
+- `Quick Tips for New Caregivers`
+
 ## Features
 
 - Email/password authentication with resumable drafts
@@ -60,7 +75,7 @@ The current output format is a structured JSON summary with:
 - OpenAI transcription with English normalization for supported non-English audio
 - Versioned 7-section, 25-question caregiver questionnaire
 - Automatic migration of legacy JSON drafts
-- Structured 7-section caregiver handoff generation
+- Structured caregiver-guide generation from grouped facts
 - One-minute recordings with an automatic cutoff chime
 - Summary QA and freshness checks
 - Review, edit, and regenerate flow
@@ -169,11 +184,14 @@ npm run lint
 npm run typecheck
 npm run summary:test
 npm run summary:benchmark
+npm run summary:review-cases
 ```
 
 `summary:test` exercises the questionnaire contract, legacy draft migration, summary routing, and freshness logic directly.
 
 `summary:benchmark` runs the benchmark fixture set against the current server-side summary flow and reports checks for completeness, section placement, duplicate bullets, and transcription noise.
+
+`summary:review-cases` runs the current multi-case review gate against Gavin, Tatiana, Jevon, Joe, Ashley, and the raw Joe Word document. It checks that facts are still captured, grouped guide output is not missing required coverage, duplicate visible bullets stay at zero, and facts do not leak into the wrong visible section.
 
 ## Deployments
 
@@ -182,7 +200,16 @@ Vercel deploys the app through native Git integration:
 - pushes to `main` create production deploys
 - pull requests can create preview deploys
 
-Release the questionnaire update through a preview deployment first. Production promotion requires human review of the Spanish and Mandarin translations plus participant-style UAT, including the full one-minute recording flow on iPhone Safari, Android Chrome, and desktop Chrome.
+Before production deployment, run:
+
+```bash
+npm run summary:test
+npm run typecheck
+npm run summary:review-cases
+vercel build --prod
+```
+
+Production promotion should still include human review of Spanish and Mandarin translation behavior plus participant-style UAT, including the full one-minute recording flow on iPhone Safari, Android Chrome, and desktop Chrome.
 
 GitHub Actions is used for Supabase migrations:
 
