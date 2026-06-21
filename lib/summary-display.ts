@@ -18,6 +18,10 @@ function uniqueStrings(values: string[]) {
   });
 }
 
+function isNoInformation(value: string) {
+  return compactWhitespace(value).toLowerCase() === "(no information provided)";
+}
+
 export function getSectionBlocks(section: SummarySection): SummaryBlock[] {
   if (Array.isArray(section.blocks) && section.blocks.length > 0) {
     return section.blocks;
@@ -37,24 +41,29 @@ export function getSectionBlocks(section: SummarySection): SummaryBlock[] {
 
 export function blockHasContent(block: SummaryBlock) {
   if (block.type === "bullets") {
-    return block.items.length > 0;
+    return block.items.some((item) => !isNoInformation(item));
   }
 
   if (block.type === "labeledBullets") {
-    return block.groups.some((group) => group.items.length > 0);
+    return block.groups.some((group) => group.items.some((item) => !isNoInformation(item)));
   }
 
   if (block.type === "keyValue") {
     return block.rows.length > 0;
   }
 
-  return Boolean(compactWhitespace(block.text));
+  return Boolean(compactWhitespace(block.text)) && !isNoInformation(block.text);
 }
 
 export function sectionHasContent(section: SummarySection) {
+  const meaningfulItems = section.items.some((item) => !isNoInformation(item));
   return Boolean(
     section.title.trim() &&
-      (compactWhitespace(section.intro ?? "") || getSectionBlocks(section).some(blockHasContent))
+      (
+        compactWhitespace(section.intro ?? "") ||
+        getSectionBlocks(section).some(blockHasContent) ||
+        meaningfulItems
+      )
   );
 }
 
@@ -72,14 +81,14 @@ export function summaryHasContent(summary: StructuredSummary) {
 
 export function blockToPlainTextLines(block: SummaryBlock): string[] {
   if (block.type === "bullets") {
-    return uniqueStrings(block.items.map(compactWhitespace).filter(Boolean));
+    return uniqueStrings(block.items.map(compactWhitespace).filter((item) => item && !isNoInformation(item)));
   }
 
   if (block.type === "keyValue") {
     return uniqueStrings(
       block.rows
         .map((row) => `${compactWhitespace(row.label)}: ${compactWhitespace(row.value)}`)
-        .filter((line) => line !== ":")
+        .filter((line) => line !== ":" && !isNoInformation(line))
     );
   }
 
@@ -92,12 +101,14 @@ export function blockToPlainTextLines(block: SummaryBlock): string[] {
             const text = compactWhitespace(item);
             return label && text ? `${label}: ${text}` : text;
           })
-          .filter(Boolean);
+          .filter((line) => line && !isNoInformation(line));
       })
     );
   }
 
-  return compactWhitespace(block.text) ? [compactWhitespace(block.text)] : [];
+  return compactWhitespace(block.text) && !isNoInformation(block.text)
+    ? [compactWhitespace(block.text)]
+    : [];
 }
 
 export function sectionToPlainTextLines(section: SummarySection) {

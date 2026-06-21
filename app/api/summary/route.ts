@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { summaryToPlainText } from "@/lib/summary";
 import { generateCaregiverSummaryWithQa } from "@/lib/summary-generation";
+import { persistSummaryArtifacts } from "@/lib/summary-persistence";
 import { createSupabaseServerClient } from "@/lib/supabase";
 import { ConversationTurn } from "@/lib/types";
 
@@ -82,6 +83,21 @@ export async function POST(request: Request) {
 
       if (summaryError) {
         return NextResponse.json({ error: summaryError.message }, { status: 500 });
+      }
+
+      try {
+        await persistSummaryArtifacts({
+          supabase,
+          sessionId: body.sessionId,
+          sourceTurnsHash: summary.sourceTurnsHash,
+          facts: generated.facts,
+          sectionSummaries: generated.sectionSummaries
+        });
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Unable to save summary artifacts." },
+          { status: 500 }
+        );
       }
 
       if (sessionRow?.draft_json) {

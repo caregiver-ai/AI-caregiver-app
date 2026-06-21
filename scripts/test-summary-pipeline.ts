@@ -40,7 +40,8 @@ import type {
 } from "../lib/types";
 
 const languages: UiLanguage[] = ["english", "spanish", "mandarin"];
-const expectedSections = [
+const expectedSections = [...PREFERRED_SUMMARY_SECTION_ORDER] as const;
+const expectedQuestionnaireSections = [
   "Communication",
   "Understanding and Learning",
   "Daily Schedule",
@@ -131,7 +132,7 @@ function testQuestionnaireContract() {
   assert.equal(english.length, 25);
   assert.deepEqual(
     [...new Set(english.map((prompt) => prompt.sectionTitle))],
-    expectedSections,
+    expectedQuestionnaireSections,
   );
   assert.deepEqual(
     english.find(
@@ -305,10 +306,171 @@ async function testSummaryCaptureBatchingWithMockedModel() {
     ];
 
     const result = await generateCaregiverSummaryWithQa(turns, "Mock", "two-step");
-    assert.equal(result.summary.sections.length, 7);
+    assert.equal(result.summary.sections.length, PREFERRED_SUMMARY_SECTION_ORDER.length);
     assert.equal(result.summary.caregiverInsights?.length, 1);
     assert.equal(result.summary.caregiverInsights?.[0]?.supportingFactIds.length, 2);
+    assert.ok(result.facts.length > 0);
+    assert.equal(result.sectionSummaries.length, PREFERRED_SUMMARY_SECTION_ORDER.length);
     assert.ok(captureCalls > 1, "expected large capture input to be split across model calls");
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousApiKey;
+    }
+  }
+}
+
+async function testGuideLayoutGroupingWithMockedFacts() {
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+
+  process.env.OPENAI_API_KEY = "test-summary-key";
+  globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+      response_format?: { json_schema?: { name?: string } };
+      messages?: Array<{ content?: string }>;
+    };
+    const schemaName = requestBody.response_format?.json_schema?.name;
+
+    if (schemaName === "caregiver_handoff_structured_capture") {
+      const facts = [
+        ["Daily Schedule", "routine", "Hygiene", "He is assisted with deodorant."],
+        ["Daily Schedule", "routine", "Hygiene", "He is assisted with dressing."],
+        ["Daily Schedule", "routine", "Hygiene", "He is assisted with hair care."],
+        ["Daily Schedule", "routine", "Hygiene", "He is assisted with socks."],
+        ["Daily Schedule", "routine", "Hygiene", "He is assisted with teeth brushing."],
+        ["Daily Schedule", "routine", "Food", "He eats cheddar cheese."],
+        ["Daily Schedule", "routine", "Food", "He eats green beans."],
+        ["Daily Schedule", "routine", "Food", "He eats lettuce."],
+        ["Daily Schedule", "routine", "Food", "He eats pasta with olive oil and parmesan."],
+        ["Daily Schedule", "routine", "Food", "He eats pita with labneh and zaatar."],
+        ["Daily Schedule", "routine", "Food", "He eats raw cauliflower."],
+        ["Signs They Are Having a Hard Time", "help_sign", "Illness", "If he is not drinking, check for illness or pain."],
+        ["Signs They Are Having a Hard Time", "help_sign", "Illness", "If he is not eating, check for illness or pain."],
+        ["Understanding and Learning", "learning", "Visual", "Gavin is very visual."],
+        ["Understanding and Learning", "learning", "Visual", "Gavin learns best through videos."],
+        ["Understanding and Learning", "learning", "Visual", "First-Then language helps Gavin."],
+        ["What helps when they are having a hard time", "caregiver_action", "Calming", "Give him space when he is having a hard time."],
+        ["What helps when they are having a hard time", "caregiver_action", "Calming", "Keep the environment quiet when he is having a hard time."],
+        ["Health & Safety", "condition", "Diagnoses", "Gavin has Sensory Processing Difficulty."],
+        ["Health & Safety", "equipment", "Equipment", "He uses noise-canceling headphones."],
+      ].map(([section, factKind, subcategory, statement], index) => ({
+        entryId: `Entry ${index + 1}`,
+        section,
+        factKind,
+        subcategory,
+        statement,
+        safetyRelevant: /illness|pain|safety|condition/i.test(statement),
+      }));
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ facts }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (schemaName === "caregiver_handoff_insights") {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  insights: [
+                    {
+                      insightId: "visual-learning-pattern",
+                      section: "Understanding and Learning",
+                      statement:
+                        "Gavin is a highly visual learner who benefits from videos and First-Then language.",
+                      supportingFactIds: ["entry-14-fact-1", "entry-15-fact-1"],
+                      themes: ["visual learning"],
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    assert.equal(schemaName, "caregiver_handoff_summary");
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: JSON.stringify({
+                title: "Caring for Gavin",
+                overview: "Gavin benefits from visual support and calm environments.",
+                communication: ["Gavin uses non-speaking communication."],
+                understandingAndLearning: ["Gavin is very visual."],
+                dailySchedule: ["He is assisted with deodorant."],
+                activitiesAndPreferences: ["(No information provided)"],
+                signsTheyAreHavingAHardTime: ["If he is not eating, check for illness or pain."],
+                whatHelpsWhenTheyAreHavingAHardTime: ["Give him space."],
+                healthAndSafety: ["Gavin has Sensory Processing Difficulty."],
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await generateCaregiverSummaryWithQa(
+      responseTurns(
+        "guide-1",
+        "Gavin details",
+        "Gavin has daily care, food, learning, support, and health details.",
+        "2026-06-01T12:00:00.000Z",
+      ),
+      "Gavin",
+      "two-step",
+    );
+
+    assert.ok(result.facts.length >= 20);
+    assert.equal(result.sectionSummaries.length, PREFERRED_SUMMARY_SECTION_ORDER.length);
+    assert.ok(
+      result.summary.sections.some(
+        (section) => section.title === "Daily Routine" && (section.blocks?.length ?? 0) > 0,
+      ),
+      "expected guide sections to preserve grouped display blocks",
+    );
+    assert.ok(
+      result.sectionSummaries.some(
+        (section) => section.sectionTitle === "Daily Routine" && (section.itemsJson.blocks?.length ?? 0) > 0,
+      ),
+      "expected persisted section artifacts to include grouped blocks",
+    );
+    assert.match(sectionText(result.summary, "About"), /visual learner|support needs/i);
+    assert.match(sectionText(result.summary, "Daily Routine"), /hygiene and dressing.*deodorant.*dressing.*hair care.*socks.*teeth brushing/i);
+    assert.doesNotMatch(sectionText(result.summary, "Daily Routine"), /He is assisted with deodorant/i);
+    assert.doesNotMatch(sectionText(result.summary, "Daily Routine"), /He is assisted with dressing/i);
+    assert.match(sectionText(result.summary, "Food and Meals"), /Foods include.*cheddar cheese.*green beans.*lettuce.*pasta.*pita.*raw cauliflower/i);
+    assert.doesNotMatch(sectionText(result.summary, "Food and Meals"), /^Food and drink notes: He eats/im);
+    assert.match(sectionText(result.summary, "Signs They Need Help"), /not eating.*not drinking|not drinking.*not eating/i);
+    assert.equal(countSectionMatches(result.summary, "Signs They Need Help", /If he is not (?:eating|drinking)/i), 0);
+    assert.match(sectionText(result.summary, "Understanding and Learning"), /visual/i);
+    assert.match(sectionText(result.summary, "Understanding and Learning"), /videos/i);
+    assert.match(sectionText(result.summary, "Understanding and Learning"), /First-Then/i);
+    assert.match(sectionText(result.summary, "What Helps When They Are Having a Hard Time"), /space|quiet/i);
+    assert.match(sectionText(result.summary, "What Helps When They Are Having a Hard Time"), /Environmental supports include/i);
+    assert.match(sectionText(result.summary, "Health & Safety"), /Sensory Processing Difficulty|noise-canceling headphones/i);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousApiKey === undefined) {
@@ -614,7 +776,7 @@ function testSevenSectionSummaryNormalization() {
     normalized.sections
       .find(
         (section) =>
-          section.title === "Signs They Are Having a Hard Time",
+          section.title === "What Can Upset or Overwhelm",
       )
       ?.items.some((item) => item.includes("Crowded spaces")),
   );
@@ -700,7 +862,7 @@ function testSummaryRoutingAndCleanup() {
     /recognizes pictures.*watching/i,
   );
   assert.match(
-    sectionText(normalized, "Signs They Are Having a Hard Time"),
+    sectionText(normalized, "Signs They Need Help"),
     /pacing.*quiet|presses help|Elopement is a sign|Hiding and grunting/i,
   );
   assert.doesNotMatch(
@@ -712,7 +874,7 @@ function testSummaryRoutingAndCleanup() {
     /constant supervision.*elopement risk/i,
   );
   assert.match(
-    sectionText(normalized, "Daily Schedule"),
+    sectionText(normalized, "Daily Routine"),
     /pull-up|7:20 a\.m\./i,
   );
   assert.match(
@@ -727,7 +889,7 @@ function testSummaryRoutingAndCleanup() {
 
   const supportItems = sectionItems(
     normalized,
-    "What helps when they are having a hard time",
+    "What Helps When They Are Having a Hard Time",
   );
   assert.equal(
     supportItems.filter((item) => /space|stimulation/i.test(item)).length,
@@ -739,7 +901,7 @@ function testSummaryRoutingAndCleanup() {
     1,
   );
   assert.equal(
-    sectionItems(normalized, "Signs They Are Having a Hard Time").filter(
+    sectionItems(normalized, "Signs They Need Help").filter(
       (item) => /hiding|grunting/i.test(item),
     ).length,
     1,
@@ -752,70 +914,70 @@ function testSummaryRoutingAndCleanup() {
   assert.equal(
     inferAuthoritativeSectionTitle(
       "Limping is a sign they need help.",
-      "What helps when they are having a hard time",
+      "What Helps When They Are Having a Hard Time",
     ),
-    "Signs They Are Having a Hard Time",
+    "Signs They Need Help",
   );
   assert.equal(
     inferAuthoritativeSectionTitle(
       "Eloping is a sign they need help.",
-      "What helps when they are having a hard time",
+      "What Helps When They Are Having a Hard Time",
     ),
-    "Signs They Are Having a Hard Time",
+    "Signs They Need Help",
   );
   assert.equal(
     inferAuthoritativeSectionTitle(
       "They are not eating or drinking.",
-      "What helps when they are having a hard time",
+      "What Helps When They Are Having a Hard Time",
     ),
-    "Signs They Are Having a Hard Time",
+    "Signs They Need Help",
   );
   assert.equal(
     inferAuthoritativeSectionTitle(
       "Behavior or communication signs include hand biting, angry vocalizations, and pressing Help.",
       "Communication",
     ),
-    "Signs They Are Having a Hard Time",
+    "Signs They Need Help",
   );
   assert.equal(
     inferAuthoritativeSectionTitle(
       "Do not block hand biting because they may bite the caregiver.",
-      "Signs They Are Having a Hard Time",
+      "Signs They Need Help",
     ),
-    "What helps when they are having a hard time",
+    "What Helps When They Are Having a Hard Time",
   );
   assert.equal(
     inferAuthoritativeSectionTitle(
       "If Gavin is really upset, giving him space is helpful.",
-      "Signs They Are Having a Hard Time",
+      "Signs They Need Help",
     ),
-    "What helps when they are having a hard time",
+    "What Helps When They Are Having a Hard Time",
   );
   assert.equal(
     inferAuthoritativeSectionTitle(
       "You can ask Gavin to count to 10, tell him to take a deep breath, or tell him to squeeze and release his hands, but these strategies help only if he is still somewhat calm.",
-      "Signs They Are Having a Hard Time",
+      "Signs They Need Help",
     ),
-    "What helps when they are having a hard time",
+    "What Helps When They Are Having a Hard Time",
   );
   assert.equal(
     inferAuthoritativeSectionTitle(
       "The most important thing when Gavin is very upset is to make sure he is safe and cannot hurt himself.",
-      "Signs They Are Having a Hard Time",
+      "Signs They Need Help",
     ),
-    "What helps when they are having a hard time",
+    "What Helps When They Are Having a Hard Time",
   );
   assert.equal(
     inferAuthoritativeSectionTitle(
       "Gavin takes ARIPiprazole 15 mg (Abilify) once a day at 3 pm to help manage irritability, aggression, repetitive behaviors, and self-injury.",
-      "Signs They Are Having a Hard Time",
+      "Signs They Need Help",
     ),
     "Health & Safety",
   );
   assert.equal(
     inferAuthoritativeSectionTitle(
       "Gavin takes L'il Critters Gummy Vites Daily Multivitamin for Kids, 2 gummies per day.",
-      "What helps when they are having a hard time",
+      "What Helps When They Are Having a Hard Time",
     ),
     "Health & Safety",
   );
@@ -829,9 +991,9 @@ function testSummaryRoutingAndCleanup() {
   assert.equal(
     inferAuthoritativeSectionTitle(
       "A structured routine helps Gavin's day go well.",
-      "What helps when they are having a hard time",
+      "What Helps When They Are Having a Hard Time",
     ),
-    "Daily Schedule",
+    "Daily Routine",
   );
 
   const dedupedSafetySummary = normalizeAuthoritativeStructuredSummary(
@@ -840,7 +1002,7 @@ function testSummaryRoutingAndCleanup() {
         id: `dedupe-${index + 1}`,
         title,
         items:
-          title === "Signs They Are Having a Hard Time"
+          title === "Signs They Need Help"
             ? [
                 "When Gavin is upset, he may elope.",
                 "Gavin may elope when he is really upset.",
@@ -856,7 +1018,7 @@ function testSummaryRoutingAndCleanup() {
     "Gavin",
   );
   assert.equal(
-    sectionItems(dedupedSafetySummary, "Signs They Are Having a Hard Time")
+    sectionItems(dedupedSafetySummary, "Signs They Need Help")
       .filter((item) => /elop/i.test(item)).length,
     1,
   );
@@ -865,7 +1027,7 @@ function testSummaryRoutingAndCleanup() {
     /car rides and walks/i,
   );
 
-  const activities = sectionItems(normalized, "Activities & Preferences");
+  const activities = sectionItems(normalized, "Activities and Interests");
   assert.equal(activities.length, 1);
   assert.match(activities[0] ?? "", /^Preferred activities include/i);
   for (const preference of [
@@ -1034,18 +1196,18 @@ function testPastedGavinSummaryCleanup() {
   assert.match(learning, /Tapping Gavin's foot/i);
   assert.doesNotMatch(learning, /Sensory Processing Difficulty/i);
 
-  const signs = sectionText(normalized, "Signs They Are Having a Hard Time");
+  const signs = sectionText(normalized, "Signs They Need Help");
   assert.doesNotMatch(signs, /time alone|Reduce stimulation|Abilify|Aripiprazole|MiraLax|polyethylene glycol|multivitamin/i);
-  assert.equal(countSectionMatches(normalized, "Signs They Are Having a Hard Time", /press(?:es)? help/i), 1);
+  assert.equal(countSectionMatches(normalized, "Signs They Need Help", /press(?:es)? help/i), 1);
 
-  const supports = sectionText(normalized, "What helps when they are having a hard time");
+  const supports = sectionText(normalized, "What Helps When They Are Having a Hard Time");
   assert.match(supports, /car ride/i);
   assert.match(supports, /quiet/i);
   assert.match(supports, /visual schedule/i);
   assert.match(supports, /squeeze and release|deep breath|count to 10/i);
   assert.match(supports, /Swedish Fish|gummies|candy/i);
   assert.doesNotMatch(supports, /^Preferred activities include/im);
-  assert.equal(countSectionMatches(normalized, "What helps when they are having a hard time", /Swedish Fish|gumm|candy/i), 1);
+  assert.equal(countSectionMatches(normalized, "What Helps When They Are Having a Hard Time", /Swedish Fish|gumm|candy/i), 1);
 
   const health = sectionText(normalized, "Health & Safety");
   assert.match(health, /Sensory Processing Difficulty/i);
@@ -1127,6 +1289,34 @@ function testCurrentStructuredBlocksArePreserved() {
       rows: [{ label: "Primary contact", value: "Maya" }],
     },
   ]);
+
+  const groupedSummary = summaryWithVersions([], {
+    sections: expectedSections.map((title, index) => ({
+      id: `grouped-${index + 1}`,
+      title,
+      items:
+        title === "Food and Meals"
+          ? ["Foods include pasta and green beans."]
+          : ["(No information provided)."],
+      blocks:
+        title === "Food and Meals"
+          ? [
+              {
+                type: "labeledBullets" as const,
+                groups: [
+                  {
+                    label: "Food and drink notes",
+                    items: ["Foods include pasta and green beans."],
+                  },
+                ],
+              },
+            ]
+          : undefined,
+    })),
+  });
+  const plainText = summaryToPlainText(groupedSummary);
+  assert.match(plainText, /Food and drink notes\n- Foods include pasta and green beans\./);
+  assert.doesNotMatch(plainText, /- Food and drink notes: Foods include/i);
 }
 
 function testFallbackAndRawCaptureRouting() {
@@ -1383,7 +1573,7 @@ function testReviewedSummaryEditsSurviveRegeneration() {
                 "Dotty Foley, parent and guardian, is the emergency contact.",
                 "Teirza Peirce is the non-emergency contact.",
               ]
-            : title === "What helps when they are having a hard time"
+            : title === "What Helps When They Are Having a Hard Time"
               ? ["Use a timer."]
               : ["(No information provided)."],
     })),
@@ -1397,7 +1587,7 @@ function testReviewedSummaryEditsSurviveRegeneration() {
   );
   const supports = sectionText(
     merged,
-    "What helps when they are having a hard time",
+    "What Helps When They Are Having a Hard Time",
   );
 
   assert.match(supports, /Visual schedule with words/i);
@@ -1484,6 +1674,7 @@ async function main() {
   testQuestionnaireContract();
   testStructuredCompletionParsing();
   await testSummaryCaptureBatchingWithMockedModel();
+  await testGuideLayoutGroupingWithMockedFacts();
   testEveryLegacyPromptMapping();
   testLegacyDraftMigration();
   testHealthMappingAndSkippedMigration();
@@ -1496,7 +1687,7 @@ async function main() {
   testSummaryFreshnessVersions();
   testReviewedSummaryEditsSurviveRegeneration();
   await testRecordingStopSequence();
-  console.log("Questionnaire, recording, and seven-section summary tests passed.");
+  console.log("Questionnaire, recording, and guide-layout summary tests passed.");
 }
 
 void main();

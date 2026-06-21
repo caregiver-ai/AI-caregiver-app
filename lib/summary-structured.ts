@@ -9,8 +9,8 @@ import {
   SummarySection
 } from "@/lib/types";
 
-export const SUMMARY_PIPELINE_VERSION = "2026-06-19-caregiver-insights-routing-v2";
-export const SUMMARY_LAYOUT_VERSION = "2026-06-19-caregiver-insights-routing-v2";
+export const SUMMARY_PIPELINE_VERSION = "2026-06-20-caregiver-guide-layout-v1";
+export const SUMMARY_LAYOUT_VERSION = "2026-06-20-caregiver-guide-layout-v1";
 
 type LegacyItemRecord = {
   id: string;
@@ -221,8 +221,9 @@ function extractNameFromTitle(value?: string) {
 function flattenGroupItems(groups: SummaryLabeledGroup[]) {
   return groups.flatMap((group) => {
     const label = `${trimSentence(group.label)}:`;
-    const items = group.items.map((item) => sentenceCase(trimSentence(item)));
-    return [label, ...items];
+    return group.items.map((item) =>
+      sentenceCase(`${label} ${trimSentence(item)}`)
+    );
   });
 }
 

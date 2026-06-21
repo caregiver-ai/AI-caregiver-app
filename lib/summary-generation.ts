@@ -10,35 +10,48 @@ import { finalizeSummaryWithQa } from "./summary-audit";
 import {
   SUMMARY_LAYOUT_VERSION,
   SUMMARY_PIPELINE_VERSION,
-  computeTurnsHash
+  computeTurnsHash,
+  deriveItemsFromBlocks
 } from "./summary-structured";
 import {
   CaregiverInsight,
   ConversationTurn,
   ReflectionStepId,
   StructuredSummary,
+  SummaryBlock,
+  SummarySection,
   SummaryAuditIssue,
   SummaryAuditReport
 } from "./types";
 
 const NO_INFORMATION_PLACEHOLDER = "(No information provided)";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
-const DEFAULT_SUMMARY_MODEL = "gpt-5.4";
+const DEFAULT_SUMMARY_MODEL = "gpt-5.5";
 const DEFAULT_OPENAI_TIMEOUT_MS = 75_000;
 const CAPTURE_ENTRY_TARGET_CHARS = 2_400;
 const CAPTURE_PROMPT_TARGET_CHARS = 3_200;
 const CAPTURE_CONCURRENCY_LIMIT = 3;
 
-const SUMMARY_SECTION_TITLES = [...PREFERRED_SUMMARY_SECTION_ORDER];
+const SUMMARY_SECTION_TITLES = [
+  "Communication",
+  "Understanding and Learning",
+  "Daily Schedule",
+  "Activities & Preferences",
+  "Signs They Are Having a Hard Time",
+  "What helps when they are having a hard time",
+  "Health & Safety"
+] as const;
+const GUIDE_SECTION_TITLES = [...PREFERRED_SUMMARY_SECTION_ORDER];
 
 type SummarySectionTitle = (typeof SUMMARY_SECTION_TITLES)[number];
+type GuideSectionTitle = (typeof GUIDE_SECTION_TITLES)[number];
 
 type ChatCompletionContentPart = {
   type?: string;
   text?: string;
 };
 
-type StructuredCaptureFact = {
+export type StructuredCaptureFact = {
   factId: string;
   entryId: string;
   section: SummarySectionTitle;
@@ -50,8 +63,19 @@ type StructuredCaptureFact = {
   sourceEntryIds: string[];
 };
 
-type StructuredCapture = {
+export type StructuredCapture = {
   facts: StructuredCaptureFact[];
+};
+
+export type SummarySectionArtifact = {
+  sectionTitle: string;
+  itemsJson: {
+    id: string;
+    title: string;
+    intro?: string;
+    items: string[];
+    blocks?: SummaryBlock[];
+  };
 };
 
 type StructuredInsightCapture = {
@@ -85,11 +109,18 @@ type FactCluster = {
 type FactAuditStatus = {
   factId: string;
   clusterId: string;
-  expectedSection: SummarySectionTitle;
+  expectedSection: GuideSectionTitle;
   factKind: StructuredFactKind;
-  status: "covered" | "leaked" | "missing" | "duplicated";
-  actualSection?: SummarySectionTitle;
+  status: "covered" | "leaked" | "missing" | "internal" | "duplicated";
+  actualSection?: GuideSectionTitle;
   matchedBullet?: string;
+};
+
+export type SummaryGenerationResult = {
+  summary: StructuredSummary;
+  auditReport: SummaryAuditReport;
+  facts: StructuredCaptureFact[];
+  sectionSummaries: SummarySectionArtifact[];
 };
 
 export class SummaryQualityError extends Error {
@@ -847,7 +878,7 @@ const sevenSectionRewriteRules = `Rewrite the structured facts into a concise ca
 
 ${sevenSectionGuidance}
 
-Keep each fact in its assigned section and use each factKind consistently. Include all seven sections. Every captured fact must appear in the final summary. Use one clear idea per bullet, combine facts only when the combined bullet preserves every detail, keep medications/equipment/contacts distinct, and return ["${NO_INFORMATION_PLACEHOLDER}"] for an empty section.
+Keep each fact in its assigned section and use each factKind consistently. Include all seven sections. Group related facts into caregiver-ready bullets instead of repeating every atomic fact. Keep medications/equipment/contacts distinct, and return ["${NO_INFORMATION_PLACEHOLDER}"] for an empty section.
 
 AAC identity and the meanings of AAC selections belong in Communication unless the source is explicitly answering an equipment-inventory question. Food availability and eating patterns belong in Daily Schedule. Hiding or grunting that signals a bowel movement belongs in Signs They Are Having a Hard Time; the pull-up routine itself belongs in Daily Schedule. Car rides, quiet environments, and time alone described as resets belong in What helps when they are having a hard time. Keep all named physical and behavioral signs, including limping, eating/drinking changes, low energy, elopement, hand biting, vocalizations, and pressing Help.
 
@@ -1360,6 +1391,19 @@ function statementLooksLikeFoodRoutine(value: string) {
     );
 }
 
+function statementLooksLikeFoodOrMeal(value: string) {
+  if (/\bshower(?:head)?\b|\bwater pick\b|\blunch attendant\b|\bworks? as .*lunch\b/i.test(value)) {
+    return false;
+  }
+
+  if (/\bafter eating\b/i.test(value) && !foodGroupingPattern().test(value) && !/\bbreakfast|lunch|dinner|meal|snack\b/i.test(value)) {
+    return false;
+  }
+
+  return /\b(food|foods?|meal|meals?|snack|snacks?|eat|eats|eating|drink|drinks|drinking|diet|breakfast|lunch|dinner|hungry|appetite|cheese|chicken|turkey|ham|sandwich|cheetos|cookies|capri suns?|meals on wheels|pasta|pita|labneh|za'?atar|lettuce|salads?|fruits?|green beans?|cauliflower|water\b|milk|caffeinated|iced tea|orange juice|lemonade|takeout|eggs?|yogurt|chips?|apples?|grapes?|strawberries|bananas|wings?|bread)\b/i.test(value) &&
+    !/\b(water came out|water comes out|handheld shower|fixed shower)\b/i.test(value);
+}
+
 function statementLooksLikeSupportStrategy(value: string) {
   return /\b(helps|helpful|work best|works best|reset|calm|sooth|regulat|redirect|motivat|prompt|safe|hurt (?:himself|herself|themself)|squeeze and release|deep breaths?|count(?:ing)? to 10|swedish fish|gumm(?:y|ies)|candy|back off|do not crowd|don't crowd|visual schedule|visual timer)\b/i.test(
     value
@@ -1457,6 +1501,15 @@ function inferCaptureRouting(
     return {
       section: "Daily Schedule" as SummarySectionTitle,
       factKind: "routine" as StructuredFactKind
+    };
+  }
+
+  if (statementLooksLikeFoodOrMeal(statement)) {
+    return {
+      section: "Daily Schedule" as SummarySectionTitle,
+      factKind: /(?:likes?|loves?|enjoys?|dislikes?|does not like|doesn't like|refuses?|will not eat|won't eat)\b/i.test(statement)
+        ? "preference" as StructuredFactKind
+        : "routine" as StructuredFactKind
     };
   }
 
@@ -1562,6 +1615,26 @@ function deterministicCommunicationFacts(entries: SummarySourceEntry[]) {
 
 function statementLooksLikeContact(value: string) {
   return /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}).*\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(value);
+}
+
+function statementLooksLikeActualContact(value: string) {
+  if (
+    /\b(?:talk(?:s|ing)?|chat(?:s|ting)?|friends?|social media|facebook group|parent group|decode|unclear words?|unclear phrases?|what .*means?|watch|computer|tablet|device|phone with friends|on the phone to show|over bluetooth|takes .*places|weekends?|eye contact|physical contact)\b/i.test(
+      value
+    )
+  ) {
+    return false;
+  }
+
+  if (statementLooksLikeContact(value)) {
+    return true;
+  }
+
+  if (/\b(?:call 911|emergency|non-?emergency|crisis support|guardian|physical custody|phone number|contact .*first|call(?:ed)? .*first|should be called first|contact (?:his|her|their)?\s*(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother|caregiver)|(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother|caregiver).{0,60}\b(?:emergency|contact|call|called first|phone number))\b/i.test(value)) {
+    return true;
+  }
+
+  return false;
 }
 
 function normalizeCapture(input: unknown, entryMetadata = new Map<string, SummarySourceEntry>()) {
@@ -1979,6 +2052,19 @@ function mergeCaregiverInsights(...groups: CaregiverInsight[][]) {
   return [...merged.values()].slice(0, 5);
 }
 
+function buildGuideSummaryShell(nameHint: string | undefined, caregiverInsights: CaregiverInsight[]) {
+  return {
+    title: nameHint ? `Caring for ${nameHint}` : "Caregiver Handoff Summary",
+    overview: "",
+    caregiverInsights,
+    sections: [],
+    generatedAt: "",
+    pipelineVersion: "",
+    layoutVersion: "",
+    sourceTurnsHash: ""
+  } satisfies StructuredSummary;
+}
+
 function statementLooksCovered(statement: string, existingItems: string[]) {
   const normalizedStatement = normalizeCoverageText(statement);
   const statementTokens = coverageTokens(statement);
@@ -2309,42 +2395,1105 @@ function buildAuditDiagnostics(statuses: FactAuditStatus[]) {
   });
 }
 
-function composeSummaryFromCapture(
+function guideSectionForFact(fact: StructuredCaptureFact): GuideSectionTitle {
+  const statement = fact.statement;
+
+  if (fact.factKind === "condition" || fact.factKind === "medication") {
+    return "Health & Safety";
+  }
+
+  if (fact.factKind === "contact" && statementLooksLikeActualContact(statement)) {
+    return "Health & Safety";
+  }
+
+  if (
+    fact.factKind === "equipment" &&
+    !/\b(aac|touchchat|communication device|ipad.*communicat)\b/i.test(statement)
+  ) {
+    if (/\bpull-?ups?\b/i.test(statement) && /\b(bowel movements?|bathroom|toilet|toileting)\b/i.test(statement)) {
+      return "Daily Routine";
+    }
+
+    return "Health & Safety";
+  }
+
+  if (/\bpull-?ups?\b/i.test(statement) && /\b(bowel movements?|bathroom|toilet|toileting)\b/i.test(statement)) {
+    return "Daily Routine";
+  }
+
+  if (/\b(no allergies|allerg(?:y|ies)|diagnos(?:is|ed)?|condition|takes?|medication|abilify|aripiprazole|miralax|polyethylene|gummy vites|multivitamin|buckle buddy|white cane|pull-?ups?|fidgets?|glasses|hearing aids?|emergency contact|phone number|call 911|call first|called first|physical custody)\b/i.test(statement)) {
+    return "Health & Safety";
+  }
+
+  if (/\b(car ride|walks? soothe|soothes?|calm(?:s|ing)?|redirect|space|quiet|stimulation|deep breath|count(?:ing)? to 10|squeeze|release|swedish fish|gumm(?:y|ies)|visual timer|visual schedule|transition|back off|do not .*block|do not .*stop|may bite you|make sure .*safe|cannot hurt himself)\b/i.test(statement)) {
+    return "What Helps When They Are Having a Hard Time";
+  }
+
+  if (dayRoutinePattern().test(statement)) {
+    return "Daily Routine";
+  }
+
+  if (/\b(dog|romeo)\b/i.test(statement) && /\b(sad|upset|tough day|hard time|stress|calm|support|walk)\b/i.test(statement)) {
+    return "What Helps When They Are Having a Hard Time";
+  }
+
+  if (/\b(press(?:es|ed|ing)? help|help on (?:his|her|their) (?:device|ipad)|go(?:es)? .*device .*help)\b/i.test(statement)) {
+    return "Signs They Need Help";
+  }
+
+  if (statementLooksLikeFoodOrMeal(statement) || /\b(cupcake|cake|frosting|sprinkles|candy|sweets|sippy cup|grazes?)\b/i.test(statement)) {
+    return fact.factKind === "help_sign" ? "Signs They Need Help" : "Food and Meals";
+  }
+
+  if (/\b(upset|overwhelm|hard transition|too many demands|loud|crowd|bright|moved|out of place|shades?|overhead lighting|chaotic|overstimulat|sensitive to noise|sensitive to crowds)\b/i.test(statement) && fact.factKind === "trigger") {
+    return "What Can Upset or Overwhelm";
+  }
+
+  if (/\b(non-speaking|aac|touchchat|communicat|express(?:es)? himself|voice|sounds?|vocal|singing|happy|sad|lead|touch|sit(?:s|ting)? close|attention|select(?:s|ed)?|i want ipad|word car|press(?:es)? help|label things)\b/i.test(statement)) {
+    return "Communication";
+  }
+
+  if (
+    !/\b(video games?|friends?|train-loving|makes? videos? with)\b/i.test(statement) &&
+    !(/\bvideos?\b/i.test(statement) && !/\b(learns?|learning|remember|understand|support|helps?|helpful|best (?:with|through)|visual|model(?:ing)?|demonstrat)\b/i.test(statement)) &&
+    /\b(visual|videos?|model(?:ing)?|first[ -]?then|first this, then that|two-step|2-step|more than two steps|gets lost|pictures?|actual items?|physical cues?|tap(?:ping)? .*foot|demonstrat)\b/i.test(statement)
+  ) {
+    return "Understanding and Learning";
+  }
+
+  if (fact.section === "Daily Schedule") {
+    return "Daily Routine";
+  }
+
+  if (fact.section === "Activities & Preferences") {
+    return "Activities and Interests";
+  }
+
+  if (fact.section === "Signs They Are Having a Hard Time") {
+    return fact.factKind === "trigger" ? "What Can Upset or Overwhelm" : "Signs They Need Help";
+  }
+
+  if (fact.section === "What helps when they are having a hard time") {
+    return "What Helps When They Are Having a Hard Time";
+  }
+
+  return "Health & Safety";
+}
+
+function uniqueGuideItems(values: string[]) {
+  const seen = new Set<string>();
+  const items: string[] = [];
+
+  for (const value of values.map(compactWhitespace).filter(Boolean)) {
+    const key = normalizeCoverageText(value);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    items.push(value.replace(/[.!?]+$/, ""));
+  }
+
+  return items;
+}
+
+function sentence(value: string) {
+  const text = compactWhitespace(value);
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+function sentenceFromList(prefix: string, items: string[]) {
+  const unique = uniqueGuideItems(items);
+  return unique.length > 0 ? sentence(`${prefix} ${formatInsightList(unique)}`) : "";
+}
+
+function factMatches(fact: StructuredCaptureFact, pattern: RegExp) {
+  return pattern.test(fact.statement);
+}
+
+function factStatements(facts: StructuredCaptureFact[], pattern?: RegExp) {
+  return facts
+    .filter((fact) => !pattern || factMatches(fact, pattern))
+    .map((fact) => fact.statement);
+}
+
+function displaySubject(nameHint?: string) {
+  return nameHint?.trim() || "They";
+}
+
+function pronounSet(nameHint?: string) {
+  return nameHint?.trim()
+    ? { subject: nameHint.trim(), possessive: `${nameHint.trim()}'s`, object: nameHint.trim(), verbS: "s" }
+    : { subject: "They", possessive: "their", object: "them", verbS: "" };
+}
+
+function guideBlock(type: "bullets", items: string[]): SummaryBlock | null;
+function guideBlock(type: "note", items: string[]): SummaryBlock | null;
+function guideBlock(type: "bullets" | "note", items: string[]): SummaryBlock | null {
+  const cleaned = uniqueGuideItems(items).map(sentence);
+  if (cleaned.length === 0) {
+    return null;
+  }
+
+  return type === "note" ? { type, text: cleaned[0] } : { type, items: cleaned };
+}
+
+function labeledBlock(label: string, items: string[]): SummaryBlock | null {
+  const cleaned = uniqueGuideItems(items).map(sentence);
+  return cleaned.length > 0
+    ? {
+        type: "labeledBullets",
+        groups: [{ label, items: cleaned }]
+      }
+    : null;
+}
+
+function groupedBlock(groups: Array<{ label: string; items: string[] }>): SummaryBlock | null {
+  const cleanedGroups = groups
+    .map((group) => ({
+      label: compactWhitespace(group.label),
+      items: uniqueGuideItems(group.items).map(sentence)
+    }))
+    .filter((group) => group.label && group.items.length > 0);
+
+  return cleanedGroups.length > 0 ? { type: "labeledBullets", groups: cleanedGroups } : null;
+}
+
+function hasAny(value: string, pattern: RegExp) {
+  return pattern.test(value);
+}
+
+function factText(facts: StructuredCaptureFact[]) {
+  return facts.map((fact) => fact.statement).join(" ");
+}
+
+function rejectStatements(statements: string[], patterns: RegExp[]) {
+  return statements.filter((statement) => !patterns.some((pattern) => pattern.test(statement)));
+}
+
+function exclusiveGroups(
+  statements: string[],
+  groups: Array<{ label: string; pattern: RegExp }>
+) {
+  let remaining = uniqueGuideItems(statements);
+
+  return groups.map((group) => {
+    const items = remaining.filter((statement) => group.pattern.test(statement));
+    remaining = remaining.filter((statement) => !group.pattern.test(statement));
+    return { label: group.label, items };
+  });
+}
+
+function limitGroupItems(
+  groups: Array<{ label: string; items: string[] }>,
+  limits: Record<string, number>
+) {
+  return groups.map((group) => ({
+    ...group,
+    items: group.items.slice(0, limits[group.label] ?? group.items.length)
+  }));
+}
+
+function compactSection(
+  title: GuideSectionTitle,
+  index: number,
+  intro: string | undefined,
+  blocks: Array<SummaryBlock | null>
+): SummarySection {
+  const visibleBlocks = blocks.filter((block): block is SummaryBlock => Boolean(block));
+  const items = deriveItemsFromBlocks(visibleBlocks);
+
+  return {
+    id: `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${index + 1}`,
+    title,
+    intro: intro ? sentence(intro) : undefined,
+    items: items.length > 0 ? items : [NO_INFORMATION_PLACEHOLDER],
+    blocks: visibleBlocks.length > 0 ? visibleBlocks : undefined
+  };
+}
+
+const FOOD_TERMS = [
+  "apples",
+  "grapes",
+  "strawberries",
+  "bananas",
+  "eggs",
+  "cereal with milk",
+  "yogurt",
+  "hot wings",
+  "bread",
+  "chips",
+  "chicken",
+  "turkey",
+  "ham",
+  "sandwich",
+  "soft Cheetos",
+  "sugar cookies",
+  "Capri Suns",
+  "Meals on Wheels",
+  "lactose-free milk",
+  "iced tea",
+  "orange juice",
+  "lemonade",
+  "takeout",
+  "pasta with olive oil and Parmesan",
+  "raw cauliflower",
+  "steamed green beans",
+  "green beans",
+  "lettuce",
+  "spring mix",
+  "romaine",
+  "pita bread with labneh",
+  "pita with labneh and zaatar",
+  "pita bread with labneh and zatar herbs",
+  "cheddar cheese",
+  "slice of cheese",
+  "mini cupcake",
+  "cake and frosting",
+  "sprinkles",
+  "candy and sweets",
+  "certain fruits",
+  "some salads",
+  "certain salads"
+];
+
+function compactFoodName(value: string) {
+  const text = compactWhitespace(
+    value
+      .replace(/^a\s+(?:large\s+)?container of\s+/i, "")
+      .replace(/^slices? of\s+/i, "")
+      .replace(/^any kind of\s+/i, "")
+      .replace(/\s+sprinkled on top$/i, "")
+      .replace(/\s+with nothing on it$/i, "")
+      .replace(/\s+cut into bite-sized pieces$/i, "")
+      .replace(/[.!?]+$/, "")
+  );
+
+  if (/pasta/i.test(text)) {
+    return "pasta with olive oil and Parmesan";
+  }
+  if (/meals on wheels/i.test(text)) {
+    return "Meals on Wheels";
+  }
+  if (/capri suns?/i.test(text)) {
+    return "Capri Suns";
+  }
+  if (/cheetos/i.test(text)) {
+    return "soft Cheetos";
+  }
+  if (/cookies?/i.test(text)) {
+    return "sugar cookies";
+  }
+  if (/lactose-free milk/i.test(text)) {
+    return "lactose-free milk";
+  }
+  if (/iced tea/i.test(text)) {
+    return "iced tea";
+  }
+  if (/orange juice/i.test(text)) {
+    return "orange juice";
+  }
+  if (/lemonade/i.test(text)) {
+    return "lemonade";
+  }
+  if (/takeout/i.test(text)) {
+    return "takeout";
+  }
+  if (/eggs?/i.test(text)) {
+    return "eggs";
+  }
+  if (/yogurt/i.test(text)) {
+    return "yogurt";
+  }
+  if (/hot wings?/i.test(text)) {
+    return "hot wings";
+  }
+  if (/chicken/i.test(text)) {
+    return "chicken";
+  }
+  if (/cauliflower/i.test(text)) {
+    return "raw cauliflower";
+  }
+  if (/green beans?/i.test(text)) {
+    return "green beans";
+  }
+  if (/lettuce|spring mix|romaine/i.test(text)) {
+    return "lettuce";
+  }
+  if (/pita|labneh|zatar|zaatar/i.test(text)) {
+    return "pita with labneh and zaatar";
+  }
+  if (/cheese/i.test(text)) {
+    return "cheddar cheese";
+  }
+  if (/fruits?/i.test(text)) {
+    return "certain fruits";
+  }
+  if (/salads?|spring mix|romaine/i.test(text)) {
+    return "some salads";
+  }
+  if (/cupcake/i.test(text)) {
+    return "mini cupcake";
+  }
+  if (/cake|frosting|sprinkles|candy|sweets/i.test(text)) {
+    return text;
+  }
+
+  return text;
+}
+
+function usefulFoodItem(value: string) {
+  const item = compactWhitespace(value);
+  return Boolean(item) &&
+    !/^(?:it|this|that|them|these|those)$/i.test(item) &&
+    !/\b(the food|food that|food shopping|grocery list|water pick|medicine|medication|breakfast\b|lunch\b|dinner\b|variety in .*meals?|same exact way|his breakfast|her breakfast|their breakfast|breakfast after|setting up|waste food|to waste|are due to|because|texture|taste|smell|the look of food|very slowly|slow pace|meal can sit|choking)\b/i.test(item) &&
+    item.length <= 80;
+}
+
+function groupFoods(facts: StructuredCaptureFact[]) {
+  const foodItems = new Set<string>();
+
+  for (const fact of facts) {
+    const statement = fact.statement;
+    const normalized = statement.toLowerCase();
+    if (foodAvoidancePattern().test(statement)) {
+      continue;
+    }
+
+    for (const term of FOOD_TERMS) {
+      if (normalized.includes(term.toLowerCase())) {
+        foodItems.add(compactFoodName(term));
+      }
+    }
+
+    const directFoodMatch = statement.match(/^(?:he|she|they|[A-Z][A-Za-z'-]+)\s+(?:eats?|likes?|loves?)\s+(.+?)[.!?]?$/i);
+    if (directFoodMatch?.[1]) {
+      foodItems.add(compactFoodName(directFoodMatch[1]));
+    }
+
+    const packedMatch = statement.match(/\bpacked\s+(?:a|an|the)?\s*(.+?)(?:\s+for school|\s+for lunch|[.!?]|$)/i);
+    if (packedMatch?.[1]) {
+      foodItems.add(compactFoodName(packedMatch[1]));
+    }
+  }
+
+  const uniqueFoodItems = uniqueGuideItems([...foodItems].filter(usefulFoodItem));
+  return uniqueFoodItems.length >= 2 ? sentence(`Foods include ${formatInsightList(uniqueFoodItems)}`) : "";
+}
+
+function foodGroupingPattern() {
+  return /\b(apples?|grapes?|strawberries|bananas|eggs?|cereal|yogurt|wings?|bread|chips?|chicken|turkey|ham|sandwich(?:es)?|cheetos|cookies?|capri suns?|meals on wheels|pasta|cauliflower|green beans?|lettuce|salads?|fruits?|spring mix|romaine|pita|labneh|za'?atar|cheddar cheese|milk|iced tea|orange juice|lemonade|takeout|mini cupcake|cake|frosting|sprinkles|candy|sweets)\b/i;
+}
+
+function foodAvoidancePattern() {
+  return /\b(does not like|doesn't like|do not like|don't like|dislikes?|rejects?|refuses?|will not eat|won't eat|would rather go hungry|should not have|no caffeinated|avoid)\b/i;
+}
+
+function groupFoodAvoidance(facts: StructuredCaptureFact[]) {
+  const avoidedItems = new Set<string>();
+
+  for (const fact of facts) {
+    const statement = fact.statement;
+    if (/\bwaste food\b/i.test(statement)) {
+      continue;
+    }
+    if (!foodAvoidancePattern().test(statement)) {
+      continue;
+    }
+
+    for (const term of FOOD_TERMS) {
+      if (statement.toLowerCase().includes(term.toLowerCase())) {
+        avoidedItems.add(compactFoodName(term));
+      }
+    }
+
+    const match = statement.match(/\b(?:does not like|doesn't like|dislikes?|rejects?|refuses?|will not eat|won't eat|should not have|avoid(?:s|ing)?)\s+(.+?)[.!?]?$/i);
+    if (match?.[1]) {
+      avoidedItems.add(compactFoodName(match[1]));
+    }
+  }
+
+  const uniqueAvoidedItems = uniqueGuideItems([...avoidedItems].filter(usefulFoodItem));
+  return uniqueAvoidedItems.length > 0
+    ? sentence(`Foods or drinks to avoid or expect refusal around include ${formatInsightList(uniqueAvoidedItems)}`)
+    : "";
+}
+
+function groupFoodNotes(facts: StructuredCaptureFact[]) {
+  const statements = facts.map((fact) => fact.statement);
+  const notes = [
+    hasAny(factText(facts), /\bonly drinks water\b/i) ? "They only drink water." : "",
+    hasAny(factText(facts), /\bsippy cup\b/i) ? "A sippy cup may help with drinking water." : "",
+    hasAny(factText(facts), /\blimited diet\b/i) ? "They have a limited diet." : "",
+    hasAny(factText(facts), /\bdoes not eat breakfast\b/i) ? "Does not eat breakfast on school weekdays." : "",
+    hasAny(factText(facts), /\brestrictive\b.*\bGI|gastrointestinal|GI issues\b/i) ? "Diet may be restricted because of GI issues." : "",
+    hasAny(factText(facts), /\bbite-sized\b|\btrouble biting\b/i) ? "Foods should be bite-sized when biting is hard." : "",
+    hasAny(factText(facts), /\bground\b.*\bnot pureed|not pureed\b.*\bground\b/i) ? "Meals must be ground, not pureed, to reduce choking risk." : "",
+    hasAny(factText(facts), /\bno caffeinated|should not have caffeinated|should have no caffeinated\b/i) ? "Avoid caffeinated drinks." : "",
+    hasAny(factText(facts), /\bmealtimes?\b.*\bpay attention|cannot .*get .*food|not able .*get food/i) ? "Caregivers need to monitor mealtimes because they cannot get food independently." : "",
+    hasAny(factText(facts), /\bgraz(?:e|es|ing)\b|walking back and forth while eating/i) ? "They graze while moving rather than sitting for meals." : "",
+    hasAny(factText(facts), /\bfill (?:his|her|their) own water bottle|water dispenser\b/i) ? "They can fill their own water bottle." : "",
+    hasAny(factText(facts), /\bmiralax|polyethylene\b/i) ? "MiraLax/polyethylene glycol may be mixed in water." : "",
+    ...rejectStatements(statements, [
+      foodGroupingPattern(),
+      foodAvoidancePattern(),
+      /\b(?:likes?|loves?|eats?|drinks?|does not like|doesn't like|dislikes?|refuses?|will not eat|won't eat|should not have)\b/i,
+      /\bonly drinks water\b/i,
+      /\bsippy cup\b/i,
+      /\blimited diet\b/i,
+      /\bdoes not eat breakfast\b/i,
+      /\brestrictive\b.*\bGI|gastrointestinal|GI issues\b/i,
+      /\bbite-sized\b|\btrouble biting\b/i,
+      /\bground\b.*\bnot pureed|not pureed\b.*\bground\b/i,
+      /\bno caffeinated|should not have caffeinated|should have no caffeinated\b/i,
+      /\bmealtimes?\b.*\bpay attention|cannot .*get .*food|not able .*get food/i,
+      /\bgraz(?:e|es|ing)\b|walking back and forth while eating/i,
+      /\bfill his own water bottle|water dispenser\b/i,
+      /\bmiralax|polyethylene\b/i,
+      /^(?:after|before|once)\s+(?:breakfast|lunch|dinner)\b/i
+    ])
+  ];
+
+  return uniqueGuideItems(notes.filter(Boolean));
+}
+
+function groupHygiene(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  const tasks = [
+    /\bdeodorant\b/i.test(text) ? "deodorant" : "",
+    /\b(gets dressed|dressed|dressing|shirt|underwear|pants|pajamas|pjs)\b/i.test(text) ? "dressing" : "",
+    /\bhair|comb(?:s)? his hair\b/i.test(text) ? "hair care" : "",
+    /\bsocks?\b/i.test(text) ? "socks" : "",
+    /\bteeth|tooth brushing|brush(?:es)? his teeth\b/i.test(text) ? "teeth brushing" : "",
+    /\bshoes?\b/i.test(text) ? "shoes" : "",
+    /\bjacket\b/i.test(text) ? "jacket" : "",
+    /\bbath|shower|showerhead\b/i.test(text) ? "shower support" : ""
+  ].filter(Boolean);
+
+  return tasks.length >= 2
+    ? sentence(`They need assistance with hygiene and dressing, including ${formatInsightList(tasks)}`)
+    : "";
+}
+
+function hygieneGroupingPattern() {
+  return /\b(deodorant|dressed|dressing|shirt|underwear|pants|pajamas|pjs|socks?|teeth|tooth|brush(?:es)? his teeth|hair|comb(?:s)? his hair|shoes?|jacket|bath|shower|showerhead)\b/i;
+}
+
+function simpleHygieneAssistancePattern() {
+  return /\b(?:assisted with|help(?:ed)? with|support with|needs assistance with|is part of .+ routine)\b.*\b(deodorant|dressing|getting dressed|hair care|socks?|teeth brushing|brush(?:ing)? teeth|shower support|shower|clothing)\b/i;
+}
+
+function toiletingGroupingPattern() {
+  return /\b(toilet|toileting|bathroom|void|pull-?up|speaker|every hour|bowel movement|hiding|grunt|tuck|close his legs)\b/i;
+}
+
+function groupIllnessPainSigns(facts: StructuredCaptureFact[]) {
+  const text = facts.map((fact) => fact.statement).join(" ");
+  const signs = [
+    /\bnot eating\b/i.test(text) ? "not eating" : "",
+    /\bnot drinking\b/i.test(text) ? "not drinking" : "",
+    /\blimp(?:s|ing|ed)?\b/i.test(text) ? "limping" : "",
+    /\bavoid(?:ing)? a body part\b/i.test(text) ? "avoiding a body part" : "",
+    /\blow energy|letharg/i.test(text) ? "low energy or unusual lethargy" : ""
+  ].filter(Boolean);
+
+  return signs.length >= 2
+    ? sentence(`Changes such as ${formatInsightList(signs)} may mean illness or pain`)
+    : "";
+}
+
+function groupReportingLimits(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  const limits = [
+    /\b(?:does not|doesn't|do not|don't)\b.{0,50}\b(?:tell|communicate|let .*know|report)\b.{0,50}\b(?:hurt|pain)\b|\b(?:hurt|pain)\b.{0,50}\b(?:does not|doesn't|do not|don't)\b.{0,50}\b(?:tell|communicate|let .*know|report)\b/i.test(text)
+      ? "hurt or in pain"
+      : "",
+    /\b(?:does not|doesn't|do not|don't)\b.{0,50}\b(?:tell|communicate|initiate|let .*know)\b.{0,50}\b(?:bathroom|toilet|toileting)\b|\b(?:bathroom|toilet|toileting)\b.{0,50}\b(?:does not|doesn't|do not|don't)\b.{0,50}\b(?:tell|communicate|initiate|let .*know)\b/i.test(text)
+      ? "needs the bathroom"
+      : ""
+  ].filter(Boolean);
+
+  if (limits.includes("hurt or in pain") && limits.includes("needs the bathroom")) {
+    return sentence(`${name} does not tell caregivers when they are hurt or in pain`);
+  }
+
+  if (limits.includes("hurt or in pain")) {
+    return sentence(`${name} does not tell caregivers when they are hurt or in pain`);
+  }
+
+  return limits.includes("needs the bathroom")
+    ? sentence(`${name} does not tell caregivers when they need the bathroom`)
+    : "";
+}
+
+function groupNonverbalCommunication(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  const cues = [
+    /\blead(?:s|ing)? (?:you|a caregiver|caregivers|them|him|her|a person)\b/i.test(text) ? "lead you to what they need" : "",
+    /\btouch(?:es|ing)? (?:you|a caregiver|caregivers|them|him|her|a person)\b/i.test(text) ? "touch you" : "",
+    /\bsit(?:s|ting)? close|closer and closer\b/i.test(text) ? "sit close when they want attention" : ""
+  ].filter(Boolean);
+
+  return cues.length > 0 ? sentence(`${name} may also ${formatInsightList(cues)}`) : "";
+}
+
+function nonverbalCommunicationPattern() {
+  return /\blead(?:s|ing)? (?:you|a caregiver|caregivers|them|him|her|a person)\b|\btouch(?:es|ing)? (?:you|a caregiver|caregivers|them|him|her|a person)\b|\bsit(?:s|ting)? close|closer and closer\b/i;
+}
+
+function groupAacRequestMeanings(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  const requests = [
+    /\bask(?:s|ing)? for help|press(?:es|ed|ing)? help\b/i.test(text) ? "ask for help" : "",
+    /\brequest(?:s|ed|ing)? car rides?|select(?:s|ed|ing)? (?:the word )?car\b/i.test(text) ? "request car rides" : "",
+    /\bi want ipad|wants? (?:his|her|their) ipad\b/i.test(text) ? "say they want their iPad" : ""
+  ].filter(Boolean);
+
+  return requests.length > 0
+    ? sentence(`${name} may use AAC or TouchChat to ${formatInsightList(requests)}`)
+    : "";
+}
+
+function groupToiletingRoutine(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  if (!/\b(bathroom|toilet|toileting)\b/i.test(text)) {
+    return "";
+  }
+
+  const hasPrompts = /\bhourly|every hour|speaker|remind|prompt|told to use\b/i.test(text);
+  const hasInitiationLimit = /\b(?:does not|doesn't|do not|don't|won't|will not)\b.{0,70}\b(?:communicate|initiate|tell|use it independently|use .*bathroom independently)\b/i.test(text);
+
+  if (hasPrompts && hasInitiationLimit) {
+    return sentence(`Bathroom reminders and hourly prompts help because ${name} does not independently communicate toileting needs`);
+  }
+
+  if (hasPrompts) {
+    return sentence(`Bathroom reminders and hourly prompts help ${name} with toileting`);
+  }
+
+  return "";
+}
+
+function illnessPainGroupingPattern() {
+  return /\b(not eating|not drinking|limp(?:s|ed|ing)?|avoid(?:ing)? a body part|low energy|letharg|illness|pain|walking strangely|appetite changes?)\b/i;
+}
+
+function groupBehaviorSigns(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  const signs = [
+    /\belop(?:e|es|ed|ing|ement)?|run away|running away\b/i.test(text) ? "eloping" : "",
+    /\bhand biting|bit(?:e|es|ing)? (?:his|her|their) hand\b/i.test(text) ? "hand biting" : "",
+    /\bangry (?:sounds?|noises?|vocalizations?)|yelling\b/i.test(text) ? "angry vocalizations" : "",
+    /\bhiding|hide|disappears?\b/i.test(text) ? "hiding" : ""
+  ].filter(Boolean);
+
+  return signs.length >= 2 ? sentence(`Behavior signs may include ${formatInsightList(signs)}`) : "";
+}
+
+function dayRoutinePattern() {
+  return /^(?:In the past,\s+)?On\s+(?:(?:Mondays?|Tuesdays?|Wednesdays?|Thursdays?|Fridays?|Saturdays?|Sundays?|weekdays?|weekends?)(?:,\s+|,\s+and\s+|\s+and\s+)?)+,\s+/i;
+}
+
+function cleanRoutineStep(value: string) {
+  return compactWhitespace(
+    value
+      .replace(/[.!?]+$/, "")
+      .replace(/^(?:he|she|they|[A-Z][A-Za-z'-]+)\s+/i, "")
+  );
+}
+
+function groupDayRoutines(facts: StructuredCaptureFact[]) {
+  const grouped = new Map<string, string[]>();
+
+  for (const fact of facts) {
+    if (!dayRoutinePattern().test(fact.statement)) {
+      continue;
+    }
+
+    const match = fact.statement.match(/^(?:In the past,\s+)?(On\s+(?:(?:Mondays?|Tuesdays?|Wednesdays?|Thursdays?|Fridays?|Saturdays?|Sundays?|weekdays?|weekends?)(?:,\s+|,\s+and\s+|\s+and\s+)?)+),\s+(.+?)[.!?]?$/i);
+    if (!match) {
+      continue;
+    }
+
+    const label = compactWhitespace(match[1]);
+    const step = cleanRoutineStep(match[2]);
+    if (!step) {
+      continue;
+    }
+
+    grouped.set(label, [...(grouped.get(label) ?? []), step]);
+  }
+
+  return [...grouped.entries()]
+    .filter(([, steps]) => steps.length >= 2)
+    .map(([label, steps]) => sentence(`${label}, the routine includes ${formatInsightList(uniqueGuideItems(steps))}`));
+}
+
+function groupLearningSupport(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  const supports = [
+    /\bvideos?\b|wake up to the iPad/i.test(text) ? "videos" : "",
+    /\bpictures?\b/i.test(text) ? "pictures" : "",
+    /\bactual items?|items themselves\b/i.test(text) ? "actual items" : "",
+    /\btwo-step|2-step\b/i.test(text) ? "two-step directions" : "",
+    /\bfirst[ -]?then|first this, then that\b/i.test(text) ? "First-Then language" : "",
+    /\bvisual schedules?\b/i.test(text) ? "visual schedules" : "",
+    /\bvisual timers?\b/i.test(text) ? "visual timers" : "",
+    /\bmodel(?:ing)?|demonstrat/i.test(text) ? "modeling or demonstration" : "",
+    /\bphysical cues?|tap(?:ping)? .*foot|gentle tap\b/i.test(text) ? "gentle physical prompts" : ""
+  ].filter(Boolean);
+
+  return supports.length >= 2
+    ? sentence(`${name} learns best with visual and concrete supports, including ${formatInsightList(supports)}`)
+    : "";
+}
+
+function groupedLearningDetailStatements(facts: StructuredCaptureFact[]) {
+  return factStatements(facts, learningGroupingPattern()).filter(
+    (statement) => !/\bshow(?:ing)? .*?\b(?:pictures?|actual items?|items themselves)\b.*\bchoose\b|\b(?:pictures?|actual items?|items themselves)\b.*\bhelp .*choose\b/i.test(statement)
+  );
+}
+
+function learningGroupingPattern() {
+  return /\b(visual|videos?|pictures?|actual items?|two-step|2-step|first[ -]?then|first this, then that|visual schedules?|visual timers?|model(?:ing)?|demonstrat|physical cues?|tap(?:ping)? .*foot|gentle tap|more than two steps|gets lost)\b/i;
+}
+
+function splitListText(value: string) {
+  return value
+    .replace(/^preferred activities include\s+/i, "")
+    .replace(/^activities include\s+/i, "")
+    .split(/\s*,\s*|\s+ and\s+/i)
+    .map((item) =>
+      compactWhitespace(
+        item
+          .replace(/[.!?]+$/, "")
+          .replace(/^to\s+/i, "")
+          .replace(/^(?:a|an|the)\s+/i, "")
+      )
+    )
+    .filter((item) => item.length > 1);
+}
+
+function activityItems(facts: StructuredCaptureFact[]) {
+  const items: string[] = [];
+
+  for (const fact of facts) {
+    const statement = fact.statement;
+    if (/^(?:preferred activities|activities) include\b/i.test(statement)) {
+      items.push(...splitListText(statement));
+      continue;
+    }
+
+    const match = statement.match(/\b(?:interested in|enjoys?|likes?|loves?|favorite(?:s)?(?: is| are)?|especially loves?)\s+(.+?)[.!?]?$/i);
+    if (match?.[1]) {
+      items.push(...splitListText(match[1]));
+    }
+  }
+
+  return uniqueGuideItems(items).filter((item) =>
+    !foodGroupingPattern().test(item) &&
+    !/\b(glasses|hearing aids?|medicat|medicine|allerg|eczema|boils?|not found a reliable strategy|not planning|get a dog|though they are not always|caretaker|caregiver)\b/i.test(item) &&
+    !/^and\b/i.test(item)
+  );
+}
+
+function groupedListItem(prefix: string, items: string[], limit = 10) {
+  const unique = uniqueGuideItems(items)
+    .filter((item) => item.length > 1)
+    .slice(0, limit);
+  return unique.length > 0 ? sentence(`${prefix} ${formatInsightList(unique)}`) : "";
+}
+
+function groupActivityPreferences(facts: StructuredCaptureFact[]) {
+  let remaining = activityItems(facts);
+  const take = (pattern: RegExp) => {
+    const matched = remaining.filter((item) => pattern.test(item));
+    remaining = remaining.filter((item) => !pattern.test(item));
+    return matched;
+  };
+
+  const media = take(/\b(ipad|youtube|videos?|music|tv|drums?|guitar|piano)\b/i);
+  const movement = take(/\b(walks?|walking|scooter|horseback|swimm?ing|jump(?:ing)?|crash(?:ing)?|swing(?:ing)?|obstacle|bowling|basketball|trampoline|balls?|roller racer)\b/i);
+  const sensory = take(/\b(sensory|tickles?|mouthing|necklaces?|pop tubes?|therapy ball|fidget|lights?)\b/i);
+  const outings = take(/\b(car rides?|new places|explor(?:ing|e)?|hikes?|malls?|stores?|museums?|adventures?|novelty)\b/i);
+  const interests = take(/\b(animals?|farms?|dinosaurs?|cars?|trucks?|books?|planets?|puzzles?|cause-and-effect|ramps?)\b/i);
+  const social = facts
+    .map((fact) => fact.statement)
+    .filter((statement) =>
+      !/\b(not found a reliable strategy|not planning|get a dog)\b/i.test(statement) &&
+      /\b(favorite person|spending time|alone|downtime|couch|watch TV|visiting family|family visits|family time|(?:mom|mother|family).{0,40}(?:favorite|spending time|visit|together))\b/i.test(statement)
+    );
+
+  return groupedBlock([
+    { label: "Technology and music", items: [groupedListItem("Technology and music interests include", media, 4)] },
+    { label: "Movement and physical activities", items: [groupedListItem("Movement activities include", movement, 4)] },
+    { label: "Sensory activities", items: [groupedListItem("Sensory activities include", sensory, 4)] },
+    { label: "Outings and exploration", items: [groupedListItem("Outings and exploration include", outings, 4)] },
+    { label: "Interests and toys", items: [groupedListItem("Interests include", interests, 4)] },
+    { label: "Social preferences and downtime", items: [groupedListItem("Social connection and downtime include", social, 3)] },
+    { label: "Other activities and preferences", items: [groupedListItem("Other activities and preferences include", remaining, 4)] }
+  ]);
+}
+
+function activityGroupingPattern() {
+  return /\b(preferred activities include|interested in|enjoys?|likes?|loves?|favorite|ipad|youtube|video|music|horseback|swim|scooter|walking|new places|exploring|sensory|trampoline|mom|family|downtime|watch tv)\b/i;
+}
+
+function supportGroupingPattern() {
+  return /\b(space|quiet|noise|stimulation|crowd|low-light|lights?|environment|time alone|not a lot going on|calm|squeeze|deep breath|count|music|fidget|headphones|car ride|drive|reset|redirect|snap out|candy|gumm|swedish fish|transition|schedule|timer|first|then|back off|reward|motivat|preferred|speak|orient|startle|what .*doing|floor|get down|safe|hurt|self-harm|elop|hand biting|block|stop|bite you|cannot hurt)\b/i;
+}
+
+function healthSafetyGroupingPattern() {
+  return /\b(elop(?:e|es|ed|ing|ement)?|run away|running away|hand biting|unsafe walking|walks? .*safety issue|safety issue .*walks?|two adults?|two caregivers?|two people|more than one person|does not communicate pain|does not tell .*hurt|physically unsafe|pica|may bite you|bite you)\b/i;
+}
+
+function groupHealthSafetyRisks(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  const risks = [
+    /\belop(?:e|es|ed|ing|ement)?|run away|running away\b/i.test(text) ? "elopement" : "",
+    /\bhand biting\b/i.test(text) ? "hand biting" : "",
+    /\bunsafe walking\b/i.test(text) ? "unsafe walking" : "",
+    /\b(?:does not|doesn't|do not|don't)\b.{0,50}\b(?:tell|communicate|let .*know|report)\b.{0,50}\b(?:hurt|pain)\b|\b(?:hurt|pain)\b.{0,50}\b(?:does not|doesn't|do not|don't)\b.{0,50}\b(?:tell|communicate|let .*know|report)\b/i.test(text)
+      ? "not communicating pain"
+      : "",
+    /\b(two adults?|two caregivers?|two people|more than one person)\b.{0,80}\b(walks?|outings?|car rides?)\b|\b(walks?|outings?|car rides?)\b.{0,80}\b(two adults?|two caregivers?|two people|more than one person)\b/i.test(text)
+      ? "needing two adults for walks or outings"
+      : "",
+    /\bphysically unsafe|unsafe when dysregulated\b/i.test(text) ? "becoming physically unsafe when dysregulated" : "",
+    /\bpica\b/i.test(text) ? "pica" : "",
+    /\bmay bite you|bite you|do not .*block.*hand biting|do not .*stop.*biting|physically stop(?:ping)? .*biting|physically block(?:ing)? .*biting|redirection rather than physically stopping\b/i.test(text)
+      ? "may bite you if hand biting is blocked"
+      : ""
+  ].filter(Boolean);
+
+  return risks.length >= 2 ? sentence(`Safety concerns include ${formatInsightList(risks)}`) : "";
+}
+
+function groupMedicationPurpose(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  if (!/\b(aripiprazole|abilify)\b/i.test(text)) {
+    return "";
+  }
+
+  const purposes = [
+    /\birritability\b/i.test(text) ? "irritability" : "",
+    /\baggression\b/i.test(text) ? "aggression" : "",
+    /\brepetitive behaviors?\b/i.test(text) ? "repetitive behaviors" : "",
+    /\bself-?injury\b/i.test(text) ? "self-injury" : ""
+  ].filter(Boolean);
+
+  return purposes.length >= 2
+    ? sentence(`ARIPiprazole/Abilify helps manage ${formatInsightList(purposes)}`)
+    : "";
+}
+
+function groupSupportFacts(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  const environmental = [
+    /\bspace|do not crowd|don't crowd|back off\b/i.test(text) ? "giving space and not crowding" : "",
+    /\bquiet|noise|stimulation|not a lot going on|environment\b/i.test(text) ? "keep things quiet and reduce stimulation" : "",
+    /\btime alone|moment to (?:himself|herself|themself)\b/i.test(text) ? "allowing time alone when safe" : "",
+    /\blow-light|dim lights?|lights?\b/i.test(text) ? "adjusting lighting" : ""
+  ].filter(Boolean);
+  const calming = [
+    /\bcar ride|drive\b/i.test(text) ? "car rides or drives" : "",
+    /\b(dog|romeo)\b.{0,80}\b(support|calm|sad|upset|tough day|hard time|stress|feel less stressed|walk helps?)\b|\b(support|calm|sad|upset|tough day|hard time|stress|feel less stressed|walk helps?)\b.{0,80}\b(dog|romeo)\b/i.test(text) ? "dog support or a walk with the dog" : "",
+    /\bsqueeze|release|deep breath|count(?:ing)? to 10\b/i.test(text) ? "calming prompts such as squeeze-and-release, deep breaths, or counting" : "",
+    /\bmusic|nascar|cooking shows|this old house\b/i.test(text) ? "familiar low-volume audio" : "",
+    /\bfidget|headphones|weighted blanket\b/i.test(text) ? "calming items such as fidgets or headphones" : "",
+    /\bcandy|gumm|swedish fish\b/i.test(text) ? "candy or gummies when they help redirect or motivate" : ""
+  ].filter(Boolean);
+  const transitions = [
+    /\bvisual schedule|written schedule|schedule\b/i.test(text) ? "visual or written schedules" : "",
+    /\bvisual timer|timer\b/i.test(text) ? "timers" : "",
+    /\bfirst[ -]?then|first this,? then that\b/i.test(text) ? "First-Then language" : "",
+    /\btransition|change|advance|beforehand|ahead of time\b/i.test(text) ? "preparing for transitions ahead of time" : "",
+    /\bspeak|orient|tell .*what|what .*doing|startle\b/i.test(text) ? "speaking first and explaining what is happening" : "",
+    /\breward|motivat|preferred\b/i.test(text) ? "using a preferred item or activity as motivation" : ""
+  ].filter(Boolean);
+  const safety = [
+    /\bsafe|cannot hurt|can't hurt|self-harm|self harm\b/i.test(text) ? "make sure they are safe and cannot hurt themself" : "",
+    /\bfloor|get down|safely down\b/i.test(text) ? "helping them get safely positioned when needed" : "",
+    /\bhand biting|bite you|do not .*block|don't .*block|do not .*stop|don't .*stop\b/i.test(text) ? "do not physically stop or block hand biting because they may bite you or cause caregiver injury" : "",
+    /\belop|run away|running away\b/i.test(text) ? "stay nearby and manage elopement risk" : ""
+  ].filter(Boolean);
+
+  return groupedBlock([
+    { label: "Environmental supports", items: [groupedListItem("Environmental supports include", environmental)] },
+    { label: "Calming supports", items: [groupedListItem("Calming supports include", calming)] },
+    { label: "Transitions and motivation", items: [groupedListItem("Transition supports include", transitions)] },
+    { label: "Safety in the moment", items: [groupedListItem("In the moment", safety)] }
+  ]);
+}
+
+function groupEscalationSupport(facts: StructuredCaptureFact[], name: string) {
+  const text = factText(facts);
+  const supports = [
+    /\bspace|do not crowd|don't crowd|back off\b/i.test(text) ? `give ${name} space` : "",
+    /\bquiet|noise|stimulation|not a lot going on|environment\b/i.test(text) ? "keep things quiet" : "",
+    /\bhand biting|bite you|do not .*block|don't .*block|do not .*stop|don't .*stop\b/i.test(text)
+      ? "do not physically stop hand biting"
+      : ""
+  ].filter(Boolean);
+
+  return supports.length >= 2 ? sentence(`When escalation is high, ${formatInsightList(supports)}`) : "";
+}
+
+function composeGuideSummaryFromCapture(
   summary: StructuredSummary,
   capture: StructuredCapture,
   nameHint?: string
 ) {
-  const buckets = new Map<SummarySectionTitle, string[]>(
-    SUMMARY_SECTION_TITLES.map((title) => [title, []])
+  const byGuide = new Map<GuideSectionTitle, StructuredCaptureFact[]>(
+    GUIDE_SECTION_TITLES.map((title) => [title, []])
   );
-  const clusters = buildFactClusters(capture)
-    .slice()
-    .sort((left, right) => {
-      if (left.section !== right.section) {
-        return SUMMARY_SECTION_TITLES.indexOf(left.section) - SUMMARY_SECTION_TITLES.indexOf(right.section);
-      }
+  const name = displaySubject(nameHint);
+  const pronouns = pronounSet(nameHint);
 
-      const [leftRank, leftStatement] = clusterSortKey(left);
-      const [rightRank, rightStatement] = clusterSortKey(right);
-      if (leftRank !== rightRank) {
-        return leftRank - rightRank;
-      }
-
-      return leftStatement.localeCompare(rightStatement);
-    });
-
-  for (const cluster of clusters) {
-    const selected = selectBestBulletForCluster(cluster, summary);
-    buckets.get(cluster.section)?.push(selected?.item ?? clusterStatement(cluster));
+  for (const fact of capture.facts) {
+    byGuide.get(guideSectionForFact(fact))?.push(fact);
   }
+
+  const factsFor = (title: GuideSectionTitle) => byGuide.get(title) ?? [];
+  const aboutFacts = capture.facts.filter((fact) =>
+    fact.safetyRelevant ||
+    fact.factKind === "communication_method" ||
+    fact.factKind === "learning" ||
+    fact.factKind === "condition"
+  );
+  const communicationFacts = factsFor("Communication");
+  const learningFacts = factsFor("Understanding and Learning");
+  const routineFacts = factsFor("Daily Routine");
+  const foodFacts = factsFor("Food and Meals");
+  const activityFacts = factsFor("Activities and Interests");
+  const triggerFacts = factsFor("What Can Upset or Overwhelm");
+  const signFacts = factsFor("Signs They Need Help");
+  const supportFacts = factsFor("What Helps When They Are Having a Hard Time");
+  const healthFacts = factsFor("Health & Safety");
+
+  const hygieneSummary = groupHygiene(routineFacts);
+  const foodSummary = groupFoods(foodFacts);
+  const illnessPainSummary = groupIllnessPainSigns(signFacts);
+
+  const sections = GUIDE_SECTION_TITLES.map((title, index) => {
+    if (title === "About") {
+      const introFacts = uniqueGuideItems(aboutFacts.slice(0, 5).map((fact) => fact.statement));
+      const insight = (summary.caregiverInsights ?? [])[0]?.statement;
+      return compactSection(
+        title,
+        index,
+        `${name} has practical support needs that are easiest to understand when communication, routines, regulation, and safety are viewed together`,
+        [
+          guideBlock("note", [
+            insight ||
+              sentenceFromList(`One of the most important things to understand is that ${name}`, introFacts)
+          ])
+        ]
+      );
+    }
+
+    if (title === "Communication") {
+      const reportingLimitNote = groupReportingLimits(capture.facts, name);
+      const nonverbalNote = groupNonverbalCommunication(capture.facts, name);
+      const aacRequestNote = groupAacRequestMeanings(capture.facts, name);
+      return compactSection(title, index, `${name} may communicate through AAC, body language, sounds, behavior, and proximity.`, [
+        reportingLimitNote ? guideBlock("note", [reportingLimitNote]) : null,
+        aacRequestNote ? guideBlock("note", [aacRequestNote]) : null,
+        nonverbalNote ? guideBlock("note", [nonverbalNote]) : null,
+        groupedBlock(limitGroupItems(exclusiveGroups(rejectStatements(communicationFacts.map((fact) => fact.statement), [
+          nonverbalCommunicationPattern()
+        ]), [
+          { label: "How they communicate", pattern: /aac|touchchat|non-speaking|body language|gesture|sound|voice|vocal|communicat|happy|sad|label/i },
+          { label: "What specific things mean", pattern: /\bmeans?|usually|indicate|select|press|lead|close|attention|help|i want ipad|word car|search history|internet|touch|sit/i },
+          { label: "What helps communication", pattern: /visual choices|pictures|simple|wait|demonstrat|show|choices|support|items to pick|non-verbal/i }
+        ]), {
+          "How they communicate": 6,
+          "What specific things mean": 4,
+          "What helps communication": 4
+        }))
+      ]);
+    }
+
+    if (title === "Understanding and Learning") {
+      const learningSummary = groupLearningSupport(learningFacts, name);
+      const extraLearningNotes = [
+        hasAny(factText(learningFacts), /\bmore than two steps\b|\bgets lost\b/i)
+          ? "More than two steps at one time can be hard for him."
+          : ""
+      ].filter(Boolean);
+      const remaining = rejectStatements(
+        learningFacts.map((fact) => fact.statement),
+        [learningGroupingPattern()]
+      );
+      return compactSection(title, index, undefined, [
+        learningSummary ? guideBlock("note", [learningSummary]) : null,
+        groupedBlock([
+          { label: "How they learn", items: [...extraLearningNotes, ...remaining] },
+          { label: "Visual and concrete supports", items: groupedLearningDetailStatements(learningFacts) }
+        ])
+      ]);
+    }
+
+    if (title === "Daily Routine") {
+      const routineStatements = routineFacts.map((fact) => fact.statement);
+      const dayRoutineSummaries = groupDayRoutines(routineFacts);
+      const toiletingSummary = groupToiletingRoutine(routineFacts, name);
+      const hygieneDetails = routineStatements.filter((statement) =>
+        hygieneGroupingPattern().test(statement) &&
+        !simpleHygieneAssistancePattern().test(statement)
+      );
+      const toiletingDetails = routineStatements.filter((statement) => toiletingGroupingPattern().test(statement));
+      const remaining = rejectStatements(routineStatements, [
+        hygieneGroupingPattern(),
+        toiletingGroupingPattern(),
+        dayRoutinePattern(),
+        foodGroupingPattern(),
+        foodAvoidancePattern()
+      ]);
+      return compactSection(title, index, undefined, [
+        hygieneSummary ? guideBlock("note", [hygieneSummary]) : null,
+        toiletingSummary ? guideBlock("note", [toiletingSummary]) : null,
+        groupedBlock(limitGroupItems([
+          { label: "Day-specific routines", items: dayRoutineSummaries },
+          { label: "Hygiene and dressing details", items: hygieneDetails },
+          { label: "Toileting and bathroom support", items: toiletingDetails },
+          { label: "Morning and daily routines", items: remaining.slice(0, 4) }
+        ], {
+          "Hygiene and dressing details": 5,
+          "Toileting and bathroom support": 5
+        }))
+      ]);
+    }
+
+    if (title === "Food and Meals") {
+      const foodNotes = groupFoodNotes(foodFacts);
+      const avoidedFoods = groupFoodAvoidance(foodFacts);
+      return compactSection(title, index, undefined, [
+        foodSummary ? guideBlock("note", [foodSummary]) : null,
+        avoidedFoods ? guideBlock("note", [avoidedFoods]) : null,
+        groupedBlock([
+          { label: "Food and drink notes", items: foodNotes.slice(0, 4) }
+        ])
+      ]);
+    }
+
+    if (title === "Activities and Interests") {
+      const activityGroup = groupActivityPreferences(activityFacts);
+      const remaining = rejectStatements(activityFacts.map((fact) => fact.statement), [
+        activityGroupingPattern(),
+        foodGroupingPattern(),
+        /\b(car ride|soothe|calm|redirect|space|quiet|hand biting|bite the caregiver)\b/i
+      ]);
+      return compactSection(title, index, undefined, [
+        activityGroup,
+        labeledBlock("Additional activity notes", remaining.slice(0, 2))
+      ]);
+    }
+
+    if (title === "What Can Upset or Overwhelm") {
+      return compactSection(title, index, undefined, [
+        groupedBlock(limitGroupItems([
+          { label: "Sensory and environmental triggers", items: factStatements(triggerFacts, /loud|noise|crowd|bright|light|shade|chaotic|overstimulat|people/i) },
+          { label: "Routine, transition, and control triggers", items: factStatements(triggerFacts, /routine|transition|moved|out of place|expected|waiting|rushed|demand|hard/i) },
+          { label: "Body-state triggers", items: factStatements(triggerFacts, /hunger|hungry|tired|ill|pain|hot|cold/i) }
+        ], {
+          "Sensory and environmental triggers": 3,
+          "Routine, transition, and control triggers": 3,
+          "Body-state triggers": 3
+        }))
+      ]);
+    }
+
+    if (title === "Signs They Need Help") {
+      const behaviorSignsSummary = groupBehaviorSigns(capture.facts);
+      const signStatements = rejectStatements(signFacts.map((fact) => fact.statement), [
+        illnessPainGroupingPattern(),
+        /\belop(?:e|es|ed|ing|ement)?|run away|running away|hand biting|bit(?:e|es|ing)? (?:his|her|their) hand|angry (?:sounds?|noises?|vocalizations?)|yelling\b/i,
+        /\bhid(?:e|ing)|disappears?|hiding when .*bowel movement.*sign\b/i,
+        /\b(?:does not|doesn't|do not|don't|has not|never|no known|not known|not a|not at)\b.{0,55}\b(?:run away|running away|elope|elopement|wander|safety risk|risk|unsafe)\b/i
+      ]);
+      return compactSection(title, index, undefined, [
+        illnessPainSummary ? guideBlock("note", [illnessPainSummary]) : null,
+        behaviorSignsSummary ? guideBlock("note", [behaviorSignsSummary]) : null,
+        groupedBlock(limitGroupItems(exclusiveGroups(signStatements, [
+          { label: "Body signs", pattern: /limp|body part|not eating|not drinking|appetite|letharg|low energy|sick|illness|pain|walking strangely|too hot|too cold|clammy|stomach|seizure|pulls? .*legs?/i },
+          { label: "Behavior signs", pattern: /agitat|dysregulat|hand biting|elope|run away|hiding|grunt|bowel|fridge|cheese|hungry/i },
+          { label: "Communication signs", pattern: /press(?:es)? help|signs? for help|aac|device|ask for help|too dysregulated/i }
+        ]), {
+          "Body signs": 5,
+          "Behavior signs": 4,
+          "Communication signs": 4
+        }))
+      ]);
+    }
+
+    if (title === "What Helps When They Are Having a Hard Time") {
+      const escalationSupportSummary = groupEscalationSupport(supportFacts, name);
+      const supportStatements = rejectStatements(supportFacts.map((fact) => fact.statement), [
+        supportGroupingPattern()
+      ]);
+      return compactSection(title, index, undefined, [
+        escalationSupportSummary ? guideBlock("note", [escalationSupportSummary]) : null,
+        groupSupportFacts(supportFacts),
+        labeledBlock("Additional support notes", supportStatements.slice(0, 3))
+      ]);
+    }
+
+    if (title === "Health & Safety") {
+      const healthSafetySummary = groupHealthSafetyRisks(capture.facts);
+      const medicationPurposeSummary = groupMedicationPurpose(healthFacts);
+      const healthStatements = [
+        medicationPurposeSummary,
+        ...rejectStatements(healthFacts.map((fact) => fact.statement), [
+        /\bno medication information was provided\b/i,
+        /\bbuckled? .*Buckle Buddy\b/i,
+        /\bARIPiprazole\b.*\bused to help manage\b/i,
+        healthSafetyGroupingPattern()
+        ])
+      ].filter(Boolean);
+      return compactSection(title, index, undefined, [
+        healthSafetySummary ? guideBlock("note", [healthSafetySummary]) : null,
+        groupedBlock(limitGroupItems(exclusiveGroups(healthStatements, [
+          { label: "Emergency contacts", pattern: /\b(phone number|call 911|emergency|non-?emergency|guardian|physical custody|617-|contact .*first|call(?:ed)? .*first|should be called first|contact (?:his|her|their)?\s*(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother)|(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother).{0,60}\b(?:emergency|contact|call|called first|phone number))\b/i },
+          { label: "Diagnoses and conditions", pattern: /diagnos|condition|autism|autistic|g6pd|diabetes|pica|apraxia|developmental|processing|cerebral|cerebral palsy|\bcp\b|blind|blindness|vision|gastrointestinal|\bgi\b|seizures?|prematur|oxygen|syndrome|trisomy|down syndrome|intellectual disability|eczema|boils?|disability|delay|tone|language regression|receptive|expressive/i },
+          { label: "Medications and allergies", pattern: /medicat|abilify|aripiprazole|miralax|polyethylene|clearlax|gavilax|healthylax|multivitamin|gummy vites|propranolol|citalopram|sitelapram|esomeprazole|tylenol|melatonin|ritalin|allerg|reaction|dose|mg\b|17 g|3 pm/i },
+          { label: "Equipment and supports", pattern: /equipment|aac|touchchat|headphones|glasses|hearing aids?|buckle|cane|pull|fidget|wheelchair|lift|chair|passenger seat|bathroom setup|bolster|bungee|underpad|liner|seat belts?|ice sled|exercise ball/i },
+          { label: "Supervision and safety", pattern: /supervision|safety|adult|two people|two caregivers|elop|hand biting|hurt|danger|swallow|unsafe|self-injury/i }
+        ]), {
+          "Emergency contacts": 6,
+          "Diagnoses and conditions": 6,
+          "Medications and allergies": 6,
+          "Equipment and supports": 6,
+          "Supervision and safety": 3
+        }))
+      ]);
+    }
+
+    const tips = [
+      communicationFacts.some((fact) => /aac|non-speaking|body language|gesture|sound/i.test(fact.statement))
+        ? `Watch ${pronouns.possessive} communication across AAC, body language, sounds, and behavior`
+        : "",
+      learningFacts.some((fact) => /visual|video|schedule|first[ -]?then|pictures?/i.test(fact.statement))
+        ? "Use visual supports and concrete examples whenever possible"
+        : "",
+      supportFacts.some((fact) => /space|quiet|stimulation|crowd/i.test(fact.statement))
+        ? "Reduce stimulation and give space when things are escalating"
+        : "",
+      triggerFacts.some((fact) => /routine|change|unexpected|moved|out of place/i.test(fact.statement))
+        ? "Prepare for changes and keep routines predictable"
+        : "",
+      healthFacts.some((fact) => /safety|supervision|elop|hand biting|risk|911|contact/i.test(fact.statement))
+        ? "Prioritize safety and contact the listed caregiver or emergency support when needed"
+        : ""
+    ].filter(Boolean);
+
+    return compactSection(title, index, undefined, [labeledBlock("Quick tips", tips)]);
+  });
 
   const composed: StructuredSummary = {
     ...summary,
-    sections: SUMMARY_SECTION_TITLES.map((title, index) => ({
-      id: `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${index + 1}`,
-      title,
-      items: buckets.get(title) ?? [NO_INFORMATION_PLACEHOLDER]
-    }))
+    title: summary.title || (nameHint ? `Caring for ${nameHint}` : "Caregiver Handoff Summary"),
+    sections
   };
 
   return normalizeAuthoritativeStructuredSummary(composed, nameHint);
@@ -2365,7 +3514,7 @@ function collectDuplicateIssues(summary: StructuredSummary) {
   const issues: SummaryAuditIssue[] = [];
 
   for (const section of summary.sections) {
-    const title = SUMMARY_SECTION_TITLES.find((candidate) => candidate === section.title);
+    const title = GUIDE_SECTION_TITLES.find((candidate) => candidate === section.title);
     if (!title) {
       continue;
     }
@@ -2397,16 +3546,25 @@ function auditSummaryAgainstCapture(summary: StructuredSummary, capture: Structu
   const issues: SummaryAuditIssue[] = [];
   const itemsBySection = summaryItemsBySection(summary);
 
+  const requiresVisibleCoverage = (fact: StructuredCaptureFact) =>
+    fact.safetyRelevant ||
+    fact.factKind === "condition" ||
+    fact.factKind === "medication" ||
+    fact.factKind === "equipment" ||
+    fact.factKind === "safety_risk" ||
+    fact.factKind === "contact";
+
   for (const fact of capture.facts) {
-    const expectedItems = itemsBySection.get(fact.section) ?? [];
+    const expectedSection = guideSectionForFact(fact);
+    const expectedItems = itemsBySection.get(expectedSection) ?? [];
     const matchedInExpected = expectedItems.some((item) => factLooksCoveredByItem(fact, item));
 
     if (matchedInExpected) {
       continue;
     }
 
-    const matchedElsewhere = SUMMARY_SECTION_TITLES.find((title) => {
-      if (title === fact.section) {
+    const matchedElsewhere = GUIDE_SECTION_TITLES.find((title) => {
+      if (title === expectedSection) {
         return false;
       }
 
@@ -2416,24 +3574,28 @@ function auditSummaryAgainstCapture(summary: StructuredSummary, capture: Structu
     if (matchedElsewhere) {
       issues.push({
         code: "section_leakage",
-        message: `${fact.factId} is only represented in ${matchedElsewhere} but belongs in ${fact.section}.`,
+        message: `${fact.factId} is only represented in ${matchedElsewhere} but belongs in ${expectedSection}.`,
         factId: fact.factId,
-        expectedSection: fact.section,
+        expectedSection,
         actualSection: matchedElsewhere
       });
       continue;
     }
 
+    if (!requiresVisibleCoverage(fact)) {
+      continue;
+    }
+
     issues.push({
       code: "missing_coverage",
-      message: `${fact.factId} is missing from ${fact.section}: ${fact.statement}`,
+      message: `${fact.factId} is missing from ${expectedSection}: ${fact.statement}`,
       factId: fact.factId,
-      expectedSection: fact.section
+      expectedSection
     });
   }
 
   for (const section of summary.sections) {
-    const title = SUMMARY_SECTION_TITLES.find((candidate) => candidate === section.title);
+    const title = GUIDE_SECTION_TITLES.find((candidate) => candidate === section.title);
     if (!title) {
       continue;
     }
@@ -2468,7 +3630,7 @@ function auditAndFinalizeSummary(
   capture: StructuredCapture,
   nameHint?: string
 ) {
-  const composed = composeSummaryFromCapture(summary, capture, nameHint);
+  const composed = composeGuideSummaryFromCapture(summary, capture, nameHint);
   const clusters = buildFactClusters(capture);
   const captureIssues = auditSummaryAgainstCapture(composed, capture);
   const { summary: normalized, report } = finalizeSummaryWithQa(composed, {
@@ -2479,14 +3641,22 @@ function auditAndFinalizeSummary(
   });
   const sectionItems = new Map(
     normalized.sections.map((section) => [
-      section.title as SummarySectionTitle,
+      section.title as GuideSectionTitle,
       section.items.filter((item) => normalizeCoverageText(item) !== normalizeCoverageText(NO_INFORMATION_PLACEHOLDER))
     ] as const)
   );
   const statuses: FactAuditStatus[] = [];
+  const requiresVisibleCoverage = (fact: StructuredCaptureFact) =>
+    fact.safetyRelevant ||
+    fact.factKind === "condition" ||
+    fact.factKind === "medication" ||
+    fact.factKind === "equipment" ||
+    fact.factKind === "safety_risk" ||
+    fact.factKind === "contact";
 
   for (const cluster of clusters) {
-    const expectedItems = sectionItems.get(cluster.section) ?? [];
+    const expectedSection = guideSectionForFact(cluster.facts[0]);
+    const expectedItems = sectionItems.get(expectedSection) ?? [];
     const matchedInExpected = expectedItems.find((item) =>
       cluster.facts.some((fact) => factLooksCoveredByItem(fact, item))
     );
@@ -2496,7 +3666,7 @@ function auditAndFinalizeSummary(
         ...cluster.facts.map((fact) => ({
           factId: fact.factId,
           clusterId: cluster.clusterId,
-          expectedSection: cluster.section,
+          expectedSection,
           factKind: cluster.factKind,
           status: "covered" as const,
           matchedBullet: matchedInExpected
@@ -2505,8 +3675,8 @@ function auditAndFinalizeSummary(
       continue;
     }
 
-    const matchedElsewhere = SUMMARY_SECTION_TITLES.find((title) => {
-      if (title === cluster.section) {
+    const matchedElsewhere = GUIDE_SECTION_TITLES.find((title) => {
+      if (title === expectedSection) {
         return false;
       }
 
@@ -2523,7 +3693,7 @@ function auditAndFinalizeSummary(
         ...cluster.facts.map((fact) => ({
           factId: fact.factId,
           clusterId: cluster.clusterId,
-          expectedSection: cluster.section,
+          expectedSection,
           factKind: cluster.factKind,
           status: "leaked" as const,
           actualSection: matchedElsewhere,
@@ -2533,11 +3703,24 @@ function auditAndFinalizeSummary(
       continue;
     }
 
+    if (!cluster.facts.some(requiresVisibleCoverage)) {
+      statuses.push(
+        ...cluster.facts.map((fact) => ({
+          factId: fact.factId,
+          clusterId: cluster.clusterId,
+          expectedSection,
+          factKind: cluster.factKind,
+          status: "internal" as const
+        }))
+      );
+      continue;
+    }
+
     statuses.push(
       ...cluster.facts.map((fact) => ({
         factId: fact.factId,
         clusterId: cluster.clusterId,
-        expectedSection: cluster.section,
+        expectedSection,
         factKind: cluster.factKind,
         status: "missing" as const
       }))
@@ -2553,6 +3736,19 @@ function auditAndFinalizeSummary(
   };
 }
 
+export function buildSummarySectionArtifacts(summary: StructuredSummary): SummarySectionArtifact[] {
+  return summary.sections.map((section) => ({
+    sectionTitle: section.title,
+    itemsJson: {
+      id: section.id,
+      title: section.title,
+      intro: section.intro,
+      items: section.items,
+      blocks: section.blocks
+    }
+  }));
+}
+
 type StructuredCompletionRequest = {
   apiKey: string;
   model: string;
@@ -2563,6 +3759,10 @@ type StructuredCompletionRequest = {
   temperature: number;
   maxCompletionTokens: number;
 };
+
+function modelSupportsCustomTemperature(model: string) {
+  return !/^gpt-5\.5(?:$|-)/i.test(model);
+}
 
 async function requestStructuredCompletion<T>({
   apiKey,
@@ -2580,36 +3780,38 @@ async function requestStructuredCompletion<T>({
   let response: Response;
 
   try {
+    const requestBody = {
+      model,
+      store: false,
+      ...(modelSupportsCustomTemperature(model) ? { temperature } : {}),
+      max_completion_tokens: maxCompletionTokens,
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt
+        },
+        {
+          role: "user",
+          content: userPrompt
+        }
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: schemaName,
+          strict: true,
+          schema
+        }
+      }
+    };
+
     response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model,
-        store: false,
-        temperature,
-        max_completion_tokens: maxCompletionTokens,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: userPrompt
-          }
-        ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: schemaName,
-            strict: true,
-            schema
-          }
-        }
-      }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal
     });
   } catch (error) {
@@ -2893,43 +4095,15 @@ async function generateSummaryTwoStep(
   }
 
   const caregiverInsights = await generateCaregiverInsights(apiKey, model, capture, nameHint);
-  const rewrittenSummary = await rewriteStructuredCapture(apiKey, model, capture, nameHint);
-  if (!rewrittenSummary) {
-    return null;
-  }
-
   const firstPass = auditAndFinalizeSummary(
-    {
-      ...rewrittenSummary,
-      caregiverInsights
-    },
+    buildGuideSummaryShell(nameHint, caregiverInsights),
     capture,
     nameHint
   );
-  if (firstPass.report.issues.length === 0) {
-    return firstPass;
-  }
-
-  const repairedSummary = await rewriteStructuredCapture(
-    apiKey,
-    model,
-    capture,
-    nameHint,
-    summarizeAuditIssues(firstPass.report.issues)
-  );
-
-  if (!repairedSummary) {
-    return firstPass;
-  }
-
-  return auditAndFinalizeSummary(
-    {
-      ...repairedSummary,
-      caregiverInsights
-    },
-    capture,
-    nameHint
-  );
+  return {
+    ...firstPass,
+    facts: capture.facts
+  };
 }
 
 export function buildSummarySource(turns: ConversationTurn[]) {
@@ -2940,7 +4114,8 @@ function finalizeGeneratedSummary(
   summary: StructuredSummary,
   turns: ConversationTurn[],
   nameHint?: string,
-  existingReport?: SummaryAuditReport
+  existingReport?: SummaryAuditReport,
+  facts: StructuredCaptureFact[] = []
 ) {
   const finalized = existingReport
     ? {
@@ -2954,22 +4129,26 @@ function finalizeGeneratedSummary(
   const normalized = finalized.summary;
   const report = finalized.report;
 
-  return {
-    summary: {
+  const finalSummary = {
       ...normalized,
       pipelineVersion: SUMMARY_PIPELINE_VERSION,
       layoutVersion: SUMMARY_LAYOUT_VERSION,
       sourceTurnsHash: computeTurnsHash(turns)
-    } satisfies StructuredSummary,
-    auditReport: report
-  };
+    } satisfies StructuredSummary;
+
+  return {
+    summary: finalSummary,
+    auditReport: report,
+    facts,
+    sectionSummaries: buildSummarySectionArtifacts(finalSummary)
+  } satisfies SummaryGenerationResult;
 }
 
 export async function generateCaregiverSummaryWithQa(
   turns: ConversationTurn[],
   nameHint?: string,
   mode: SummaryGenerationMode = "two-step"
-): Promise<{ summary: StructuredSummary; auditReport: SummaryAuditReport }> {
+): Promise<SummaryGenerationResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return finalizeGeneratedSummary(buildFallbackSummary(turns, nameHint), turns, nameHint);
@@ -2996,7 +4175,7 @@ export async function generateCaregiverSummaryWithQa(
         []
       );
     }
-    return finalizeGeneratedSummary(result.summary, turns, nameHint, result.report);
+    return finalizeGeneratedSummary(result.summary, turns, nameHint, result.report, result.facts);
   } catch (error) {
     if (
       error instanceof SummaryQualityError ||

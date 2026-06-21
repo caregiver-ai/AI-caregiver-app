@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { buildSummarySectionArtifacts } from "@/lib/summary-generation";
+import { persistSummarySectionArtifacts } from "@/lib/summary-persistence";
 import { normalizeEditableStructuredSummary, summaryToPlainText } from "@/lib/summary";
 import { finalizeSummaryWithQa } from "@/lib/summary-audit";
 import { createSupabaseServerClient } from "@/lib/supabase";
@@ -61,6 +63,20 @@ export async function POST(request: Request) {
 
     if (summaryError) {
       return NextResponse.json({ error: summaryError.message }, { status: 500 });
+    }
+
+    try {
+      await persistSummarySectionArtifacts({
+        supabase,
+        sessionId: body.sessionId,
+        sourceTurnsHash: editedSummary.sourceTurnsHash,
+        sectionSummaries: buildSummarySectionArtifacts(editedSummary)
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Unable to save section summaries." },
+        { status: 500 }
+      );
     }
 
     const sessionUpdate = {

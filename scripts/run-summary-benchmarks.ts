@@ -98,6 +98,37 @@ function containsAny(haystack: string, needles: string[]) {
   return needles.some((needle) => normalizedHaystack.includes(normalizeText(needle)));
 }
 
+function benchmarkSectionAliases(title: string) {
+  const normalizedTitle = normalizeText(title);
+
+  if (normalizedTitle === normalizeText("Daily Schedule")) {
+    return ["Daily Routine", "Food and Meals"];
+  }
+
+  if (normalizedTitle === normalizeText("Activities & Preferences")) {
+    return ["Activities and Interests"];
+  }
+
+  if (normalizedTitle === normalizeText("Signs They Are Having a Hard Time")) {
+    return ["What Can Upset or Overwhelm", "Signs They Need Help"];
+  }
+
+  if (normalizedTitle === normalizeText("What helps when they are having a hard time")) {
+    return ["What Helps When They Are Having a Hard Time"];
+  }
+
+  return [title];
+}
+
+function sectionsForExpectation(
+  sectionsByTitle: Map<string, StructuredSummary["sections"][number]>,
+  title: string
+) {
+  return benchmarkSectionAliases(title)
+    .map((alias) => sectionsByTitle.get(normalizeText(alias)))
+    .filter((section): section is StructuredSummary["sections"][number] => Boolean(section));
+}
+
 function duplicateItemCount(summary: StructuredSummary) {
   const seen: string[] = [];
   let duplicates = 0;
@@ -156,7 +187,7 @@ function evaluateSummary(
 
   for (const title of expectedSectionTitles) {
     totalChecks += 1;
-    if (sectionsByTitle.has(normalizeText(title))) {
+    if (sectionsForExpectation(sectionsByTitle, title).length > 0) {
       passedChecks += 1;
     } else {
       failures.push(`Missing section: ${title}`);
@@ -173,8 +204,8 @@ function evaluateSummary(
   }
 
   for (const [title, checks] of Object.entries(fixture.expectations.sectionChecks ?? {})) {
-    const section = sectionsByTitle.get(normalizeText(title));
-    const text = section ? sectionToSearchText(section) : "";
+    const sections = sectionsForExpectation(sectionsByTitle, title);
+    const text = sections.map(sectionToSearchText).join("\n");
 
     for (const check of checks) {
       totalChecks += 1;
@@ -198,8 +229,8 @@ function evaluateSummary(
   }
 
   for (const [title, phrases] of Object.entries(fixture.expectations.sectionBannedPhrases ?? {})) {
-    const section = sectionsByTitle.get(normalizeText(title));
-    const text = section ? sectionToSearchText(section) : "";
+    const sections = sectionsForExpectation(sectionsByTitle, title);
+    const text = sections.map(sectionToSearchText).join("\n");
 
     for (const phrase of phrases) {
       totalChecks += 1;
@@ -229,8 +260,8 @@ function evaluateSummary(
     }
 
     totalChecks += 1;
-    const section = sectionsByTitle.get(normalizeText(title));
-    const duplicateCount = duplicateCountForItems(section?.items ?? []);
+    const sections = sectionsForExpectation(sectionsByTitle, title);
+    const duplicateCount = duplicateCountForItems(sections.flatMap((section) => section.items));
 
     if (duplicateCount <= maxDuplicates) {
       passedChecks += 1;

@@ -29,20 +29,23 @@ Caregiver Handoff is a guided intake app that helps family caregivers capture pr
 The current pipeline is no longer just a simple rewrite pass. It is a structured artifact pipeline with persistence and QA:
 
 1. Source turns are read from `sessions.draft_json.turns`.
-2. The model generates a structured caregiver handoff in the fixed 7-section format.
-3. The app normalizes and audits the output for section placement, duplicate/noisy bullets, title quality, and missing critical details.
-4. The server persists:
+2. The model captures atomic facts from the seven-questionnaire-section input.
+3. The app groups those facts into a caregiver-guide layout with section intros, labeled groups, and compact caregiver-ready bullets.
+4. The app normalizes and audits the output for section placement, duplicate/noisy bullets, title quality, and missing critical details.
+5. The server persists:
    - the rendered summary in `summaries`
    - atomic facts in `summary_facts`
    - section item groups in `summary_section_summaries`
-5. Regeneration can reuse persisted facts when they still match the current `source_turns_hash`.
-6. The caregiver can edit the summary before final confirmation.
+6. Regeneration refreshes these artifacts against the current `source_turns_hash`.
+7. The caregiver can edit the summary before final confirmation.
 
 The current output format is a structured JSON summary with:
 
 - `title`
 - `overview`
 - `sections`
+  - optional section `intro`
+  - grouped section `blocks`
 - `generatedAt`
 - `layoutVersion`
 - `pipelineVersion`
@@ -102,8 +105,8 @@ Also supported:
 
 ```bash
 SUPABASE_SERVICE_ROLE_KEY=
-OPENAI_MODEL=gpt-5.4
-OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+OPENAI_MODEL=gpt-5.5
+OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 RESEND_API_KEY=
 RESEND_FROM_EMAIL=
 ```

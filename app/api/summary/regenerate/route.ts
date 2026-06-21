@@ -1,9 +1,10 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { generateCaregiverSummaryWithQa } from "@/lib/summary-generation";
+import { buildSummarySectionArtifacts, generateCaregiverSummaryWithQa } from "@/lib/summary-generation";
 import { finalizeSummaryWithQa } from "@/lib/summary-audit";
 import { getSummaryFreshness } from "@/lib/summary-structured";
 import { migrateSessionDraftQuestionnaire } from "@/lib/questionnaire-migration";
+import { persistSummaryArtifacts } from "@/lib/summary-persistence";
 import { summaryToPlainText } from "@/lib/summary";
 import {
   applyReviewedSummaryEdits,
@@ -239,6 +240,21 @@ export async function POST(request: Request) {
 
     if (summaryUpsertError) {
       return NextResponse.json({ error: summaryUpsertError.message }, { status: 500 });
+    }
+
+    try {
+      await persistSummaryArtifacts({
+        supabase,
+        sessionId: ownedSession.id,
+        sourceTurnsHash: summary.sourceTurnsHash,
+        facts: generated.facts,
+        sectionSummaries: buildSummarySectionArtifacts(summary)
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Unable to save summary artifacts." },
+        { status: 500 }
+      );
     }
 
     const { error: sessionUpdateError } = await supabase

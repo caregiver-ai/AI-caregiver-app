@@ -1,4 +1,5 @@
 import { EMPTY_SUMMARY } from "@/lib/constants";
+import { getSectionBlocks } from "@/lib/summary-display";
 import { deriveItemsFromBlocks, hydrateStructuredSection } from "@/lib/summary-structured";
 import {
   CaregiverInsight,
@@ -18,13 +19,17 @@ const OVERVIEW_LABELS = [
 ] as const;
 
 export const PREFERRED_SUMMARY_SECTION_ORDER = [
+  "About",
   "Communication",
   "Understanding and Learning",
-  "Daily Schedule",
-  "Activities & Preferences",
-  "Signs They Are Having a Hard Time",
-  "What helps when they are having a hard time",
-  "Health & Safety"
+  "Daily Routine",
+  "Food and Meals",
+  "Activities and Interests",
+  "What Can Upset or Overwhelm",
+  "Signs They Need Help",
+  "What Helps When They Are Having a Hard Time",
+  "Health & Safety",
+  "Quick Tips for New Caregivers"
 ] as const;
 
 type PreferredSummarySectionTitle = (typeof PREFERRED_SUMMARY_SECTION_ORDER)[number];
@@ -32,12 +37,12 @@ type PreferredSummarySectionTitle = (typeof PREFERRED_SUMMARY_SECTION_ORDER)[num
 const GENERATED_SUMMARY_SECTION_FIELDS = [
   { key: "communication", title: "Communication" },
   { key: "understandingAndLearning", title: "Understanding and Learning" },
-  { key: "dailySchedule", title: "Daily Schedule" },
-  { key: "activitiesAndPreferences", title: "Activities & Preferences" },
-  { key: "signsTheyAreHavingAHardTime", title: "Signs They Are Having a Hard Time" },
+  { key: "dailySchedule", title: "Daily Routine" },
+  { key: "activitiesAndPreferences", title: "Activities and Interests" },
+  { key: "signsTheyAreHavingAHardTime", title: "Signs They Need Help" },
   {
     key: "whatHelpsWhenTheyAreHavingAHardTime",
-    title: "What helps when they are having a hard time"
+    title: "What Helps When They Are Having a Hard Time"
   },
   { key: "healthAndSafety", title: "Health & Safety" }
 ] as const;
@@ -67,8 +72,6 @@ type SummaryNormalizationOptions = {
   semanticRepair?: boolean;
 };
 
-const CONTACT_PATTERN =
-  /\b(911|emergency|non-?emergenc|guardian|doctor|nurse|contact|call right away|call first|phone|crisis support)\b/i;
 const STRONG_HEALTH_PATTERN =
   /\b(allerg|diagnos|disabil|condition|medicat|medicine|dose|mg\b|abilify|aripiprazole|miralax|polyethylene glycol|clearlax|gavilax|healthylax|multivitamin|gummy vites|seizure|epilep|asthma|diabet|wheelchair|hearing aid|glasses|feeding tube|brace|cane|equipment|pica|autism|syndrome|cerebral palsy|adhd|dementia|vision|hearing loss|sensory processing difficulty|two people|more than one person|at least two)\b/i;
 const HEALTH_PATTERN =
@@ -148,14 +151,48 @@ function itemLooksLikeEquipmentInventory(item: string) {
     !/\b(calm|sooth|regulat|reset|helps?|helpful|hard time|upset|escalat)\b/i.test(item);
 }
 
+function itemLooksLikeNonEmergencyContactDetail(item: string) {
+  return /\b(facebook group|parent group|parents describe|decode|unclear words?|unclear phrases?|what .*means?|talk(?:s|ing)? to|on the phone to show|over bluetooth|takes .*places|weekends?|friends?|social media|eye contact|physical contact)\b/i.test(item);
+}
+
+function itemLooksLikeActualEmergencyContact(item: string) {
+  const content = item.replace(/^[^:]+:\s*/, "");
+
+  if (itemLooksLikeNonEmergencyContactDetail(content)) {
+    return false;
+  }
+
+  if (/\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(content)) {
+    return true;
+  }
+
+  return /\b(?:call 911|emergency|non-?emergency|crisis support|guardian|physical custody|phone number|contact .*first|call(?:ed)? .*first|should be called first|contact (?:his|her|their)?\s*(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother)|(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother).{0,60}\b(?:emergency|contact|call|called first|phone number))\b/i.test(
+    content
+  );
+}
+
+function itemLooksLikeNegativeRisk(item: string) {
+  const content = item.replace(/^[^:]+:\s*/, "");
+  return /\b(?:does not|doesn't|do not|don't|has not|never|no known|not known|not a|not at)\b.{0,55}\b(?:run away|running away|elope|elopement|wander|safety risk|risk|unsafe)\b/i.test(
+    content
+  );
+}
+
+function cleanOverviewItem(item: string) {
+  return item.replace(
+    /^(?:How they communicate|What specific things mean|What helps communication|How they learn|Visual and concrete supports|Day-specific routines|Hygiene and dressing details|Toileting and bathroom support|Morning and daily routines|Food and drink notes|Technology and music|Movement and physical activities|Sensory activities|Outings and exploration|Interests and toys|Social preferences and downtime|Other activities and preferences|Additional activity notes|Sensory and environmental triggers|Routine, transition, and control triggers|Body-state triggers|Body signs|Behavior signs|Communication signs|Environmental supports|Calming supports|Transitions and motivation|Safety in the moment|Additional support notes|Emergency contacts|Diagnoses and conditions|Medications and allergies|Equipment and supports|Supervision and safety|Quick tips):\s*/i,
+    ""
+  );
+}
+
 const FALLBACK_STEP_TO_SECTION_TITLE: Record<string, PreferredSummarySectionTitle> = {
   communication: "Communication",
   understanding_learning: "Understanding and Learning",
-  daily_schedule: "Daily Schedule",
-  activities_preferences: "Activities & Preferences",
-  upset_overwhelm: "Signs They Are Having a Hard Time",
-  signs_need_help: "Signs They Are Having a Hard Time",
-  hard_time_support: "What helps when they are having a hard time",
+  daily_schedule: "Daily Routine",
+  activities_preferences: "Activities and Interests",
+  upset_overwhelm: "What Can Upset or Overwhelm",
+  signs_need_help: "Signs They Need Help",
+  hard_time_support: "What Helps When They Are Having a Hard Time",
   health_safety: "Health & Safety",
   who_to_contact: "Health & Safety"
 };
@@ -813,6 +850,10 @@ function condenseActivityPreferences(items: string[]) {
 function canonicalizeSectionTitle(title: string): PreferredSummarySectionTitle | null {
   const normalized = compactWhitespace(title);
 
+  if (/^about(?:\s+.+)?$/i.test(normalized)) {
+    return "About";
+  }
+
   if (/^communication$/i.test(normalized)) {
     return "Communication";
   }
@@ -821,28 +862,36 @@ function canonicalizeSectionTitle(title: string): PreferredSummarySectionTitle |
     return "Understanding and Learning";
   }
 
-  if (/^(daily schedule|daily needs(?: and| &) routines|daily needs to know.*)$/i.test(normalized)) {
-    return "Daily Schedule";
+  if (/^(daily routine|daily schedule|daily needs(?: and| &) routines|daily needs to know.*)$/i.test(normalized)) {
+    return "Daily Routine";
+  }
+
+  if (/^(food(?: and| &) meals|food and nutrition|meals(?: and| &) snacks|meals?|snacks?)$/i.test(normalized)) {
+    return "Food and Meals";
   }
 
   if (
-    /^(activities(?: and| &) preferences|what helps the day go well|what .* enjoys?|preferred activities)$/i.test(
+    /^(activities(?: and| &) interests|activities(?: and| &) preferences|what helps the day go well|what .* enjoys?|preferred activities)$/i.test(
       normalized
     )
   ) {
-    return "Activities & Preferences";
+    return "Activities and Interests";
   }
 
   if (
-    /^(signs .* (?:having a hard time|needs? help)|what can upset(?: or overwhelm)?.*)$/i.test(
+    /^(what can upset(?: or overwhelm)?.*|situations that make things harder)$/i.test(
       normalized
     )
   ) {
-    return "Signs They Are Having a Hard Time";
+    return "What Can Upset or Overwhelm";
+  }
+
+  if (/^(signs .* (?:having a hard time|needs? help)|signs .* may need help|body signs|behavior or communication changes)$/i.test(normalized)) {
+    return "Signs They Need Help";
   }
 
   if (/^(what helps when .* having a hard time|what to do when .* upset)$/i.test(normalized)) {
-    return "What helps when they are having a hard time";
+    return "What Helps When They Are Having a Hard Time";
   }
 
   if (
@@ -851,6 +900,10 @@ function canonicalizeSectionTitle(title: string): PreferredSummarySectionTitle |
     )
   ) {
     return "Health & Safety";
+  }
+
+  if (/^quick tips(?: for new caregivers)?$/i.test(normalized)) {
+    return "Quick Tips for New Caregivers";
   }
 
   return null;
@@ -903,11 +956,11 @@ function normalizeSections(
     const items =
       title === "Communication"
         ? condenseCommunication(uniqueSectionItems)
-        : title === "Activities & Preferences"
+        : title === "Activities and Interests"
         ? condenseActivityPreferences(uniqueSectionItems)
-        : title === "Signs They Are Having a Hard Time"
+        : title === "Signs They Need Help"
           ? condenseHardTimeSigns(uniqueSectionItems)
-          : title === "What helps when they are having a hard time"
+          : title === "What Helps When They Are Having a Hard Time"
             ? condenseHardTimeSupports(uniqueSectionItems)
             : title === "Health & Safety"
               ? condenseHealthSafety(uniqueSectionItems)
@@ -1012,6 +1065,19 @@ function firstMatchingItem(
   );
 }
 
+function selectEmergencyContact(sections: SummarySection[]) {
+  const healthItems =
+    sections
+      .find((section) => section.title === "Health & Safety")
+      ?.items.filter((item) => !isNoInformationItem(item)) ?? [];
+
+  return (
+    healthItems.find((item) => /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(item) && itemLooksLikeActualEmergencyContact(item)) ??
+    healthItems.find(itemLooksLikeActualEmergencyContact) ??
+    ""
+  );
+}
+
 function bestScoredItem(items: string[], scoreItem: (item: string) => number) {
   return items
     .filter((item) => !isNoInformationItem(item))
@@ -1027,6 +1093,15 @@ function selectKeyNeeds(sections: SummarySection[]) {
       ?.items.filter((item) => !isNoInformationItem(item)) ?? [];
   const learningNeed = bestScoredItem(learningItems, (item) => {
     if (STRONG_HEALTH_PATTERN.test(item) || HEALTH_PATTERN.test(item)) {
+      return 0;
+    }
+    if (/\b(no interest|does not pay attention|not helpful|does not help|does not work|do not work)\b/i.test(item)) {
+      return 0;
+    }
+    if (
+      /\b(friend|friends|likes?|loves?|enjoys?|favorite|preferred|downtime|video games?|games?|train-loving|music class|youtube)\b/i.test(item) &&
+      !/\b(learns?|understand|support|helps?|helpful|best with|schedule|first[ -]?then|directions?|model(?:ing)?|prompt|two-step|2-step|pictures?|actual items?)\b/i.test(item)
+    ) {
       return 0;
     }
 
@@ -1048,7 +1123,7 @@ function selectKeyNeeds(sections: SummarySection[]) {
 
   const dailyItems =
     sections
-      .find((section) => section.title === "Daily Schedule")
+      .find((section) => section.title === "Daily Routine")
       ?.items.filter((item) => !isNoInformationItem(item)) ?? [];
   return bestScoredItem(dailyItems, (item) => {
     let score = 1;
@@ -1056,13 +1131,13 @@ function selectKeyNeeds(sections: SummarySection[]) {
       score += 3;
     }
     return score;
-  }) || firstMeaningfulItem(sections, "Daily Schedule");
+  }) || firstMeaningfulItem(sections, "Daily Routine");
 }
 
 function selectBestSupports(sections: SummarySection[]) {
   const supportItems =
     sections
-      .find((section) => section.title === "What helps when they are having a hard time")
+      .find((section) => section.title === "What Helps When They Are Having a Hard Time")
       ?.items.filter((item) => !isNoInformationItem(item)) ?? [];
   const support = bestScoredItem(supportItems, (item) => {
     if (itemLooksLikePreferredActivitiesList(item)) {
@@ -1079,6 +1154,9 @@ function selectBestSupports(sections: SummarySection[]) {
     if (/\b(squeeze and release|deep breaths?|count(?:ing)? to 10|calm)\b/i.test(item)) {
       score += 3;
     }
+    if (/\b(dog|romeo|emotional support)\b/i.test(item)) {
+      score += 6;
+    }
     if (/\b(make sure .*safe|cannot hurt|can't hurt|do not block|may bite)\b/i.test(item)) {
       score += 2;
     }
@@ -1091,8 +1169,8 @@ function selectBestSupports(sections: SummarySection[]) {
     return support;
   }
 
-  return firstMeaningfulItem(sections, "What helps when they are having a hard time") ||
-    firstMeaningfulItem(sections, "Activities & Preferences");
+  return firstMeaningfulItem(sections, "What Helps When They Are Having a Hard Time") ||
+    firstMeaningfulItem(sections, "Activities and Interests");
 }
 
 function buildOverview(sections: SummarySection[]) {
@@ -1104,8 +1182,8 @@ function buildOverview(sections: SummarySection[]) {
     .filter((item) => /\b(aac|touchchat|communication device|non-speaking|speak)\b/i.test(item))
     .slice(0, 2)
     .join(" ");
-  const communication = communicationMethods || communicationItems[0] || "";
-  const keyNeeds = selectKeyNeeds(sections);
+  const communication = cleanOverviewItem(communicationMethods || communicationItems[0] || "");
+  const keyNeeds = cleanOverviewItem(selectKeyNeeds(sections));
   const allItems = sections.flatMap((section) => section.items).join(" ");
   const riskLabels = [
     /\b(?:elopement|eloping|running away|wandering)\b/i.test(allItems)
@@ -1119,15 +1197,24 @@ function buildOverview(sections: SummarySection[]) {
   const topRisks =
     riskLabels.length > 0
       ? `Key safety risks include ${formatList(riskLabels)}.`
-      : firstMatchingItem(
-          sections,
-          "Health & Safety",
-          /\b(safety|risk|supervision|wander|elop|self-injury|unsafe|two adults|two caregivers)\b/i
+      : (
+          sections
+            .find((section) => section.title === "Health & Safety")
+            ?.items.find(
+              (item) =>
+                !isNoInformationItem(item) &&
+                !itemLooksLikeNegativeRisk(item) &&
+                /\b(safety|risk|supervision|wander|elop|self-injury|unsafe|two adults|two caregivers)\b/i.test(item)
+            ) ?? ""
         ) ||
-        firstMeaningfulItem(sections, "Signs They Are Having a Hard Time");
-  const bestSupports = selectBestSupports(sections);
-  const emergencyContact = firstMatchingItem(sections, "Health & Safety", CONTACT_PATTERN);
-  const emergencyContactValue = emergencyContact.replace(
+        (
+          sections
+            .find((section) => section.title === "Signs They Need Help")
+            ?.items.find((item) => !isNoInformationItem(item) && !itemLooksLikeNegativeRisk(item)) ?? ""
+        );
+  const bestSupports = cleanOverviewItem(selectBestSupports(sections));
+  const emergencyContact = selectEmergencyContact(sections);
+  const emergencyContactValue = cleanOverviewItem(emergencyContact).replace(
     /^Emergency contact:\s*/i,
     "",
   );
@@ -1135,7 +1222,7 @@ function buildOverview(sections: SummarySection[]) {
   return [
     `Communication: ${communication || "Not provided"}`,
     `Key Needs: ${keyNeeds || "Not provided"}`,
-    `Top Risks: ${topRisks || "Not provided"}`,
+    `Top Risks: ${cleanOverviewItem(topRisks) || "Not provided"}`,
     `Best Supports: ${bestSupports || "Not provided"}`,
     `Emergency Contact: ${emergencyContactValue || "Not provided"}`
   ].join("\n");
@@ -1166,7 +1253,18 @@ export function inferAuthoritativeSectionTitle(
   item: string,
   currentTitle: PreferredSummarySectionTitle
 ): PreferredSummarySectionTitle {
-  if (CONTACT_PATTERN.test(item)) {
+  if (currentTitle === "About" || currentTitle === "Quick Tips for New Caregivers") {
+    return currentTitle;
+  }
+
+  if (
+    currentTitle === "What Can Upset or Overwhelm" &&
+    /\b(trigger|upset|overwhelm|hard|rushed|waiting|loud|crowded|hunger|thirst|pain|poor sleep|illness|too hot|too cold|routine change|out of place|moved|bright lights?)\b/i.test(item)
+  ) {
+    return currentTitle;
+  }
+
+  if (itemLooksLikeActualEmergencyContact(item)) {
     return "Health & Safety";
   }
 
@@ -1178,21 +1276,21 @@ export function inferAuthoritativeSectionTitle(
     /\b(?:press(?:es|ed|ing)?|select(?:s|ed|ing)?)\b.{0,25}\bhelp\b/i.test(item) &&
     /\b(?:when|need|needs|needed|signal|sign|mean|means)\b/i.test(item)
   ) {
-    return "Signs They Are Having a Hard Time";
+    return "Signs They Need Help";
   }
 
   if (
     /^(?:do not|don't)\b.*\b(?:block|stop)\b.*\b(?:hand|biting)\b/i.test(item)
   ) {
-    return "What helps when they are having a hard time";
+    return "What Helps When They Are Having a Hard Time";
   }
 
   if (itemLooksLikePreferredActivitiesList(item) && !itemExplicitlySaysPreferenceHelps(item)) {
-    return "Activities & Preferences";
+    return "Activities and Interests";
   }
 
   if (itemLooksLikeHardTimeSupport(item)) {
-    return "What helps when they are having a hard time";
+    return "What Helps When They Are Having a Hard Time";
   }
 
   if (itemLooksLikeLearningItem(item)) {
@@ -1209,15 +1307,19 @@ export function inferAuthoritativeSectionTitle(
       item
     )
   ) {
-    return "What helps when they are having a hard time";
+    return "What Helps When They Are Having a Hard Time";
   }
 
   if (HARD_TIME_SIGNS_PATTERN.test(item)) {
-    return "Signs They Are Having a Hard Time";
+    return "Signs They Need Help";
   }
 
   if (DAILY_PATTERN.test(item)) {
-    return "Daily Schedule";
+    if (!/\bshower(?:head)?\b/i.test(item) && /\b(food|foods?|meal|meals?|snack|eat|eating|drink|drinking|diet|breakfast|lunch|dinner|cheese|pasta|pita|labneh|zaatar|lettuce|beans?|cauliflower|water|sippy cup|grazes?)\b/i.test(item)) {
+      return "Food and Meals";
+    }
+
+    return "Daily Routine";
   }
 
   if (COMMUNICATION_PATTERN.test(item)) {
@@ -1228,15 +1330,15 @@ export function inferAuthoritativeSectionTitle(
     HARD_TIME_SUPPORT_PATTERN.test(item) &&
     /\b(calm|sooth|regulat|transition|hard time|reset|work best|works best)\b/i.test(item)
   ) {
-    return "What helps when they are having a hard time";
+    return "What Helps When They Are Having a Hard Time";
   }
 
   if (ACTIVITIES_PATTERN.test(item)) {
-    return "Activities & Preferences";
+    return "Activities and Interests";
   }
 
   if (HARD_TIME_SUPPORT_PATTERN.test(item)) {
-    return "What helps when they are having a hard time";
+    return "What Helps When They Are Having a Hard Time";
   }
 
   return currentTitle;
@@ -1355,7 +1457,7 @@ function normalizeSectionCandidate(value: unknown, index: number) {
   } satisfies SummarySection;
 }
 
-function preserveCurrentStructuredSections(sections: SummarySection[], reclassify: boolean) {
+function preserveCurrentStructuredSections(sections: SummarySection[]) {
   if (
     sections.length !== PREFERRED_SUMMARY_SECTION_ORDER.length ||
     !sections.some(
@@ -1377,21 +1479,6 @@ function preserveCurrentStructuredSections(sections: SummarySection[], reclassif
     return null;
   }
 
-  if (
-    reclassify &&
-    sections.some((section) =>
-      sectionItems(section).some(
-        (item) =>
-          inferAuthoritativeSectionTitle(
-            item,
-            section.title as PreferredSummarySectionTitle
-          ) !== section.title
-      )
-    )
-  ) {
-    return null;
-  }
-
   return PREFERRED_SUMMARY_SECTION_ORDER.map((title, index) => {
     const section = byTitle.get(title)!;
     return {
@@ -1407,12 +1494,12 @@ function normalizeLegacySummary(
   nameHint?: string
 ): StructuredSummary {
   const legacyBuckets: Array<[PreferredSummarySectionTitle, unknown]> = [
-    ["Signs They Are Having a Hard Time", candidate.key_barriers],
-    ["Signs They Are Having a Hard Time", candidate.emotional_concerns],
+    ["Signs They Need Help", candidate.key_barriers],
+    ["Signs They Need Help", candidate.emotional_concerns],
     ["Health & Safety", candidate.safety_considerations],
-    ["Signs They Are Having a Hard Time", candidate.past_negative_experiences],
-    ["Signs They Are Having a Hard Time", candidate.situations_to_avoid],
-    ["What helps when they are having a hard time", candidate.conditions_for_successful_respite],
+    ["Signs They Need Help", candidate.past_negative_experiences],
+    ["What Can Upset or Overwhelm", candidate.situations_to_avoid],
+    ["What Helps When They Are Having a Hard Time", candidate.conditions_for_successful_respite],
     ["Health & Safety", candidate.unresolved_questions]
   ];
   const sections = normalizeSections(
@@ -1469,7 +1556,7 @@ function normalizeStructuredCandidate(
       .filter((section) => section !== null);
     const reclassify = editable ? false : options.reclassify ?? false;
     const sections =
-      preserveCurrentStructuredSections(normalizedCandidates, reclassify) ??
+      preserveCurrentStructuredSections(normalizedCandidates) ??
       normalizeSections(normalizedCandidates, { reclassify });
 
     return {
@@ -1554,15 +1641,56 @@ export function summaryToPlainText(summary: StructuredSummary) {
   const insightLines = (summary.caregiverInsights ?? [])
     .map((insight) => insight.statement.trim())
     .filter(Boolean);
+  const sectionLines = summary.sections.flatMap((section) => {
+    const lines = [section.title];
+    if (section.intro?.trim() && !isNoInformationItem(section.intro)) {
+      lines.push(section.intro.trim());
+    }
+
+    for (const block of getSectionBlocks(section)) {
+      if (block.type === "note") {
+        if (!isNoInformationItem(block.text)) {
+          lines.push(block.text.trim());
+        }
+        continue;
+      }
+
+      if (block.type === "bullets") {
+        lines.push(
+          ...block.items
+            .filter((item) => !isNoInformationItem(item))
+            .map((item) => `- ${item}`)
+        );
+        continue;
+      }
+
+      if (block.type === "keyValue") {
+        lines.push(
+          ...block.rows
+            .filter((row) => row.label.trim() || row.value.trim())
+            .map((row) => `- ${row.label.trim()}: ${row.value.trim()}`)
+        );
+        continue;
+      }
+
+      for (const group of block.groups) {
+        lines.push(group.label);
+        lines.push(
+          ...group.items
+            .filter((item) => !isNoInformationItem(item))
+            .map((item) => `- ${item}`)
+        );
+      }
+    }
+
+    return lines;
+  });
 
   return [
     summary.title.trim(),
     summary.overview.trim(),
     ...(insightLines.length > 0 ? ["Caregiver Insights", ...insightLines.map((item) => `- ${item}`)] : []),
-    ...summary.sections.flatMap((section) => [
-      section.title,
-      ...section.items.filter((item) => !isNoInformationItem(item)).map((item) => `- ${item}`)
-    ])
+    ...sectionLines
   ]
     .filter(Boolean)
     .join("\n");

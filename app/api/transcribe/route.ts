@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
-const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
+const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
 const DEFAULT_TEXT_MODEL = "gpt-4.1";
 const MAX_TRANSCRIPTION_ATTEMPTS = 3;
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 503]);
