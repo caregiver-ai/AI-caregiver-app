@@ -4388,17 +4388,17 @@ function composeGuideSummaryFromCapture(
       return compactSection(title, index, undefined, [
         healthSafetySummary ? guideBlock("note", [healthSafetySummary]) : null,
         groupedBlock(limitGroupItems(exclusiveGroups(healthStatements, [
-          { label: "Emergency contacts", pattern: /\b(phone number|call 911|emergency|non-?emergency|guardian|physical custody|617-|contact .*first|call(?:ed)? .*first|should be called first|call .*family|family .*call|any time of day or night|even for questions|not hesitate to call|contact (?:his|her|their)?\s*(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother)|(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother).{0,60}\b(?:emergency|contact|call|called first|phone number))\b/i },
           { label: "Diagnoses and conditions", pattern: /diagnos|condition|autism|autistic|g6pd|diabetes|pica|apraxia|developmental|processing|cerebral|cerebral palsy|\bcp\b|blind|blindness|vision|gastrointestinal|\bgi\b|seizures?|prematur|oxygen|syndrome|trisomy|down syndrome|tcf20|mutation|chromosome|intellectual disability|eczema|boils?|disability|delay|tone|language regression|receptive|expressive/i },
           { label: "Medications and allergies", pattern: /medicat|medicine|medicines|pill|hydration|vaginal|vulvar|yogurt|applesauce|abilify|aripiprazole|miralax|polyethylene|clearlax|gavilax|healthylax|multivitamin|gummy vites|propranolol|citalopram|sitelapram|esomeprazole|tylenol|melatonin|ritalin|\bRIT\b|allerg|reaction|dose|mg\b|17 g|3 pm/i },
           { label: "Equipment and supports", pattern: /equipment|aac|touchchat|headphones|glasses|hearing aids?|buckle|cane|pull|fidget|wheelchair|lift|chair|passenger seat|bathroom setup|bolster|bungee|underpad|liner|golf cart|seat belts?|ice sled|exercise ball/i },
-          { label: "Supervision and safety", pattern: /supervision|safety|adult|two people|two caregivers|elop|hand biting|hurt|danger|swallow|unsafe|self-injury/i }
+          { label: "Supervision and safety", pattern: /supervision|safety|adult|two people|two caregivers|elop|hand biting|hurt|danger|swallow|unsafe|self-injury/i },
+          { label: "Emergency contacts", pattern: /\b(phone number|call 911|emergency|non-?emergency|guardian|physical custody|617-|contact .*first|call(?:ed)? .*first|should be called first|call .*family|family .*call|any time of day or night|even for questions|not hesitate to call|contact (?:his|her|their)?\s*(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother)|(?:mother|father|parent|guardian|grandmother|grandfather|sister|brother).{0,60}\b(?:emergency|contact|call|called first|phone number))\b/i }
         ]), {
-          "Emergency contacts": 6,
           "Diagnoses and conditions": 9,
           "Medications and allergies": 6,
           "Equipment and supports": 6,
-          "Supervision and safety": 3
+          "Supervision and safety": 3,
+          "Emergency contacts": 6
         }))
       ]);
     }

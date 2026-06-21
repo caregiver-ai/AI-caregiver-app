@@ -1276,6 +1276,9 @@ function testPastedGavinSummaryCleanup() {
   assert.match(health, /noise-canceling headphones/i);
   assert.match(health, /Labebe Awde/i);
   assert.match(health, /Rania Kelly/i);
+  const healthItems = sectionItems(normalized, "Health & Safety");
+  assert.match(healthItems.at(-2) ?? "", /Emergency contact: .*Labebe Awde/i);
+  assert.match(healthItems.at(-1) ?? "", /Emergency contact: .*Rania Kelly/i);
 }
 
 function testSevenSectionSummaryOutputs() {
