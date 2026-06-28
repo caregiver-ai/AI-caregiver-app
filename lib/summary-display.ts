@@ -22,6 +22,27 @@ function isNoInformation(value: string) {
   return compactWhitespace(value).toLowerCase() === "(no information provided)";
 }
 
+function sectionIsAbout(section: SummarySection) {
+  return /^about(?:\s+.+)?$/i.test(compactWhitespace(section.title));
+}
+
+export function extractSummaryDisplayName(summary: Pick<StructuredSummary, "title">) {
+  const match = summary.title.trim().match(/^Caring for\s+(.+)$/i);
+  return compactWhitespace(match?.[1] ?? "");
+}
+
+export function getSummarySectionDisplayTitle(
+  summary: Pick<StructuredSummary, "title">,
+  section: SummarySection
+) {
+  if (!sectionIsAbout(section)) {
+    return section.title;
+  }
+
+  const name = extractSummaryDisplayName(summary);
+  return name ? `About ${name}` : "About";
+}
+
 export function getSectionBlocks(section: SummarySection): SummaryBlock[] {
   if (Array.isArray(section.blocks) && section.blocks.length > 0) {
     return section.blocks;
@@ -69,6 +90,14 @@ export function sectionHasContent(section: SummarySection) {
 
 export function getVisibleSections(summary: StructuredSummary) {
   return summary.sections.filter(sectionHasContent);
+}
+
+export function getVisibleAboutSection(summary: StructuredSummary) {
+  return getVisibleSections(summary).find(sectionIsAbout) ?? null;
+}
+
+export function getVisibleDetailSections(summary: StructuredSummary) {
+  return getVisibleSections(summary).filter((section) => !sectionIsAbout(section));
 }
 
 export function summaryHasContent(summary: StructuredSummary) {
@@ -127,7 +156,10 @@ export function summaryToSearchText(summary: StructuredSummary) {
     compactWhitespace(summary.title),
     compactWhitespace(summary.overview),
     ...(summary.caregiverInsights ?? []).map((insight) => compactWhitespace(insight.statement)),
-    ...getVisibleSections(summary).flatMap((section) => [section.title, ...sectionToPlainTextLines(section)])
+    ...getVisibleSections(summary).flatMap((section) => [
+      getSummarySectionDisplayTitle(summary, section),
+      ...sectionToPlainTextLines(section)
+    ])
   ]
     .filter(Boolean)
     .join("\n");

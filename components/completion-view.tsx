@@ -16,7 +16,11 @@ import {
 } from "@/lib/draft-api";
 import { getCompletionCopy } from "@/lib/localization";
 import { finalizeSummaryWithQa } from "@/lib/summary-audit";
-import { getVisibleSections } from "@/lib/summary-display";
+import {
+  getSummarySectionDisplayTitle,
+  getVisibleAboutSection,
+  getVisibleDetailSections
+} from "@/lib/summary-display";
 import { getSummaryFreshness } from "@/lib/summary-structured";
 import {
   formatSummaryGeneratedAt,
@@ -61,6 +65,8 @@ export function CompletionView() {
     [summary?.overview]
   );
   const requiresRegeneration = summaryFreshness?.requiresRegeneration ?? false;
+  const aboutSection = summary ? getVisibleAboutSection(summary) : null;
+  const detailSections = summary ? getVisibleDetailSections(summary) : [];
 
   function applyDraftState(draft: SessionDraft, freshness?: SummaryFreshness | null) {
     setSummary(
@@ -340,6 +346,12 @@ export function CompletionView() {
               <p className="text-sm text-slate-700">{generatedAtText}</p>
             </div>
           ) : null}
+          {aboutSection ? (
+            <StructuredSummarySectionDisplay
+              section={aboutSection}
+              displayTitle={getSummarySectionDisplayTitle(summary, aboutSection)}
+            />
+          ) : null}
           {overviewLines.length > 0 ? (
             <div className="space-y-2">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -387,8 +399,12 @@ export function CompletionView() {
               title={copy.caregiverInsightsLabel}
             />
 
-            {getVisibleSections(summary).map((section) => (
-              <StructuredSummarySectionDisplay key={section.id} section={section} />
+            {detailSections.map((section) => (
+              <StructuredSummarySectionDisplay
+                key={section.id}
+                section={section}
+                displayTitle={getSummarySectionDisplayTitle(summary, section)}
+              />
             ))}
 
             <button

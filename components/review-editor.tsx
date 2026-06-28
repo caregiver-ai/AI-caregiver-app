@@ -17,7 +17,7 @@ import {
 } from "@/lib/draft-api";
 import { getReviewCopy } from "@/lib/localization";
 import { finalizeSummaryWithQa } from "@/lib/summary-audit";
-import { getVisibleSections } from "@/lib/summary-display";
+import { getSummarySectionDisplayTitle, getVisibleSections } from "@/lib/summary-display";
 import { getSummaryFreshness } from "@/lib/summary-structured";
 import { formatSummaryGeneratedAt, normalizeEditableStructuredSummary } from "@/lib/summary";
 import { loadDraft, saveDraft } from "@/lib/storage";
@@ -371,6 +371,7 @@ export function ReviewEditor() {
                 <StructuredSummarySectionEditor
                   key={section.id}
                   section={section}
+                  displayTitle={getSummarySectionDisplayTitle(summary, section)}
                   onChange={updateSection}
                 />
               ))}

@@ -183,19 +183,22 @@ function BlockEditor({
 
 export function StructuredSummarySectionEditor({
   section,
+  displayTitle,
   onChange
 }: {
   section: SummarySection;
+  displayTitle?: string;
   onChange: (section: SummarySection) => void;
 }) {
   const blocks = getSectionBlocks(section);
+  const title = displayTitle ?? section.title;
 
   return (
     <div className="space-y-4 rounded-3xl border border-border bg-canvas px-4 py-4">
       <div className="space-y-1">
         <span className="text-sm font-medium text-slate-700">Section title</span>
         <div className="rounded-2xl border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700">
-          {section.title}
+          {title}
         </div>
       </div>
 
@@ -276,16 +279,23 @@ function SummaryBlockDisplay({ block }: { block: SummaryBlock }) {
   );
 }
 
-export function StructuredSummarySectionDisplay({ section }: { section: SummarySection }) {
+export function StructuredSummarySectionDisplay({
+  section,
+  displayTitle
+}: {
+  section: SummarySection;
+  displayTitle?: string;
+}) {
   if (!sectionHasContent(section)) {
     return null;
   }
 
   const blocks = getSectionBlocks(section);
+  const title = displayTitle ?? section.title;
 
   return (
     <div className="space-y-3">
-      <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">{section.title}</h2>
+      <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">{title}</h2>
       {section.intro ? (
         <p className="rounded-2xl bg-canvas px-4 py-3 text-sm leading-6 text-slate-700">
           {section.intro}

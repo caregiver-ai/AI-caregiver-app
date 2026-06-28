@@ -59,6 +59,19 @@ function meaningfulItems(summary: StructuredSummary, title: string) {
   );
 }
 
+function meaningfulSectionSignature(summary: StructuredSummary, title: string) {
+  const section = summary.sections.find((entry) => entry.title === title);
+  if (!section) {
+    return "";
+  }
+
+  return JSON.stringify({
+    intro: section.intro ?? "",
+    blocks: section.blocks ?? null,
+    items: meaningfulItems(summary, title),
+  });
+}
+
 function applyReviewedInsightEdits(
   current: StructuredSummary,
   previousGenerated: StructuredSummary,
@@ -124,6 +137,21 @@ export function applyReviewedSummaryEdits(
   );
 
   const sections = PREFERRED_SUMMARY_SECTION_ORDER.map((title, index) => {
+    const currentSection = current.sections.find((section) => section.title === title);
+    const editedSection = edited.sections.find((section) => section.title === title);
+
+    if (
+      title === "About" &&
+      editedSection &&
+      meaningfulSectionSignature(generated, title) !== meaningfulSectionSignature(edited, title)
+    ) {
+      return {
+        ...editedSection,
+        id: currentSection?.id ?? editedSection.id ?? `section-${index + 1}`,
+        title,
+      };
+    }
+
     const generatedItems = meaningfulItems(generated, title);
     const editedItems = meaningfulItems(edited, title);
     const currentItems = meaningfulItems(current, title);
@@ -148,8 +176,7 @@ export function applyReviewedSummaryEdits(
     }
 
     return {
-      id: current.sections.find((section) => section.title === title)?.id ??
-        `section-${index + 1}`,
+      id: currentSection?.id ?? `section-${index + 1}`,
       title,
       items: retained.length > 0 ? retained : [NO_INFORMATION_PLACEHOLDER],
     };
