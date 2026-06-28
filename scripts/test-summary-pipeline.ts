@@ -383,6 +383,9 @@ async function testGuideLayoutGroupingWithMockedFacts() {
         ["What helps when they are having a hard time", "caregiver_action", "Calming", "Give him space when he is having a hard time."],
         ["What helps when they are having a hard time", "caregiver_action", "Calming", "Keep the environment quiet when he is having a hard time."],
         ["Health & Safety", "condition", "Diagnoses", "Gavin has Sensory Processing Difficulty."],
+        ["Health & Safety", "condition", "Safety", "Gavin has pica."],
+        ["Health & Safety", "condition", "Safety", "When Gavin is upset, he may elope."],
+        ["Health & Safety", "condition", "Safety", "Gavin has very little awareness of danger."],
         ["Health & Safety", "equipment", "Equipment", "He uses noise-canceling headphones."],
         ["Health & Safety", "medication", "Medication", "Gavin takes Abilify (Aripiprazole) 15 mg once daily at 3pm."],
         ["Health & Safety", "medication", "Medication", "Gavin takes Abilify (Aripiprazole) for irritability, aggression, repetitive behaviors, and self-injury."],
@@ -491,10 +494,23 @@ async function testGuideLayoutGroupingWithMockedFacts() {
       ),
       "expected persisted section artifacts to include grouped blocks",
     );
-    assert.match(sectionText(result.summary, "About"), /exploration|new experiences|exploring/i);
-    assert.match(sectionText(result.summary, "About"), /understand.*speech|speech.*show/i);
+    const aboutSection = result.summary.sections.find((section) => section.title === "About");
+    const aboutText = sectionText(result.summary, "About");
+    assert.equal(sectionItems(result.summary, "About").length, 1);
+    assert.equal(aboutSection?.blocks?.length, 1);
+    assert.equal(aboutSection?.blocks?.[0]?.type, "note");
+    assert.doesNotMatch(aboutText, /\n/);
+    assert.match(aboutText, /curious|active|explor/i);
+    assert.match(aboutText, /AAC device|AAC/i);
+    assert.match(aboutText, /body language|nonverbal|sounds/i);
+    assert.match(aboutText, /understands more than (?:he can express|speech alone can show)/i);
+    assert.match(aboutText, /visual supports/i);
+    assert.match(aboutText, /pica/i);
+    assert.match(aboutText, /elopement|elope/i);
+    assert.match(aboutText, /danger/i);
+    assert.doesNotMatch(aboutText, /Gavin enjoys[\s\S]*Gavin enjoys/i);
     assert.match(plainText, /About Gavin[\s\S]*Overview|About Gavin[\s\S]*Communication:/i);
-    assert.doesNotMatch(sectionText(result.summary, "About"), /Abilify|MiraLax|Diagnoses and conditions/i);
+    assert.doesNotMatch(aboutText, /Abilify|MiraLax|Diagnoses and conditions/i);
     assert.doesNotMatch(result.summary.overview, /How they communicate|Food and drink notes|Medications and allergies/i);
     assert.doesNotMatch(plainText, /include include|car rides,\s*car rides/i);
     assert.match(sectionText(result.summary, "Daily Routine"), /hygiene and dressing.*deodorant.*dressing.*hair care.*socks.*teeth brushing/i);
@@ -1681,21 +1697,16 @@ function testReviewedSummaryEditsSurviveRegeneration() {
 }
 
 function testReviewedAboutSectionEditsSurviveRegeneration() {
-  const aboutSection = (
-    intro: string,
-    item: string,
-    id = "about-1",
-  ) => ({
+  const aboutSection = (paragraph: string, id = "about-1") => ({
     id,
     title: "About",
-    intro,
-    items: [item],
-    blocks: [{ type: "bullets" as const, items: [item] }],
+    items: [paragraph],
+    blocks: [{ type: "note" as const, text: paragraph }],
   });
-  const sectionsWithAbout = (intro: string, item: string) =>
+  const sectionsWithAbout = (paragraph: string) =>
     expectedSections.map((title, index) =>
       title === "About"
-        ? aboutSection(intro, item)
+        ? aboutSection(paragraph)
         : {
             id: `section-${index + 1}`,
             title,
@@ -1704,24 +1715,17 @@ function testReviewedAboutSectionEditsSurviveRegeneration() {
     );
   const previousGenerated = summaryWithVersions([], {
     title: "Caring for Gavin",
-    sections: sectionsWithAbout(
-      "Gavin is curious and enjoys exploration.",
-      "Gavin enjoys exploring new places.",
-    ),
+    sections: sectionsWithAbout("Gavin is curious and enjoys exploring new places."),
   });
   const previousEdited = summaryWithVersions([], {
     title: "Caring for Gavin",
     sections: sectionsWithAbout(
-      "Gavin is curious, observant, and ready for new experiences.",
-      "A new caregiver should know Gavin understands more than speech alone shows.",
+      "Gavin is curious, observant, and ready for new experiences. A new caregiver should know Gavin understands more than speech alone shows.",
     ),
   });
   const current = summaryWithVersions([], {
     title: "Caring for Gavin",
-    sections: sectionsWithAbout(
-      "Gavin is curious and enjoys exploration.",
-      "Generated new About text.",
-    ),
+    sections: sectionsWithAbout("Generated new About text."),
   });
 
   const merged = applyReviewedSummaryEdits(
@@ -1732,10 +1736,8 @@ function testReviewedAboutSectionEditsSurviveRegeneration() {
   );
   const about = merged.sections.find((section) => section.title === "About");
 
-  assert.equal(
-    about?.intro,
-    "Gavin is curious, observant, and ready for new experiences.",
-  );
+  assert.equal(about?.blocks?.[0]?.type, "note");
+  assert.match(sectionText(merged, "About"), /curious, observant, and ready for new experiences/i);
   assert.match(sectionText(merged, "About"), /understands more than speech/i);
   assert.doesNotMatch(sectionText(merged, "About"), /Generated new About text/i);
 }

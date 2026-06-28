@@ -4132,23 +4132,16 @@ function groupEscalationSupport(facts: StructuredCaptureFact[], name: string) {
   return supports.length >= 2 ? sentence(`When escalation is high, ${formatInsightList(supports)}`) : "";
 }
 
-function pickAboutActivities(facts: StructuredCaptureFact[], pattern: RegExp, fallbackItems: string[] = []) {
-  const directItems = activityItems(facts).filter((item) => pattern.test(item));
-  const sourceText = factText(facts);
-  const inferredItems = fallbackItems.filter((item) => pattern.test(item) && pattern.test(sourceText));
-
-  return uniqueGuideItems([...directItems, ...inferredItems]).slice(0, 4);
-}
-
 function communicationChannelsForAbout(facts: StructuredCaptureFact[]) {
   const text = factText(facts);
   return [
-    /\baac|touchchat|communication device|device on an ipad\b/i.test(text) ? "AAC" : "",
-    /\bbody language|nonverbal|non-verbal|non-verbally|gesture\b/i.test(text) ? "body language" : "",
+    /\bgesture\b/i.test(text) ? "gestures" : "",
+    /\bbody language|nonverbal|non-verbal|non-verbally\b/i.test(text) ? "body language" : "",
     /\bsounds?|voice|vocal|singing|happy noises?|angry noises?\b/i.test(text) ? "sounds" : "",
     /\blead(?:s|ing)? (?:you|a caregiver|caregivers|them|him|her)|touch(?:es|ing)? (?:you|a caregiver|caregivers|them|him|her)|sit(?:s|ting)? close|closer and closer\b/i.test(text)
-      ? "proximity and movement"
-      : ""
+      ? "proximity or movement"
+      : "",
+    /\baac|touchchat|communication device|device on an ipad\b/i.test(text) ? "an AAC device" : ""
   ].filter(Boolean);
 }
 
@@ -4174,6 +4167,110 @@ function understandsMoreThanSpeechShows(facts: StructuredCaptureFact[]) {
   return expressionLimit && understandingSupport;
 }
 
+function aboutPronouns(facts: StructuredCaptureFact[]) {
+  const text = factText(facts).toLowerCase();
+  const heScore = (text.match(/\b(he|him|his)\b/g) ?? []).length;
+  const sheScore = (text.match(/\b(she|her|hers)\b/g) ?? []).length;
+  const theyScore = (text.match(/\b(they|them|their|theirs)\b/g) ?? []).length;
+
+  if (heScore > sheScore && heScore >= theyScore && heScore > 0) {
+    return { subject: "he", object: "him", possessive: "his", explicit: true };
+  }
+
+  if (sheScore > heScore && sheScore >= theyScore && sheScore > 0) {
+    return { subject: "she", object: "her", possessive: "her", explicit: true };
+  }
+
+  return { subject: "they", object: "them", possessive: "their", explicit: false };
+}
+
+function articleForAbout(phrase: string) {
+  return /^[aeiou]/i.test(phrase) ? "an" : "a";
+}
+
+function aboutIdentityPhrase(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  const traits = [
+    /\bcurious|explor|new places?|novelty|adventures?\b/i.test(text) ? "curious" : "",
+    /\bactive|keep(?:s|ing)? moving|movement|can't sit still|cannot sit still|energy|walk(?:ing)? around|running|jump(?:ing)?|swing(?:ing)?|swimm?ing\b/i.test(text)
+      ? "active"
+      : ""
+  ].filter(Boolean);
+  const identity = /\bteen(?:ager)?\b/i.test(text)
+    ? "teenager"
+    : /\badult\b/i.test(text)
+      ? "adult"
+      : /\bchild|kid\b/i.test(text)
+        ? "child"
+        : "person";
+  const phrase = [...traits, identity].join(" ");
+
+  return `${articleForAbout(phrase)} ${phrase}`;
+}
+
+function aboutActivityHighlights(facts: StructuredCaptureFact[]) {
+  const items = activityItems(facts);
+  const sourceText = `${factText(facts)} ${items.join(" ")}`;
+  const prioritized = [
+    /\bmusic|drums?|guitar|piano\b/i.test(sourceText) ? "music" : "",
+    /\byoutube|videos?\b/i.test(sourceText) ? "videos" : "",
+    /\bhorseback\b/i.test(sourceText) ? "horseback riding" : "",
+    /\bcar rides?\b/i.test(sourceText) ? "car rides" : "",
+    /\bexplor|new places?|novelty|adventures?|hikes?|malls?|stores?|museums?\b/i.test(sourceText)
+      ? "exploring new places"
+      : "",
+    /\bwalk(?:ing|s)?\b/i.test(sourceText) ? "walking" : "",
+    /\bswimm?ing\b/i.test(sourceText) ? "swimming" : "",
+    /\bkeep(?:s|ing)? moving|movement|jump(?:ing)?|swing(?:ing)?|crash(?:ing)?|obstacle|trampoline|scooter\b/i.test(sourceText)
+      ? "movement activities"
+      : "",
+    /\banimals?|farms?\b/i.test(sourceText) ? "animals and farms" : "",
+    /\bdinosaurs?\b/i.test(sourceText) ? "dinosaurs" : "",
+    /\bcars?\b/i.test(sourceText) && /\btrucks?\b/i.test(sourceText) ? "cars and trucks" : ""
+  ].filter(Boolean);
+
+  return uniqueGuideItems(prioritized.length > 0 ? prioritized : items).slice(0, 5);
+}
+
+function conciseLearningSupportForAbout(facts: StructuredCaptureFact[], learningSupports: string[]) {
+  const text = factText(facts);
+
+  if (/\bvisual\w*|pictures?|actual items?|items themselves|shown? .*choices?|choices? .*shown?\b/i.test(text)) {
+    return "visual supports";
+  }
+
+  return formatInsightList(learningSupports.slice(0, 2));
+}
+
+function safetyContextForAbout(facts: StructuredCaptureFact[], name: string) {
+  const safetyFacts = facts.filter((fact) => {
+    const section = guideSectionForFact(fact);
+    return (
+      section === "Health & Safety" ||
+      section === "Signs They Need Help" ||
+      section === "What Helps When They Are Having a Hard Time"
+    );
+  });
+  const text = factText(safetyFacts);
+  const elopementWhenUpset =
+    /\b(?:upset|dysregulated|hard time|having a hard time)\b.{0,100}\belop|\belop.{0,100}\b(?:upset|dysregulated|hard time|having a hard time)\b/i.test(text);
+  const details = [
+    /\bpica\b/i.test(text) ? "pica" : "",
+    /\belop(?:e|es|ed|ing|ement)?|run away|running away\b/i.test(text)
+      ? elopementWhenUpset
+        ? "elopement when upset"
+        : "elopement risk"
+      : "",
+    /\b(?:does not|doesn't|do not|don't|cannot|can't|little|very little|limited)\b.{0,80}\b(?:danger|dangerous|unsafe|social cues?)\b|\b(?:danger|dangerous|unsafe|social cues?)\b.{0,80}\b(?:does not|doesn't|do not|don't|cannot|can't|limited|little|very little|unsure|not know|doesn't know)\b/i.test(text)
+      ? "limited awareness of danger"
+      : ""
+  ].filter(Boolean);
+
+  return details.length > 0
+    ? sentence(`${name} requires close supervision because safety concerns include ${formatInsightList(uniqueGuideItems(details))}`)
+    : "";
+}
+
 function buildAboutSection(
   title: GuideSectionTitle,
   index: number,
@@ -4188,57 +4285,57 @@ function buildAboutSection(
   );
   const allAboutFacts = [...communicationFacts, ...learningFacts, ...activityFacts];
   const allAboutText = factText(allAboutFacts);
-  const explorationItems = pickAboutActivities(activityFacts, /\b(explor|new places?|novelty|adventures?|hikes?|malls?|stores?|museums?|car rides?)\b/i, [
-    "exploring new places",
-    "new experiences",
-    "car rides"
-  ]);
-  const favoriteItems = activityItems(activityFacts)
-    .filter((item) => !/\b(cupcakes?|cake|frosting|sprinkles|candy|sweets)\b/i.test(item))
-    .slice(0, 5);
-  const socialItems = socialActivityItems(activityFacts, name).slice(0, 3);
   const learningSupports = learningSupportsForAbout(learningFacts);
   const communicationChannels = communicationChannelsForAbout(communicationFacts);
   const understandsBeyondSpeech = understandsMoreThanSpeechShows(allAboutFacts);
-  const intro = [
-    explorationItems.length > 0
-      ? `${name} is curious and enjoys exploration, especially ${formatInsightList(explorationItems)}`
+  const activityHighlights = aboutActivityHighlights(activityFacts);
+  const learningSupport = conciseLearningSupportForAbout(learningFacts, learningSupports);
+  const pronouns = aboutPronouns(facts);
+  const safetyContext = safetyContextForAbout(facts, name);
+  const isNeutralSubject = name === "They";
+  const beVerb = isNeutralSubject ? "are" : "is";
+  const communicationObject = isNeutralSubject ? pronouns.object : name;
+  const hasPersonalAboutSignal = Boolean(
+    allAboutText.trim() ||
+    communicationChannels.length > 0 ||
+    activityHighlights.length > 0 ||
+    understandsBeyondSpeech ||
+    learningSupport
+  );
+  const aboutSentences = [
+    hasPersonalAboutSignal
+      ? `${name} ${beVerb} ${aboutIdentityPhrase(facts)}${
+          communicationChannels.length > 0
+            ? ` who communicates primarily through ${formatInsightList(communicationChannels)}`
+            : ""
+        }`
       : "",
-    understandsBeyondSpeech
-      ? `New caregivers should assume ${name} may understand more than speech alone can show`
+    activityHighlights.length > 0
+      ? `${name} enjoys ${formatInsightList(activityHighlights)}`
+      : "",
+    understandsBeyondSpeech || learningSupport
+      ? `${name} ${
+          understandsBeyondSpeech
+            ? `understands more than ${pronouns.explicit ? `${pronouns.subject} can express` : "speech alone can show"}`
+            : "learns best"
+        }${understandsBeyondSpeech && learningSupport ? ` and learns best through ${learningSupport}` : learningSupport ? ` through ${learningSupport}` : ""}`
+      : "",
+    safetyContext,
+    communicationChannels.length > 0 || learningSupport
+      ? `Caregivers who assume competence${learningSupport ? `, use ${learningSupport}` : ""}${communicationChannels.length > 0 ? `, and give ${communicationObject} time to communicate` : ""} will help ${pronouns.object} be most successful`
       : ""
-  ].filter(Boolean).join(". ");
+  ].filter(Boolean).map(sentence);
+  const paragraph = aboutSentences.join(" ");
 
-  const bullets = [
-    explorationItems.length > 0
-      ? `${name} enjoys new experiences such as ${formatInsightList(explorationItems)}`
-      : "",
-    favoriteItems.length > 0
-      ? `${name}'s interests include ${formatInsightList(favoriteItems)}`
-      : "",
-    understandsBeyondSpeech
-      ? `A new caregiver should assume ${name} may understand more than speech alone can show`
-      : "",
-    communicationChannels.length > 0
-      ? `${name} communicates through ${formatInsightList(communicationChannels)}`
-      : "",
-    learningSupports.length > 0
-      ? `${name} learns and understands best with ${formatInsightList(learningSupports)}`
-      : "",
-    socialItems.length > 0
-      ? `${name}'s connection and downtime preferences include ${formatInsightList(socialItems)}`
-      : ""
-  ].filter(Boolean);
-
-  if (!intro && bullets.length === 0 && !allAboutText.trim()) {
+  if (!paragraph && !allAboutText.trim()) {
     return compactSection(title, index, undefined, []);
   }
 
   return compactSection(
     title,
     index,
-    intro || undefined,
-    [guideBlock("bullets", bullets)]
+    undefined,
+    [guideBlock("note", [paragraph])]
   );
 }
 
