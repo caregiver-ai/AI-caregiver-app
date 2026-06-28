@@ -4203,7 +4203,7 @@ function aboutIdentityPhrase(facts: StructuredCaptureFact[]) {
       : /\bchild|kid\b/i.test(text)
         ? "child"
         : "person";
-  const phrase = [...traits, identity].join(" ");
+  const phrase = traits.length > 0 ? `${formatInsightList(traits)} ${identity}` : identity;
 
   return `${articleForAbout(phrase)} ${phrase}`;
 }
@@ -4212,6 +4212,8 @@ function aboutActivityHighlights(facts: StructuredCaptureFact[]) {
   const items = activityItems(facts);
   const sourceText = `${factText(facts)} ${items.join(" ")}`;
   const prioritized = [
+    /\btechnology|computer|phone|tablet|ipad\b/i.test(sourceText) ? "technology" : "",
+    /\btalk(?:ing)? on the phone|chat(?:ting)?|friends?\b/i.test(sourceText) ? "talking with friends" : "",
     /\bmusic|drums?|guitar|piano\b/i.test(sourceText) ? "music" : "",
     /\byoutube|videos?\b/i.test(sourceText) ? "videos" : "",
     /\bhorseback\b/i.test(sourceText) ? "horseback riding" : "",
@@ -4230,6 +4232,23 @@ function aboutActivityHighlights(facts: StructuredCaptureFact[]) {
   ].filter(Boolean);
 
   return uniqueGuideItems(prioritized.length > 0 ? prioritized : items).slice(0, 5);
+}
+
+function caregiverSuccessSentence(
+  name: string,
+  pronouns: ReturnType<typeof aboutPronouns>,
+  learningSupport: string,
+  hasCommunicationChannels: boolean,
+) {
+  const actions = [
+    "assume competence",
+    learningSupport ? `use ${learningSupport}` : "",
+    hasCommunicationChannels ? `give ${name === "They" ? pronouns.object : name} time to communicate` : "",
+  ].filter(Boolean);
+
+  return actions.length > 0
+    ? `Caregivers who ${formatInsightList(actions)} will help ${pronouns.object} be most successful`
+    : "";
 }
 
 function conciseLearningSupportForAbout(facts: StructuredCaptureFact[], learningSupports: string[]) {
@@ -4294,7 +4313,6 @@ function buildAboutSection(
   const safetyContext = safetyContextForAbout(facts, name);
   const isNeutralSubject = name === "They";
   const beVerb = isNeutralSubject ? "are" : "is";
-  const communicationObject = isNeutralSubject ? pronouns.object : name;
   const hasPersonalAboutSignal = Boolean(
     allAboutText.trim() ||
     communicationChannels.length > 0 ||
@@ -4321,9 +4339,7 @@ function buildAboutSection(
         }${understandsBeyondSpeech && learningSupport ? ` and learns best through ${learningSupport}` : learningSupport ? ` through ${learningSupport}` : ""}`
       : "",
     safetyContext,
-    communicationChannels.length > 0 || learningSupport
-      ? `Caregivers who assume competence${learningSupport ? `, use ${learningSupport}` : ""}${communicationChannels.length > 0 ? `, and give ${communicationObject} time to communicate` : ""} will help ${pronouns.object} be most successful`
-      : ""
+    caregiverSuccessSentence(name, pronouns, learningSupport, communicationChannels.length > 0)
   ].filter(Boolean).map(sentence);
   const paragraph = aboutSentences.join(" ");
 

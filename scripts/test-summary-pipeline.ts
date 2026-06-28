@@ -509,6 +509,7 @@ async function testGuideLayoutGroupingWithMockedFacts() {
     assert.match(aboutText, /elopement|elope/i);
     assert.match(aboutText, /danger/i);
     assert.doesNotMatch(aboutText, /Gavin enjoys[\s\S]*Gavin enjoys/i);
+    assert.doesNotMatch(aboutText, /assume competence, and give/i);
     assert.match(plainText, /About Gavin[\s\S]*Overview|About Gavin[\s\S]*Communication:/i);
     assert.doesNotMatch(aboutText, /Abilify|MiraLax|Diagnoses and conditions/i);
     assert.doesNotMatch(result.summary.overview, /How they communicate|Food and drink notes|Medications and allergies/i);
@@ -547,6 +548,121 @@ async function testGuideLayoutGroupingWithMockedFacts() {
     assert.match(sectionText(result.summary, "Health & Safety"), /polyethylene glycol\/MiraLax.*daily.*water.*stool regular/i);
     assert.equal(countSectionMatches(result.summary, "Health & Safety", /Abilify|ARIPiprazole|aripiprazole/i), 1);
     assert.equal(countSectionMatches(result.summary, "Health & Safety", /MiraLax|Polyethylene glycol|polyethylene glycol/i), 1);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousApiKey;
+    }
+  }
+}
+
+async function testConciseAboutParagraphGrammarWithMockedFacts() {
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+
+  process.env.OPENAI_API_KEY = "test-summary-key";
+  globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+      response_format?: { json_schema?: { name?: string } };
+    };
+    const schemaName = requestBody.response_format?.json_schema?.name;
+
+    if (schemaName === "caregiver_handoff_structured_capture") {
+      const facts = [
+        [
+          "Activities & Preferences",
+          "preference",
+          "Activities",
+          "Tatiana is a child who likes to use the phone, use the computer, anything related to technology, talk on the phone with her friends, and chat a lot with her friends by phone.",
+        ],
+        [
+          "Health & Safety",
+          "condition",
+          "Safety",
+          "Tatiana may elope and has limited awareness of danger.",
+        ],
+      ].map(([section, factKind, subcategory, statement], index) => ({
+        entryId: `Entry ${index + 1}`,
+        section,
+        factKind,
+        subcategory,
+        statement,
+        safetyRelevant: /safety|danger|elope/i.test(statement),
+      }));
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ facts }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (schemaName === "caregiver_handoff_insights") {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ insights: [] }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    assert.equal(schemaName, "caregiver_handoff_summary");
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: JSON.stringify({
+                title: "Caring for Tatiana",
+                overview: "Tatiana enjoys technology.",
+                communication: ["(No information provided)"],
+                understandingAndLearning: ["(No information provided)"],
+                dailySchedule: ["(No information provided)"],
+                activitiesAndPreferences: ["Tatiana enjoys technology."],
+                signsTheyAreHavingAHardTime: ["(No information provided)"],
+                whatHelpsWhenTheyAreHavingAHardTime: ["(No information provided)"],
+                healthAndSafety: ["Tatiana may elope."],
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await generateCaregiverSummaryWithQa(
+      responseTurns(
+        "tatiana-about-1",
+        "Tatiana details",
+        "Tatiana enjoys technology and talking with friends.",
+        "2026-06-01T12:00:00.000Z",
+      ),
+      "Tatiana",
+      "two-step",
+    );
+    const aboutText = sectionText(result.summary, "About");
+
+    assert.match(aboutText, /Tatiana is a child/i);
+    assert.match(aboutText, /technology/i);
+    assert.match(aboutText, /talking with friends/i);
+    assert.doesNotMatch(aboutText, /enjoys use\b|enjoys talk\b/i);
+    assert.doesNotMatch(aboutText, /assume competence, and give/i);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousApiKey === undefined) {
@@ -1805,6 +1921,7 @@ async function main() {
   testStructuredCompletionParsing();
   await testSummaryCaptureBatchingWithMockedModel();
   await testGuideLayoutGroupingWithMockedFacts();
+  await testConciseAboutParagraphGrammarWithMockedFacts();
   testEveryLegacyPromptMapping();
   testLegacyDraftMigration();
   testHealthMappingAndSkippedMigration();
