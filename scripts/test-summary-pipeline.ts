@@ -658,7 +658,8 @@ async function testConciseAboutParagraphGrammarWithMockedFacts() {
     );
     const aboutText = sectionText(result.summary, "About");
 
-    assert.match(aboutText, /Tatiana is a child/i);
+    assert.match(aboutText, /Tatiana is a person/i);
+    assert.doesNotMatch(aboutText, /\bchild\b|\badult\b|\bteenager\b/i);
     assert.match(aboutText, /technology/i);
     assert.match(aboutText, /talking with friends/i);
     assert.doesNotMatch(aboutText, /enjoys use\b|enjoys talk\b/i);

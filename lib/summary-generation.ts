@@ -4196,14 +4196,7 @@ function aboutIdentityPhrase(facts: StructuredCaptureFact[]) {
       ? "active"
       : ""
   ].filter(Boolean);
-  const identity = /\bteen(?:ager)?\b/i.test(text)
-    ? "teenager"
-    : /\badult\b/i.test(text)
-      ? "adult"
-      : /\bchild|kid\b/i.test(text)
-        ? "child"
-        : "person";
-  const phrase = traits.length > 0 ? `${formatInsightList(traits)} ${identity}` : identity;
+  const phrase = traits.length > 0 ? `${formatInsightList(traits)} person` : "person";
 
   return `${articleForAbout(phrase)} ${phrase}`;
 }
