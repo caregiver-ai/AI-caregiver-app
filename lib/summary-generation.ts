@@ -4196,7 +4196,11 @@ function aboutIdentityPhrase(facts: StructuredCaptureFact[]) {
       ? "active"
       : ""
   ].filter(Boolean);
-  const phrase = traits.length > 0 ? `${formatInsightList(traits)} person` : "person";
+  if (traits.length === 0) {
+    return "";
+  }
+
+  const phrase = `${formatInsightList(traits)} person`;
 
   return `${articleForAbout(phrase)} ${phrase}`;
 }
@@ -4241,6 +4245,25 @@ function caregiverSuccessSentence(
 
   return actions.length > 0
     ? `Caregivers who ${formatInsightList(actions)} will help ${pronouns.object} be most successful`
+    : "";
+}
+
+function aboutOpeningSentence(
+  name: string,
+  beVerb: string,
+  identityPhrase: string,
+  communicationChannels: string[],
+) {
+  if (identityPhrase) {
+    return `${name} ${beVerb} ${identityPhrase}${
+      communicationChannels.length > 0
+        ? ` who communicates primarily through ${formatInsightList(communicationChannels)}`
+        : ""
+    }`;
+  }
+
+  return communicationChannels.length > 0
+    ? `${name} communicates primarily through ${formatInsightList(communicationChannels)}`
     : "";
 }
 
@@ -4306,21 +4329,9 @@ function buildAboutSection(
   const safetyContext = safetyContextForAbout(facts, name);
   const isNeutralSubject = name === "They";
   const beVerb = isNeutralSubject ? "are" : "is";
-  const hasPersonalAboutSignal = Boolean(
-    allAboutText.trim() ||
-    communicationChannels.length > 0 ||
-    activityHighlights.length > 0 ||
-    understandsBeyondSpeech ||
-    learningSupport
-  );
+  const identityPhrase = aboutIdentityPhrase(facts);
   const aboutSentences = [
-    hasPersonalAboutSignal
-      ? `${name} ${beVerb} ${aboutIdentityPhrase(facts)}${
-          communicationChannels.length > 0
-            ? ` who communicates primarily through ${formatInsightList(communicationChannels)}`
-            : ""
-        }`
-      : "",
+    aboutOpeningSentence(name, beVerb, identityPhrase, communicationChannels),
     activityHighlights.length > 0
       ? `${name} enjoys ${formatInsightList(activityHighlights)}`
       : "",
