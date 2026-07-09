@@ -100,6 +100,7 @@ function normalizeText(value: string) {
 function duplicateCompareText(value: string) {
   return normalizeText(value)
     .replace(/^(?:how they communicate|what specific things mean|what helps communication|how they learn|visual and concrete supports|day-specific routines|hygiene and dressing details|toileting and bathroom support|morning and daily routines|food and drink notes|technology and music|movement and physical activities|sensory activities|outings and exploration|interests and toys|social preferences and downtime|other activities and preferences|additional activity notes|sensory and environmental triggers|routine, transition, and control triggers|body-state triggers|body signs|behavior signs|communication signs|environmental supports|calming supports|transitions and motivation|safety in the moment|additional support notes|emergency contacts|diagnoses and conditions|medications and allergies|equipment and supports|supervision and safety|quick tips):\s*/i, "")
+    .replace(/^\s*[a-z][a-z0-9 &'’/,-]{1,60}:\s+/i, "")
     .replace(/[.!?]+$/g, "")
     .trim();
 }
@@ -131,8 +132,8 @@ function itemsAreNearDuplicate(left: string, right: string) {
     return true;
   }
 
-  const leftTokens = contentTokens(left);
-  const rightTokens = contentTokens(right);
+  const leftTokens = [...new Set(contentTokens(left))];
+  const rightTokens = [...new Set(contentTokens(right))];
   if (leftTokens.length < 4 || rightTokens.length < 4) {
     return false;
   }

@@ -270,6 +270,28 @@ async function testSummaryCaptureBatchingWithMockedModel() {
       );
     }
 
+    if (schemaName === "caregiver_handoff_layout") {
+      const layoutPrompt = requestBody.messages?.map((message) => message.content ?? "").join("\n") ?? "";
+      const factIdFor = (pattern: RegExp) => {
+        const line = layoutPrompt.split("\n").find((candidate) => pattern.test(candidate));
+        return line?.match(/^\s*-\s*\[([^\]]+)\]/)?.[1] ?? "";
+      };
+      const factIdsFor = (...patterns: RegExp[]) =>
+        patterns.map(factIdFor).filter((factId): factId is string => Boolean(factId));
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ sections: [] }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
     assert.equal(schemaName, "caregiver_handoff_summary");
     return new Response(
       JSON.stringify({
@@ -345,6 +367,14 @@ async function testGuideLayoutGroupingWithMockedFacts() {
         ["Communication", "communication_signal", "AAC", "If Gavin selects “I want iPad,” it may mean the internet is down."],
         ["Communication", "communication_signal", "AAC", "If Gavin selects “I want iPad,” it may mean his iPad is not working."],
         ["Communication", "communication_signal", "AAC", "If Gavin selects “I want iPad,” it may mean he cannot find the video he wants."],
+        ["Communication", "communication_signal", "AAC", "If Gavin selects “car,” it may mean frustration rather than that he wants a ride."],
+        ["Communication", "communication_signal", "Gestures", "Leading a caregiver usually means Gavin wants something."],
+        ["Communication", "communication_signal", "Proximity", "Sitting close usually means Gavin wants attention."],
+        ["Communication", "communication_signal", "Vocalizations", "Angry sounds usually mean Gavin is upset or frustrated."],
+        ["Communication", "communication_signal", "Privacy", "Hiding behind furniture or curtains usually means Gavin is having a bowel movement and wants privacy."],
+        ["Communication", "support_strategy", "Communication Supports", "Simple language helps Gavin communicate."],
+        ["Communication", "support_strategy", "Communication Supports", "Offering two visual choices helps Gavin communicate."],
+        ["Communication", "support_strategy", "Communication Supports", "Showing pictures helps Gavin communicate."],
         ["Communication", "communication_signal", "Places", "Usually places Gavin likes to go are IKEA or Bass Pro Shops in Foxborough."],
         ["Daily Schedule", "routine", "Hygiene", "He is assisted with deodorant."],
         ["Daily Schedule", "routine", "Hygiene", "He is assisted with dressing."],
@@ -429,6 +459,96 @@ async function testGuideLayoutGroupingWithMockedFacts() {
                         "Gavin is a highly visual learner who benefits from videos and First-Then language.",
                       supportingFactIds: ["entry-14-fact-1", "entry-15-fact-1"],
                       themes: ["visual learning"],
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (schemaName === "caregiver_handoff_layout") {
+      const layoutPrompt = requestBody.messages?.map((message) => message.content ?? "").join("\n") ?? "";
+      const factIdFor = (pattern: RegExp) => {
+        const line = layoutPrompt.split("\n").find((candidate) => pattern.test(candidate));
+        return line?.match(/^\s*-\s*\[([^\]]+)\]/)?.[1] ?? "";
+      };
+      const factIdsFor = (...patterns: RegExp[]) =>
+        patterns.map(factIdFor).filter((factId): factId is string => Boolean(factId));
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  sections: [
+                    {
+                      sectionTitle: "Communication",
+                      intro:
+                        "Gavin understands more than he can express, so caregivers should watch AAC, sounds, gestures, proximity, and behavior together.",
+                      groups: [
+                        {
+                          label: "How Gavin Communicates",
+                          intro: "Caregivers should look across AAC, sounds, gestures, and proximity.",
+                          items: [
+                            {
+                              text: "Gavin does not use spoken words and may communicate nonverbally with sounds.",
+                              supportingFactIds: factIdsFor(/non-speaking/i, /communicates with sounds/i),
+                            },
+                            {
+                              text: "Gavin uses TouchChat on an iPad to ask for help and label what he wants.",
+                              supportingFactIds: factIdsFor(/communicates with AAC/i, /AAC system is TouchChat/i, /ask for help/i, /label what he wants/i),
+                            },
+                          ],
+                        },
+                        {
+                          label: "What Specific Things Mean",
+                          intro: "Some of Gavin's communication has specific meanings caregivers can look for.",
+                          items: [
+                            {
+                              text:
+                                "Selecting “I want iPad” may mean the internet is down, his iPad is not working, or he cannot find the video he wants.",
+                              supportingFactIds: factIdsFor(/internet is down/i, /iPad is not working/i, /cannot find the video/i),
+                            },
+                            {
+                              text: "Selecting “car” may mean frustration rather than that Gavin wants a ride.",
+                              supportingFactIds: factIdsFor(/selects .?car/i),
+                            },
+                            {
+                              text: "Leading a caregiver usually means Gavin wants something.",
+                              supportingFactIds: factIdsFor(/Leading a caregiver/i),
+                            },
+                            {
+                              text: "Sitting close usually means Gavin wants attention.",
+                              supportingFactIds: factIdsFor(/Sitting close/i),
+                            },
+                            {
+                              text: "Angry sounds usually mean Gavin is upset or frustrated.",
+                              supportingFactIds: factIdsFor(/Angry sounds/i),
+                            },
+                            {
+                              text:
+                                "Hiding behind furniture or curtains usually means Gavin is having a bowel movement and wants privacy.",
+                              supportingFactIds: factIdsFor(/Hiding behind furniture/i),
+                            },
+                          ],
+                        },
+                        {
+                          label: "What Helps Communication",
+                          intro: "",
+                          items: [
+                            {
+                              text: "Simple language, two visual choices, showing pictures, and nonverbal communication help Gavin communicate.",
+                              supportingFactIds: factIdsFor(/Simple language/i, /two visual choices/i, /Showing pictures/i, /non-verbally works/i),
+                            },
+                          ],
+                        },
+                      ],
                     },
                   ],
                 }),
@@ -536,6 +656,22 @@ async function testGuideLayoutGroupingWithMockedFacts() {
     assert.ok(countSectionMatches(result.summary, "Communication", /TouchChat on an iPad/i) <= 2);
     assert.match(sectionText(result.summary, "Communication"), /I want iPad.*internet.*not working.*video|I want iPad.*internet.*video.*not working|I want iPad.*not working.*internet.*video/i);
     assert.equal(countSectionMatches(result.summary, "Communication", /I want iPad/i), 1);
+    const communicationGroups =
+      result.summary.sections
+        .find((section) => section.title === "Communication")
+        ?.blocks?.flatMap((block) => block.type === "labeledBullets" ? block.groups : []) ?? [];
+    assert.deepEqual(
+      communicationGroups.map((group) => group.label),
+      ["How Gavin Communicates", "What Specific Things Mean", "What Helps Communication"],
+    );
+    assert.ok(
+      (communicationGroups.find((group) => group.label === "What Specific Things Mean")?.items.length ?? 0) >= 6,
+      "expected dynamic communication meanings not to be truncated",
+    );
+    assert.match(
+      communicationGroups.find((group) => group.label === "How Gavin Communicates")?.intro ?? "",
+      /AAC, sounds, gestures, and proximity/i,
+    );
     assert.match(sectionText(result.summary, "Understanding and Learning"), /visual/i);
     assert.match(sectionText(result.summary, "Understanding and Learning"), /videos/i);
     assert.match(sectionText(result.summary, "Understanding and Learning"), /First-Then/i);
@@ -619,6 +755,20 @@ async function testConciseAboutParagraphGrammarWithMockedFacts() {
       );
     }
 
+    if (schemaName === "caregiver_handoff_layout") {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ sections: [] }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
     assert.equal(schemaName, "caregiver_handoff_summary");
     return new Response(
       JSON.stringify({
@@ -665,6 +815,160 @@ async function testConciseAboutParagraphGrammarWithMockedFacts() {
     assert.match(aboutText, /talking with friends/i);
     assert.doesNotMatch(aboutText, /enjoys use\b|enjoys talk\b/i);
     assert.doesNotMatch(aboutText, /assume competence, and give/i);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousApiKey;
+    }
+  }
+}
+
+async function testDynamicLayoutFallbackWithInvalidFacts() {
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+
+  process.env.OPENAI_API_KEY = "test-summary-key";
+  globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+      response_format?: { json_schema?: { name?: string } };
+    };
+    const schemaName = requestBody.response_format?.json_schema?.name;
+
+    if (schemaName === "caregiver_handoff_structured_capture") {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  facts: [
+                    {
+                      entryId: "Entry 1",
+                      section: "Health & Safety",
+                      factKind: "condition",
+                      subcategory: "Diagnoses",
+                      statement: "Maya has epilepsy.",
+                      safetyRelevant: true,
+                    },
+                    {
+                      entryId: "Entry 2",
+                      section: "Communication",
+                      factKind: "communication_method",
+                      subcategory: "Gestures",
+                      statement: "Maya uses gestures to communicate.",
+                      safetyRelevant: false,
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (schemaName === "caregiver_handoff_insights") {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ insights: [] }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (schemaName === "caregiver_handoff_layout") {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  sections: [
+                    {
+                      sectionTitle: "Health & Safety",
+                      intro: "Model-only text should not survive invalid layout.",
+                      groups: [
+                        {
+                          label: "Health Notes",
+                          intro: "",
+                          items: [
+                            {
+                              text: "Maya has epilepsy.",
+                              supportingFactIds: ["entry-1-fact-1"],
+                            },
+                            {
+                              text: "Maya has epilepsy.",
+                              supportingFactIds: ["entry-1-fact-1", "unknown-fact"],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                    {
+                      sectionTitle: "Communication",
+                      intro: "",
+                      groups: [
+                        {
+                          label: "How Maya Communicates",
+                          intro: "",
+                          items: [
+                            {
+                              text: "Unsupported model-only sentence.",
+                              supportingFactIds: ["unknown-fact"],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    throw new Error(`Unexpected schema ${schemaName ?? "unknown"}`);
+  }) as typeof fetch;
+
+  try {
+    const result = await generateCaregiverSummaryWithQa(
+      responseTurns(
+        "maya-layout-fallback",
+        "Maya details",
+        "Maya has epilepsy and uses gestures.",
+        "2026-06-01T12:00:00.000Z",
+      ),
+      "Maya",
+      "two-step",
+    );
+    const healthText = sectionText(result.summary, "Health & Safety");
+    const communicationText = sectionText(result.summary, "Communication");
+
+    assert.match(healthText, /epilepsy/i);
+    assert.equal(countSectionMatches(result.summary, "Health & Safety", /epilepsy/i), 1);
+    assert.doesNotMatch(healthText, /Model-only text/i);
+    assert.doesNotMatch(communicationText, /Unsupported model-only sentence/i);
+    assert.equal(
+      result.auditReport.issues.filter((issue) => issue.code === "missing_coverage").length,
+      0,
+    );
+    assert.equal(
+      result.auditReport.issues.filter((issue) => issue.code === "duplicate_item").length,
+      0,
+    );
   } finally {
     globalThis.fetch = previousFetch;
     if (previousApiKey === undefined) {
@@ -1924,6 +2228,7 @@ async function main() {
   await testSummaryCaptureBatchingWithMockedModel();
   await testGuideLayoutGroupingWithMockedFacts();
   await testConciseAboutParagraphGrammarWithMockedFacts();
+  await testDynamicLayoutFallbackWithInvalidFacts();
   testEveryLegacyPromptMapping();
   testLegacyDraftMigration();
   testHealthMappingAndSkippedMigration();

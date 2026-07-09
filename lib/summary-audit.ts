@@ -19,6 +19,7 @@ type SummaryAuditOptions = {
 
 function normalizeAuditText(value: string) {
   return value
+    .replace(/^\s*[A-Za-z][A-Za-z0-9 &'’/,-]{1,60}:\s+/, "")
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")

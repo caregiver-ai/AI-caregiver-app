@@ -52,16 +52,23 @@ function normalizeText(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function contentTokens(value: string) {
+function duplicateCompareText(value: string) {
   return normalizeText(value)
+    .replace(/^\s*[a-z][a-z0-9 &'’/,-]{1,60}:\s+/i, "")
+    .replace(/[.!?]+$/g, "")
+    .trim();
+}
+
+function contentTokens(value: string) {
+  return duplicateCompareText(value)
     .replace(/[^a-z0-9\s]/g, " ")
     .split(" ")
     .filter((token) => token.length > 2);
 }
 
 function itemsAreNearDuplicate(left: string, right: string) {
-  const normalizedLeft = normalizeText(left);
-  const normalizedRight = normalizeText(right);
+  const normalizedLeft = duplicateCompareText(left);
+  const normalizedRight = duplicateCompareText(right);
 
   if (!normalizedLeft || !normalizedRight) {
     return false;
@@ -79,8 +86,8 @@ function itemsAreNearDuplicate(left: string, right: string) {
     return true;
   }
 
-  const leftTokens = contentTokens(left);
-  const rightTokens = contentTokens(right);
+  const leftTokens = [...new Set(contentTokens(left))];
+  const rightTokens = [...new Set(contentTokens(right))];
 
   if (leftTokens.length < 4 || rightTokens.length < 4) {
     return false;

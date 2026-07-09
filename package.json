@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit --incremental false",
     "summary:benchmark": "tsx scripts/run-summary-benchmarks.ts",
     "summary:review-cases": "tsx scripts/run-six-case-review.ts",
+    "summary:compare": "tsx scripts/run-summary-before-after-review.ts",
     "summary:test": "tsx scripts/test-summary-pipeline.ts"
   },
   "dependencies": {

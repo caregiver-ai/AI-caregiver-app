@@ -240,6 +240,23 @@ function drawSectionBlock(
       y: nextState.y - BODY_SIZE - 6
     };
 
+    if (group.intro?.trim()) {
+      nextState = drawParagraph(
+        pdf,
+        nextState,
+        group.intro.trim(),
+        regularFont,
+        BODY_SIZE,
+        slate,
+        CONTENT_WIDTH - 16,
+        PAGE_MARGIN_X + 16
+      );
+      nextState = {
+        ...nextState,
+        y: nextState.y - 4
+      };
+    }
+
     for (const item of group.items) {
       nextState = drawBulletItem(
         pdf,
@@ -437,6 +454,11 @@ export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: stri
             (group) => `
                 <div style="margin:0 0 12px;">
                   <div style="font-weight:600;color:#64748b;margin:0 0 6px;">${escapeHtml(group.label)}</div>
+                  ${
+                    group.intro?.trim()
+                      ? `<p style="margin:0 0 6px;color:#334155;">${escapeHtml(group.intro.trim())}</p>`
+                      : ""
+                  }
                   <ul style="margin:0 0 0 18px;padding:0;color:#334155;">
                     ${group.items.map((item) => `<li style="margin:0 0 6px;">${escapeHtml(item)}</li>`).join("")}
                   </ul>

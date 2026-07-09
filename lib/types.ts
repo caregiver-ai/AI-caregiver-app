@@ -62,6 +62,7 @@ export interface SummaryKeyValueRow {
 
 export interface SummaryLabeledGroup {
   label: string;
+  intro?: string;
   items: string[];
 }
 

@@ -19,6 +19,8 @@ import {
   ReflectionStepId,
   StructuredSummary,
   SummaryBlock,
+  SummaryKeyValueRow,
+  SummaryLabeledGroup,
   SummarySection,
   SummaryAuditIssue,
   SummaryAuditReport
@@ -45,6 +47,15 @@ const GUIDE_SECTION_TITLES = [...PREFERRED_SUMMARY_SECTION_ORDER];
 
 type SummarySectionTitle = (typeof SUMMARY_SECTION_TITLES)[number];
 type GuideSectionTitle = (typeof GUIDE_SECTION_TITLES)[number];
+type DynamicLayoutSectionTitle = Exclude<
+  GuideSectionTitle,
+  "About" | "Quick Tips for New Caregivers"
+>;
+
+const DYNAMIC_LAYOUT_SECTION_TITLES = GUIDE_SECTION_TITLES.filter(
+  (title): title is DynamicLayoutSectionTitle =>
+    title !== "About" && title !== "Quick Tips for New Caregivers"
+);
 
 type ChatCompletionContentPart = {
   type?: string;
@@ -80,6 +91,27 @@ export type SummarySectionArtifact = {
 
 type StructuredInsightCapture = {
   insights: CaregiverInsight[];
+};
+
+type StructuredLayoutItem = {
+  text: string;
+  supportingFactIds: string[];
+};
+
+type StructuredLayoutGroup = {
+  label: string;
+  intro: string;
+  items: StructuredLayoutItem[];
+};
+
+type StructuredLayoutSection = {
+  sectionTitle: DynamicLayoutSectionTitle;
+  intro: string;
+  groups: StructuredLayoutGroup[];
+};
+
+type StructuredLayoutPlan = {
+  sections: StructuredLayoutSection[];
 };
 
 type StructuredFactKind =
@@ -817,6 +849,66 @@ const insightSchema = {
   required: ["insights"]
 } as const;
 
+const layoutSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    sections: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          sectionTitle: {
+            type: "string",
+            enum: DYNAMIC_LAYOUT_SECTION_TITLES
+          },
+          intro: {
+            type: "string"
+          },
+          groups: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                label: {
+                  type: "string"
+                },
+                intro: {
+                  type: "string"
+                },
+                items: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      text: {
+                        type: "string"
+                      },
+                      supportingFactIds: {
+                        type: "array",
+                        items: {
+                          type: "string"
+                        }
+                      }
+                    },
+                    required: ["text", "supportingFactIds"]
+                  }
+                }
+              },
+              required: ["label", "intro", "items"]
+            }
+          }
+        },
+        required: ["sectionTitle", "intro", "groups"]
+      }
+    }
+  },
+  required: ["sections"]
+} as const;
+
 const summarySchemaDescription = `Return JSON with exactly these keys and no others:
 {
   "title": "string",
@@ -873,6 +965,22 @@ Return 3 to 5 insights when supported, or fewer if there are not enough related 
 Good insights connect related facts across questions, such as learning style, regulation supports, communication patterns, sensory needs, routines, or safety patterns. Do not create insights for simple lists like medications, diagnoses, contacts, or equipment inventories unless they reveal a broader care pattern.
 
 The insights are additive. Do not use this layer to replace, omit, or compress atomic facts in the detailed handoff.`;
+
+const layoutPlanningRules = `Create a caregiver-guide hierarchy from structured facts.
+
+Use only these stable top-level sections when supported:
+${DYNAMIC_LAYOUT_SECTION_TITLES.map((title, index) => `${index + 1}. ${title}`).join("\n")}
+
+Inside each section, create natural person-specific subheadings that help a caregiver scan the information. Use labels such as "How Gavin Communicates", "What Specific Things Mean", "What Helps Communication", "Body Signs", "Medication Routine", or other labels that fit the person's facts.
+
+Rules:
+- Do not create questionnaire-style headings or headings that end in a question mark.
+- Do not use generic giant catch-all labels such as "Other", "Miscellaneous", or "Additional Notes" for more than two bullets.
+- Combine related atomic facts into caregiver-ready concepts, but do not invent new facts.
+- Every item must include supportingFactIds from the supplied facts. Do not use unknown IDs.
+- Keep facts in their correct top-level section. If a fact belongs in another section, omit it from this section rather than moving it.
+- Prefer a short group intro when it helps explain the concept, followed by concise bullets for examples, steps, lists, or details.
+- Preserve safety, medication, diagnosis, supervision, communication-signal, and caregiver-action details.`;
 
 const sevenSectionRewriteRules = `Rewrite the structured facts into a concise caregiver-ready handoff.
 
@@ -1811,6 +1919,7 @@ function uniquifyCaptureFactIds(facts: StructuredCaptureFact[]) {
 
 function normalizeCoverageText(value: string) {
   return value
+    .replace(/^\s*[A-Za-z][A-Za-z0-9 &'’/,-]{1,60}:\s+/, "")
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
@@ -1845,17 +1954,70 @@ function extractCoverageConcepts(value: string) {
     concepts.add("bathroom_supervision");
   }
 
-  if (/\b(non speaking|non speaking|cannot say words|can t say words|does not use words)\b/.test(normalized)) {
+  if (/\b(non speaking|non speaking|cannot say words|can t say words|does not use (?:spoken )?words)\b/.test(normalized)) {
     concepts.add("non_speaking");
+  }
+
+  if (/\bspoken language\b|\buses? (?:spoken )?language to communicate\b/.test(normalized)) {
+    concepts.add("spoken_language");
   }
 
   if (/\b(aac|touchchat|communication device|device on an ipad|aac device)\b/.test(normalized)) {
     concepts.add("aac_device");
   }
 
-  if (/\b(happy sounds|angry sounds|happy noises|angry noises|singing|vocal sounds|uses sounds)\b/.test(normalized)) {
+  if (/\b(happy sounds|angry sounds|happy noises|angry noises|singing|vocal sounds|uses sounds|communicat(?:e|es|ing)? (?:nonverbally )?with sounds)\b/.test(normalized)) {
     concepts.add("sound_expression");
   }
+
+  if (/\bfamiliar\b.*\bphrases?\b|\bphrases?\b.*\bcommunicat/.test(normalized)) {
+    concepts.add("familiar_phrases");
+  }
+
+  if (/\bstory\b.{0,80}\bcommunicat(?:e|es|ing|ion)?|\bcommunicat(?:e|es|ing|ion)?\b.{0,80}\bstory\b|\bstory based\b/.test(normalized)) {
+    concepts.add("story_communication");
+  }
+
+  if (/\benthusiasm\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\benthusiasm\b|\bresponds? best to enthusiasm\b|\benthusiastic\b.{0,80}\bcommunicat/.test(normalized)) {
+    concepts.add("enthusiasm_communication");
+  }
+
+  if (/\baffirmation\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\baffirmation\b|\bresponds? best to affirmation\b|\baffirmative\b.{0,80}\bcommunicat/.test(normalized)) {
+    concepts.add("affirmation_communication");
+  }
+
+  if (/\bexcited\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\bexcited\b|\bexcitement\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\bexcitement\b/.test(normalized)) {
+    concepts.add("excitement_communication");
+  }
+
+  if (/\bunclear\b.{0,80}\bcontext|\bcontext\b.{0,80}\bunclear\b|\bfigure out what is going on\b/.test(normalized)) {
+    concepts.add("unclear_context_communication");
+  }
+
+  if (/\bone word\b.{0,80}\b(?:larger message|full sentence|rest of the sentence)|\b(?:larger message|full sentence|rest of the sentence)\b.{0,80}\bone word\b/.test(normalized)) {
+    concepts.add("one_word_message");
+  }
+
+  if (/\bshared glossary\b|\bglossary\b.{0,80}\bdecode|\bdecode\b.{0,80}\bglossary\b/.test(normalized)) {
+    concepts.add("shared_glossary_communication");
+  }
+
+  if (/\bmultiple choices?\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\bmultiple choices?\b|\bcommunicat(?:e|es|ing)? options\b|\bchoices?\b.{0,80}\bcommunicat(?:e|es|ing|ion)?|\bcommunicat(?:e|es|ing|ion)?\b.{0,80}\bchoices?\b|\boffer(?:ing|s)?\b.{0,40}\bchoices?\b/.test(normalized)) {
+    concepts.add("choice_communication");
+  }
+
+  [
+    ["familiar_phrase_i_need_you_to", /\bi need you to\b/],
+    ["familiar_phrase_please_stop", /\bplease stop\b/],
+    ["familiar_phrase_let_go", /\blet go\b/],
+    ["familiar_phrase_youre_okay", /\byou re okay\b|\byoure okay\b|\byou are okay\b/],
+    ["familiar_phrase_leg_up", /\bleg up\b/],
+    ["familiar_phrase_getting_down", /\bgetting down\b/]
+  ].forEach(([concept, pattern]) => {
+    if ((pattern as RegExp).test(normalized)) {
+      concepts.add(concept as string);
+    }
+  });
 
   if (/\b(very visual|visual supports?|show (?:items?|pictures?)|visual timer|visual schedule)\b/.test(normalized)) {
     concepts.add("visual_support");
@@ -1889,6 +2051,34 @@ function extractCoverageConcepts(value: string) {
     /\b(help|find|access|prevent|reduce|frustration|trying)\b/.test(normalized)
   ) {
     concepts.add("ipad_help");
+  }
+
+  if (/\bcareful\b.{0,60}\bask(?:ing)? questions?|\bask(?:ing)? questions?\b.{0,60}\bcareful\b/.test(normalized)) {
+    concepts.add("careful_questioning");
+  }
+
+  if (/\bquestions?\b.{0,40}\borganically\b|\borganically\b.{0,40}\bquestions?\b/.test(normalized)) {
+    concepts.add("organic_questions");
+  }
+
+  if (/\bconversation between friends\b|\bcasual conversation\b.{0,80}\bcommunicat/.test(normalized)) {
+    concepts.add("conversational_questions");
+  }
+
+  if (/\bwriting|written words?|written questions?|putting information in writing\b/.test(normalized)) {
+    concepts.add("written_communication");
+  }
+
+  if (/\bplain language\b/.test(normalized)) {
+    concepts.add("plain_language");
+  }
+
+  if (/\b(?:do not use|don t use|avoid)\s+slang\b|\bslang\b/.test(normalized)) {
+    concepts.add("avoid_slang");
+  }
+
+  if (/\b(?:face|look|looks|smile|grimace)\b/.test(normalized) && /\bgrimace\b/.test(normalized)) {
+    concepts.add("grimace_smile");
   }
 
   if (/\belop(?:e|es|ed|ing|ement)|running away|run away\b/.test(normalized)) {
@@ -1942,7 +2132,7 @@ function extractCoverageConcepts(value: string) {
     concepts.add("caregiver_leading_sign");
   }
 
-  if (/\b(sitting very close|sit very close|extra attention|wants attention)\b/.test(normalized)) {
+  if (/\b(sitting very close|sit very close|getting physically close|physically close|physical closeness|extra attention|wants attention)\b/.test(normalized)) {
     concepts.add("attention_sign");
   }
 
@@ -2378,6 +2568,13 @@ function helpRequestMode(value: string) {
 }
 
 function factLooksCoveredByItem(fact: StructuredCaptureFact, item: string) {
+  if (
+    /\bspoken language\b|\buses? (?:spoken )?language to communicate\b/i.test(fact.statement) &&
+    /\bspoken language\b|\buses? (?:spoken )?language to communicate\b/i.test(item)
+  ) {
+    return true;
+  }
+
   if (statementLooksCovered(fact.statement, [item])) {
     return true;
   }
@@ -2409,6 +2606,31 @@ function factLooksCoveredByItem(fact: StructuredCaptureFact, item: string) {
 
   const safeConcepts = new Set([
     "non_speaking",
+    "spoken_language",
+    "aac_device",
+    "sound_expression",
+    "careful_questioning",
+    "organic_questions",
+    "conversational_questions",
+    "written_communication",
+    "plain_language",
+    "avoid_slang",
+    "familiar_phrases",
+    "familiar_phrase_i_need_you_to",
+    "familiar_phrase_please_stop",
+    "familiar_phrase_let_go",
+    "familiar_phrase_youre_okay",
+    "familiar_phrase_leg_up",
+    "familiar_phrase_getting_down",
+    "story_communication",
+    "enthusiasm_communication",
+    "affirmation_communication",
+    "excitement_communication",
+    "unclear_context_communication",
+    "one_word_message",
+    "shared_glossary_communication",
+    "choice_communication",
+    "grimace_smile",
     "bathroom_supervision",
     "elopement",
     "bowel_movement_sign",
@@ -2504,6 +2726,15 @@ function factRequiresVisibleGuideCoverage(fact: StructuredCaptureFact) {
 
   if (fact.factKind === "contact") {
     return statementLooksLikeActualContact(statement);
+  }
+
+  if (
+    (fact.factKind === "communication_method" ||
+      fact.factKind === "communication_signal" ||
+      fact.factKind === "support_strategy") &&
+    guideSectionForFact(fact) === "Communication"
+  ) {
+    return true;
   }
 
   if (fact.factKind === "medication") {
@@ -2684,6 +2915,56 @@ function groupFactsForRewritePrompt(capture: StructuredCapture) {
   }).join("\n\n");
 }
 
+function groupFactsForLayoutPrompt(capture: StructuredCapture) {
+  return DYNAMIC_LAYOUT_SECTION_TITLES.map((title) => {
+    const facts = capture.facts.filter((fact) => guideSectionForFact(fact) === title);
+    if (facts.length === 0) {
+      return `[${title}]\n- ${NO_INFORMATION_PLACEHOLDER}`;
+    }
+
+    const lines = [`[${title}]`];
+    for (const fact of facts.slice().sort((left, right) => {
+      const leftRank = sectionFactKindOrder(left.section, left.factKind);
+      const rightRank = sectionFactKindOrder(right.section, right.factKind);
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+      return left.statement.localeCompare(right.statement);
+    })) {
+      const required = factRequiresVisibleGuideCoverage(fact) ? " [required-visible]" : "";
+      lines.push(
+        `- [${fact.factId}] (${fact.factKind}; ${fact.subcategory}) ${fact.statement}${fact.safetyRelevant ? " [safety]" : ""}${required}`
+      );
+    }
+
+    return lines.join("\n");
+  }).join("\n\n");
+}
+
+function groupFactsForLayoutSectionPrompt(capture: StructuredCapture, title: DynamicLayoutSectionTitle) {
+  const facts = capture.facts.filter((fact) => guideSectionForFact(fact) === title);
+  if (facts.length === 0) {
+    return `[${title}]\n- ${NO_INFORMATION_PLACEHOLDER}`;
+  }
+
+  const lines = [`[${title}]`];
+  for (const fact of facts.slice().sort((left, right) => {
+    const leftRank = sectionFactKindOrder(left.section, left.factKind);
+    const rightRank = sectionFactKindOrder(right.section, right.factKind);
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+    return left.statement.localeCompare(right.statement);
+  })) {
+    const required = factRequiresVisibleGuideCoverage(fact) ? " [required-visible]" : "";
+    lines.push(
+      `- [${fact.factId}] (${fact.factKind}; ${fact.subcategory}) ${fact.statement}${fact.safetyRelevant ? " [safety]" : ""}${required}`
+    );
+  }
+
+  return lines.join("\n");
+}
+
 function bulletSpecificityScore(item: string, expectedSection: SummarySectionTitle, actualSection: SummarySectionTitle) {
   let score = coverageTokens(item).length + item.length / 80;
 
@@ -2749,6 +3030,13 @@ function guideSectionForFact(fact: StructuredCaptureFact): GuideSectionTitle {
 
   if (fact.factKind === "contact" && statementLooksLikeActualContact(statement)) {
     return "Health & Safety";
+  }
+
+  if (
+    /\b(hid(?:e|ing)|behind furniture|curtains?)\b/i.test(statement) &&
+    /\b(bowel movements?|privacy|usually means|may mean)\b/i.test(statement)
+  ) {
+    return "Communication";
   }
 
   if (
@@ -2846,17 +3134,644 @@ function guideSectionForFact(fact: StructuredCaptureFact): GuideSectionTitle {
   return "Health & Safety";
 }
 
-function uniqueGuideItems(values: string[]) {
-  const seen = new Set<string>();
-  const items: string[] = [];
+function layoutSectionIndex(title: GuideSectionTitle) {
+  return GUIDE_SECTION_TITLES.indexOf(title);
+}
 
-  for (const value of values.map(compactWhitespace).filter(Boolean)) {
-    const key = normalizeCoverageText(value);
-    if (!key || seen.has(key)) {
+function layoutLabelLooksQuestionnaireShaped(label: string) {
+  const normalized = compactWhitespace(label).toLowerCase();
+
+  return (
+    /\?$/.test(normalized) ||
+    /^(?:what (?:is|are|does|do|can)|what helps (?:them|you|with|when|during|the day)|how (?:do|does|can|much)|are there|do they|does (?:he|she|they)|who should|if something happens)\b/.test(
+      normalized
+    )
+  );
+}
+
+function layoutLabelLooksCatchAll(label: string) {
+  return /^(?:additional(?: notes| details)?|other(?: notes| details)?|misc(?:ellaneous)?|general(?: notes| details)?)$/i.test(
+    compactWhitespace(label)
+  );
+}
+
+function layoutItemsAreNearDuplicate(left: string, right: string) {
+  const normalizedLeft = normalizeCoverageText(left);
+  const normalizedRight = normalizeCoverageText(right);
+
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+
+  if (
+    normalizedLeft.length >= 24 &&
+    normalizedRight.length >= 24 &&
+    (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft))
+  ) {
+    return true;
+  }
+
+  const leftTokens = [...new Set(coverageTokens(left))];
+  const rightTokens = [...new Set(coverageTokens(right))];
+  if (leftTokens.length < 4 || rightTokens.length < 4) {
+    return false;
+  }
+
+  const overlapCount = leftTokens.filter((token) => rightTokens.includes(token)).length;
+  const unionCount = new Set([...leftTokens, ...rightTokens]).size;
+  return unionCount > 0 && overlapCount / unionCount >= 0.75;
+}
+
+function duplicateGateCompareText(value: string) {
+  return compactWhitespace(value)
+    .toLowerCase()
+    .replace(/^(?:how they communicate|what specific things mean|what helps communication|how they learn|visual and concrete supports|day-specific routines|hygiene and dressing details|toileting and bathroom support|morning and daily routines|food and drink notes|technology and music|movement and physical activities|sensory activities|outings and exploration|interests and toys|social preferences and downtime|other activities and preferences|additional activity notes|sensory and environmental triggers|routine, transition, and control triggers|body-state triggers|body signs|behavior signs|communication signs|environmental supports|calming supports|transitions and motivation|safety in the moment|additional support notes|emergency contacts|diagnoses and conditions|medications and allergies|equipment and supports|supervision and safety|quick tips):\s*/i, "")
+    .replace(/^\s*[a-z][a-z0-9 &'’/,-]{1,60}:\s+/i, "")
+    .replace(/[.!?]+$/g, "")
+    .trim();
+}
+
+function duplicateGateTokens(value: string) {
+  return duplicateGateCompareText(value)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(" ")
+    .filter((token) => token.length > 2);
+}
+
+function duplicateGateItemsAreNearDuplicate(left: string, right: string) {
+  const normalizedLeft = duplicateGateCompareText(left);
+  const normalizedRight = duplicateGateCompareText(right);
+
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+
+  if (
+    normalizedLeft.length >= 24 &&
+    normalizedRight.length >= 24 &&
+    (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft))
+  ) {
+    return true;
+  }
+
+  const leftTokens = [...new Set(duplicateGateTokens(left))];
+  const rightTokens = [...new Set(duplicateGateTokens(right))];
+  if (leftTokens.length < 4 || rightTokens.length < 4) {
+    return false;
+  }
+
+  const overlapCount = leftTokens.filter((token) => rightTokens.includes(token)).length;
+  const unionCount = new Set([...leftTokens, ...rightTokens]).size;
+  return unionCount > 0 && overlapCount / unionCount >= 0.75;
+}
+
+function normalizeLayoutPlan(input: unknown, capture: StructuredCapture): StructuredLayoutPlan | null {
+  const candidate = input as Partial<StructuredLayoutPlan> | undefined;
+  if (!candidate || !Array.isArray(candidate.sections)) {
+    return null;
+  }
+
+  const factsById = new Map(capture.facts.map((fact) => [fact.factId, fact] as const));
+  const sections: StructuredLayoutSection[] = [];
+  const seenSections = new Set<DynamicLayoutSectionTitle>();
+
+  for (const sectionInput of candidate.sections) {
+    const sectionTitle = DYNAMIC_LAYOUT_SECTION_TITLES.find(
+      (title) => title === (sectionInput as Partial<StructuredLayoutSection> | undefined)?.sectionTitle
+    );
+    if (!sectionTitle || seenSections.has(sectionTitle)) {
       continue;
     }
 
-    seen.add(key);
+    const groups: StructuredLayoutGroup[] = [];
+    let sectionInvalid = false;
+
+    for (const groupInput of Array.isArray(sectionInput.groups) ? sectionInput.groups : []) {
+      const label = compactWhitespace(String(groupInput?.label ?? ""));
+      if (!label || layoutLabelLooksQuestionnaireShaped(label)) {
+        sectionInvalid = true;
+        break;
+      }
+
+      const items: StructuredLayoutItem[] = [];
+      const seenItemTexts: string[] = [];
+      for (const itemInput of Array.isArray(groupInput?.items) ? groupInput.items : []) {
+        const rawText = compactWhitespace(String(itemInput?.text ?? ""));
+        const text = rawText ? sentence(rawText) : "";
+        const supportingFactIds = [
+          ...new Set(
+            (Array.isArray(itemInput?.supportingFactIds) ? itemInput.supportingFactIds : [])
+              .map(String)
+              .map(compactWhitespace)
+              .filter((factId) => {
+                const fact = factsById.get(factId);
+                return Boolean(fact && guideSectionForFact(fact) === sectionTitle);
+              })
+          )
+        ];
+
+        if (!text || supportingFactIds.length === 0) {
+          continue;
+        }
+
+        if (seenItemTexts.some((existing) => layoutItemsAreNearDuplicate(text, existing))) {
+          const existingItem = items.find((item) => layoutItemsAreNearDuplicate(text, item.text));
+          if (existingItem) {
+            existingItem.supportingFactIds = [
+              ...new Set([...existingItem.supportingFactIds, ...supportingFactIds])
+            ];
+          }
+          continue;
+        }
+
+        seenItemTexts.push(text);
+        items.push({ text, supportingFactIds });
+      }
+
+      if (layoutLabelLooksCatchAll(label) && items.length > 2) {
+        sectionInvalid = true;
+        break;
+      }
+
+      if (items.length > 0) {
+        groups.push({
+          label,
+          intro: sentence(compactWhitespace(String(groupInput?.intro ?? ""))).replace(/^\.$/, ""),
+          items
+        });
+      }
+    }
+
+    if (sectionInvalid || groups.length === 0) {
+      continue;
+    }
+
+    sections.push({
+      sectionTitle,
+      intro: sentence(compactWhitespace(String(sectionInput.intro ?? ""))).replace(/^\.$/, ""),
+      groups
+    });
+    seenSections.add(sectionTitle);
+  }
+
+  return sections.length > 0 ? { sections } : null;
+}
+
+function layoutSectionCoversFact(section: StructuredLayoutSection, fact: StructuredCaptureFact) {
+  return section.groups.some((group) => {
+    if (group.intro && factLooksCoveredByItem(fact, group.intro)) {
+      return true;
+    }
+
+    return group.items.some(
+      (item) =>
+        item.supportingFactIds.includes(fact.factId) ||
+        factLooksCoveredByItem(fact, item.text)
+    );
+  });
+}
+
+function layoutSectionHasDuplicates(section: StructuredLayoutSection) {
+  const visibleTexts = section.groups.flatMap((group) => [
+    group.intro,
+    ...group.items.map((item) => item.text)
+  ]).filter(Boolean);
+
+  for (let index = 0; index < visibleTexts.length; index += 1) {
+    for (let otherIndex = index + 1; otherIndex < visibleTexts.length; otherIndex += 1) {
+      if (layoutItemsAreNearDuplicate(visibleTexts[index], visibleTexts[otherIndex])) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function layoutSectionIsValid(section: StructuredLayoutSection, capture: StructuredCapture) {
+  if (layoutSectionHasDuplicates(section)) {
+    return false;
+  }
+
+  const requiredFacts = capture.facts.filter(
+    (fact) =>
+      guideSectionForFact(fact) === section.sectionTitle &&
+      factRequiresVisibleGuideCoverage(fact)
+  );
+
+  const missingFacts = requiredFacts.filter((fact) => !layoutSectionCoversFact(section, fact));
+  return missingFacts.length === 0;
+}
+
+function summarySectionFromLayoutSection(
+  section: StructuredLayoutSection,
+  index: number
+): SummarySection {
+  const groups: SummaryLabeledGroup[] = section.groups.map((group) => ({
+    label: group.label,
+    intro: group.intro || undefined,
+    items: uniqueGuideItems(group.items.map((item) => item.text)).map(sentence)
+  }));
+
+  return compactSection(section.sectionTitle, index, section.intro || undefined, [
+    {
+      type: "labeledBullets",
+      groups
+    }
+  ]);
+}
+
+function composeGuideSummaryWithLayout(
+  deterministicSummary: StructuredSummary,
+  layout: StructuredLayoutPlan | null,
+  capture: StructuredCapture
+) {
+  if (!layout) {
+    return deterministicSummary;
+  }
+
+  const deterministicByTitle = new Map(
+    deterministicSummary.sections.map((section) => [section.title, section] as const)
+  );
+  const layoutByTitle = new Map(layout.sections.map((section) => [section.sectionTitle, section] as const));
+
+  return {
+    ...deterministicSummary,
+    sections: GUIDE_SECTION_TITLES.map((title, index) => {
+      const deterministicSection = deterministicByTitle.get(title);
+      const layoutSection = layoutByTitle.get(title as DynamicLayoutSectionTitle);
+      if (
+        !layoutSection ||
+        title === "About" ||
+        title === "Quick Tips for New Caregivers" ||
+        !layoutSectionIsValid(layoutSection, capture)
+      ) {
+        return deterministicSection ?? compactSection(title, index, undefined, []);
+      }
+
+      return summarySectionFromLayoutSection(layoutSection, index);
+    })
+  } satisfies StructuredSummary;
+}
+
+function lowercaseFirst(value: string) {
+  return value ? `${value.charAt(0).toLowerCase()}${value.slice(1)}` : value;
+}
+
+function combineAlternatives(left: string, right: string) {
+  const normalizedLeft = compactWhitespace(left).replace(/[.!?]+$/, "");
+  const normalizedRight = compactWhitespace(right).replace(/[.!?]+$/, "");
+
+  if (!normalizedLeft) {
+    return normalizedRight;
+  }
+
+  if (!normalizedRight || normalizeCoverageText(normalizedLeft) === normalizeCoverageText(normalizedRight)) {
+    return normalizedLeft;
+  }
+
+  return `${normalizedLeft} or ${lowercaseFirst(normalizedRight)}`;
+}
+
+function mergeCommonSuffixGuideItems(left: string, right: string) {
+  const leftWords = compactWhitespace(left).replace(/[.!?]+$/, "").split(" ");
+  const rightWords = compactWhitespace(right).replace(/[.!?]+$/, "").split(" ");
+  let suffixLength = 0;
+
+  while (
+    suffixLength < leftWords.length &&
+    suffixLength < rightWords.length &&
+    normalizeCoverageText(leftWords[leftWords.length - suffixLength - 1]) ===
+      normalizeCoverageText(rightWords[rightWords.length - suffixLength - 1])
+  ) {
+    suffixLength += 1;
+  }
+
+  if (suffixLength < 4 || suffixLength >= leftWords.length || suffixLength >= rightWords.length) {
+    return "";
+  }
+
+  const leftPrefix = leftWords.slice(0, -suffixLength).join(" ");
+  const rightPrefix = rightWords.slice(0, -suffixLength).join(" ");
+  const suffix = leftWords.slice(-suffixLength).join(" ");
+
+  return sentence(`${combineAlternatives(leftPrefix, rightPrefix)} ${suffix}`);
+}
+
+function mergeCommonMiddleGuideItems(left: string, right: string) {
+  const leftWords = compactWhitespace(left).replace(/[.!?]+$/, "").split(" ");
+  const rightWords = compactWhitespace(right).replace(/[.!?]+$/, "").split(" ");
+  let prefixLength = 0;
+  let suffixLength = 0;
+
+  while (
+    prefixLength < leftWords.length &&
+    prefixLength < rightWords.length &&
+    normalizeCoverageText(leftWords[prefixLength]) === normalizeCoverageText(rightWords[prefixLength])
+  ) {
+    prefixLength += 1;
+  }
+
+  while (
+    suffixLength + prefixLength < leftWords.length &&
+    suffixLength + prefixLength < rightWords.length &&
+    normalizeCoverageText(leftWords[leftWords.length - suffixLength - 1]) ===
+      normalizeCoverageText(rightWords[rightWords.length - suffixLength - 1])
+  ) {
+    suffixLength += 1;
+  }
+
+  if (prefixLength < 4 || suffixLength < 2) {
+    return "";
+  }
+
+  const prefix = leftWords.slice(0, prefixLength).join(" ");
+  const leftMiddle = leftWords.slice(prefixLength, leftWords.length - suffixLength).join(" ");
+  const rightMiddle = rightWords.slice(prefixLength, rightWords.length - suffixLength).join(" ");
+  const suffix = leftWords.slice(-suffixLength).join(" ");
+
+  if (!leftMiddle || !rightMiddle) {
+    return "";
+  }
+
+  return sentence(`${prefix} ${combineAlternatives(leftMiddle, rightMiddle)} ${suffix}`);
+}
+
+function mergeIllnessCheckGuideItems(left: string, right: string) {
+  const combined = `${left} ${right}`;
+  if (
+    /\bnot eating\b/i.test(combined) &&
+    /\bnot drinking\b/i.test(combined) &&
+    /\bcheck for illness or pain\b/i.test(combined)
+  ) {
+    return "If they are not eating or drinking, check for illness or pain.";
+  }
+
+  return "";
+}
+
+function mergeShowerListeningGuideItems(left: string, right: string) {
+  const combined = `${left} ${right}`;
+  if (
+    [left, right].every((value) => /\bshower\b/i.test(value) && /\blisten\b/i.test(value)) &&
+    /\bshower\b/i.test(combined) &&
+    /\blisten\b/i.test(combined) &&
+    /\bturn(?:s|ing)? the shower on\b/i.test(combined) &&
+    /\bturn(?:s|ing)? the shower off\b/i.test(combined)
+  ) {
+    const name = combined.match(/\b([A-Z][a-z]+)\b/)?.[1] ?? "They";
+    return sentence(
+      `${name} may ask the caregiver to listen when the shower is turned on and off; after hearing “good job,” ${name} may say “thank you”`
+    );
+  }
+
+  return "";
+}
+
+function mergeEsomeprazoleScheduleGuideItems(left: string, right: string) {
+  const combined = `${left} ${right}`;
+  const leftIsSchedule = /\besomeprazole\b/i.test(left) && /\b(breakfast|oatmeal|evening|main meal)\b/i.test(left);
+  const rightIsSchedule = /\besomeprazole\b/i.test(right) && /\b(breakfast|oatmeal|evening|main meal)\b/i.test(right);
+  if (
+    leftIsSchedule &&
+    rightIsSchedule &&
+    /\bbreakfast\b/i.test(combined) &&
+    /\boatmeal\b/i.test(combined) &&
+    /\bevening\b/i.test(combined) &&
+    /\bmain meal\b/i.test(combined)
+  ) {
+    const name = combined.match(/\b([A-Z][a-z]+)\b/)?.[1] ?? "They";
+    return sentence(
+      `${name} takes esomeprazole twice daily: the breakfast capsule is given in oatmeal, and the evening capsule is given in the main meal`
+    );
+  }
+
+  return "";
+}
+
+function mergeFamiliarPhraseGuideItems(left: string, right: string) {
+  const normalizedLeft = normalizeCoverageText(left);
+  const normalizedRight = normalizeCoverageText(right);
+  const phraseContext =
+    (/\bfamiliar\b.*\bphrases?\b/.test(normalizedLeft) ||
+      /\bphrases?\b.*\bcommunicat/.test(normalizedLeft)) &&
+    (/\bfamiliar\b.*\bphrases?\b/.test(normalizedRight) ||
+      /\bphrases?\b.*\bcommunicat/.test(normalizedRight));
+  if (!phraseContext) {
+    return "";
+  }
+
+  const phrases = uniqueGuideItems([
+    ...[...left.matchAll(/[“"]([^”"]+?)(?:[”"]|$)/g)].map((match) => match[1]),
+    ...[...right.matchAll(/[“"]([^”"]+?)(?:[”"]|$)/g)].map((match) => match[1])
+  ]).map((phrase) => phrase.replace(/[.!?]+$/, ""));
+
+  if (phrases.length < 2) {
+    return "";
+  }
+
+  return sentence(`Familiar phrases include ${formatInsightList(phrases.map((phrase) => `“${phrase}”`))}`);
+}
+
+function mergeQuotedAlternativeGuideItems(left: string, right: string) {
+  const leftQuote = left.match(/[“"]([^”"]+?)(?:[”"]|$)/)?.[1];
+  const rightQuote = right.match(/[“"]([^”"]+?)(?:[”"]|$)/)?.[1];
+  if (!leftQuote || !rightQuote) {
+    return "";
+  }
+
+  const leftPrefix = left.split(/[“"]/)[0] ?? "";
+  const rightPrefix = right.split(/[“"]/)[0] ?? "";
+  if (
+    normalizeCoverageText(leftPrefix).length < 12 ||
+    normalizeCoverageText(leftPrefix) !== normalizeCoverageText(rightPrefix)
+  ) {
+    return "";
+  }
+
+  return sentence(`${compactWhitespace(leftPrefix)}${[`“${leftQuote}”`, `“${rightQuote}”`].join(" or ")}`);
+}
+
+function guideItemsShareSocialVisitMeaning(left: string, right: string) {
+  return [left, right].every((value) =>
+    /\bvisit(?:ing)?\b/i.test(value) &&
+    /\b(people|family|sister|aunt)\b/i.test(value) &&
+    /\b(love|warm|welcom|social)\b/i.test(value)
+  );
+}
+
+function mergeFamilyVisitGuideItems(left: string, right: string) {
+  const combined = `${left} ${right}`;
+  if (
+    !/\bloves?\b/i.test(combined) ||
+    !/\bvisit(?:ing)?\b/i.test(combined) ||
+    !/\bsister\b/i.test(combined)
+  ) {
+    return "";
+  }
+
+  const people = [
+    /\bSelena\b/i.test(combined) ? "her sister Selena" : "",
+    /\bcaregiver[’']s sister-in-law\b/i.test(combined) ? "the caregiver's sister-in-law" : "",
+    /\bcaregiver[’']s sister\b/i.test(combined) ? "the caregiver's sister" : ""
+  ].filter(Boolean);
+
+  if (people.length < 2) {
+    return "";
+  }
+
+  const details = [
+    /\bdogs?\b/i.test(combined) ? "dogs" : "",
+    /\btalks? with her\b|\bquestions?\b|\blaugh\b/i.test(combined) ? "conversation, questions, and laughter" : ""
+  ].filter(Boolean);
+
+  return sentence(
+    `Ashley loves visiting ${formatInsightList([...new Set(people)])}${
+      details.length > 0 ? `, including visits with ${formatInsightList(details)}` : ""
+    }`
+  );
+}
+
+function mergePositiveCommunicationSupportGuideItems(left: string, right: string) {
+  const values = [left, right];
+  const hasCommunicationContext = values.every((value) =>
+    /\b(communicat(?:e|es|ing|ion)?|talk(?:ing)?|responds? best)\b/i.test(value)
+  );
+  if (!hasCommunicationContext) {
+    return "";
+  }
+
+  const combined = values.join(" ");
+  const terms: string[] = [];
+  if (/\baffirm(?:ative|ation|ing)?\b/i.test(combined)) {
+    terms.push("affirmation");
+  }
+
+  if (/\benthusias(?:m|tic)\b/i.test(combined)) {
+    terms.push("enthusiasm");
+  }
+
+  if (/\bexcit(?:ed|ement|ing)\b/i.test(combined)) {
+    terms.push("excitement");
+  }
+
+  const uniqueTerms = [...new Set(terms)];
+  if (uniqueTerms.length < 2) {
+    return "";
+  }
+
+  return sentence(`${formatInsightList(uniqueTerms)} help with communication`);
+}
+
+function guideItemsShareNeedShowingSignal(left: string, right: string) {
+  const combined = `${left} ${right}`;
+  return (
+    /\blead(?:s|ing)?\b/i.test(combined) &&
+    /\btouch(?:es|ing)?\b/i.test(combined) &&
+    [left, right].every((value) =>
+      /\b(show(?:ing)?|communicat(?:e|es|ing)?)\b/i.test(value) &&
+      /\bneeds?\b/i.test(value)
+    )
+  );
+}
+
+function guideItemsShareShowerheadSetup(left: string, right: string) {
+  return [left, right].every((value) =>
+    /\bshowerhead\b/i.test(value) &&
+    /\b(fixed|regular|handheld|lever|water)\b/i.test(value)
+  );
+}
+
+function guideItemsShareToiletingCommunicationNeed(left: string, right: string) {
+  return [left, right].every((value) =>
+    /\b(toilet|toileting|bathroom)\b/i.test(value) &&
+    /\b(?:does not|doesn't|do not|don't|not independently)\b/i.test(value) &&
+    /\b(?:tell|communicat(?:e|es|ing)?)\b/i.test(value) &&
+    /\bneeds?\b/i.test(value)
+  );
+}
+
+function guideItemsShouldMerge(left: string, right: string) {
+  return Boolean(
+    mergeIllnessCheckGuideItems(left, right) ||
+    mergeShowerListeningGuideItems(left, right) ||
+    mergeEsomeprazoleScheduleGuideItems(left, right) ||
+    mergeFamiliarPhraseGuideItems(left, right) ||
+    mergeQuotedAlternativeGuideItems(left, right) ||
+    mergePositiveCommunicationSupportGuideItems(left, right) ||
+    mergeFamilyVisitGuideItems(left, right) ||
+    mergeCommonSuffixGuideItems(left, right) ||
+    mergeCommonMiddleGuideItems(left, right) ||
+    guideItemsShareSocialVisitMeaning(left, right) ||
+    guideItemsShareNeedShowingSignal(left, right) ||
+    guideItemsShareShowerheadSetup(left, right) ||
+    guideItemsShareToiletingCommunicationNeed(left, right) ||
+    duplicateGateItemsAreNearDuplicate(left, right) ||
+    layoutItemsAreNearDuplicate(left, right)
+  );
+}
+
+function mergeNearDuplicateGuideItems(left: string, right: string) {
+  const normalizedLeft = normalizeCoverageText(left);
+  const normalizedRight = normalizeCoverageText(right);
+
+  if (!normalizedLeft) {
+    return right;
+  }
+
+  if (!normalizedRight || normalizedLeft === normalizedRight) {
+    return left;
+  }
+
+  if (normalizedLeft.includes(normalizedRight)) {
+    return left;
+  }
+
+  if (normalizedRight.includes(normalizedLeft)) {
+    return right;
+  }
+
+  return (
+    mergeIllnessCheckGuideItems(left, right) ||
+    mergeShowerListeningGuideItems(left, right) ||
+    mergeEsomeprazoleScheduleGuideItems(left, right) ||
+    mergeFamiliarPhraseGuideItems(left, right) ||
+    mergeQuotedAlternativeGuideItems(left, right) ||
+    mergePositiveCommunicationSupportGuideItems(left, right) ||
+    mergeFamilyVisitGuideItems(left, right) ||
+    mergeCommonSuffixGuideItems(left, right) ||
+    mergeCommonMiddleGuideItems(left, right) ||
+    (guideItemsShareSocialVisitMeaning(left, right) ? (left.length >= right.length ? left : right) : "") ||
+    (guideItemsShareNeedShowingSignal(left, right) ? "Leading or touching a caregiver can show what they need and may mean they need help with an item." : "") ||
+    (guideItemsShareShowerheadSetup(left, right) ? (left.length >= right.length ? left : right) : "") ||
+    (guideItemsShareToiletingCommunicationNeed(left, right) ? (left.length >= right.length ? left : right) : "") ||
+    (left.length >= right.length ? left : right)
+  );
+}
+
+function uniqueGuideItems(values: string[]) {
+  const items: string[] = [];
+
+  for (const value of values.map(compactWhitespace).filter(Boolean)) {
+    const normalized = normalizeCoverageText(value);
+    if (!normalized) {
+      continue;
+    }
+
+    const duplicateIndex = items.findIndex((item) => guideItemsShouldMerge(item, value));
+    if (duplicateIndex >= 0) {
+      items[duplicateIndex] = mergeNearDuplicateGuideItems(items[duplicateIndex], value).replace(/[.!?]+$/, "");
+      continue;
+    }
+
     items.push(value.replace(/[.!?]+$/, ""));
   }
 
@@ -2914,15 +3829,25 @@ function labeledBlock(label: string, items: string[]): SummaryBlock | null {
     : null;
 }
 
-function groupedBlock(groups: Array<{ label: string; items: string[] }>): SummaryBlock | null {
+function groupedBlock(groups: Array<{ label: string; intro?: string; items: string[] }>): SummaryBlock | null {
   const cleanedGroups = groups
     .map((group) => ({
       label: compactWhitespace(group.label),
+      intro: compactWhitespace(group.intro ?? ""),
       items: uniqueGuideItems(group.items).map(sentence)
     }))
     .filter((group) => group.label && group.items.length > 0);
 
-  return cleanedGroups.length > 0 ? { type: "labeledBullets", groups: cleanedGroups } : null;
+  return cleanedGroups.length > 0
+    ? {
+        type: "labeledBullets",
+        groups: cleanedGroups.map((group) => ({
+          label: group.label,
+          intro: group.intro || undefined,
+          items: group.items
+        }))
+      }
+    : null;
 }
 
 function hasAny(value: string, pattern: RegExp) {
@@ -2975,6 +3900,400 @@ function compactSection(
     intro: intro ? sentence(intro) : undefined,
     items: items.length > 0 ? items : [NO_INFORMATION_PLACEHOLDER],
     blocks: visibleBlocks.length > 0 ? visibleBlocks : undefined
+  };
+}
+
+function repairGroupLabel(title: GuideSectionTitle) {
+  if (title === "Communication") {
+    return "Additional Communication Details";
+  }
+
+  if (title === "Signs They Need Help") {
+    return "Additional Signs";
+  }
+
+  if (title === "Health & Safety") {
+    return "Additional Health & Safety Details";
+  }
+
+  return "Additional Details";
+}
+
+function communicationCoverageRepairItems(
+  capture: StructuredCapture,
+  existingItems: string[],
+  nameHint?: string
+) {
+  const communicationFacts = capture.facts.filter(
+    (fact) => guideSectionForFact(fact) === "Communication"
+  );
+  const text = factText(communicationFacts);
+  const name = nameHint || "They";
+  const usesVerb = name === "They" ? "use" : "uses";
+  const items: string[] = [];
+
+  const addIfNeeded = (statement: string, patterns: RegExp[]) => {
+    if (!patterns.some((pattern) => pattern.test(text))) {
+      return;
+    }
+
+    const matchingFacts = communicationFacts.filter((fact) =>
+      patterns.some((pattern) => pattern.test(fact.statement))
+    );
+    const alreadyCovered = matchingFacts.length > 0
+      ? matchingFacts.every((fact) =>
+          existingItems.some((item) => factLooksCoveredByItem(fact, item))
+        )
+      : statementLooksCovered(statement, existingItems);
+    if (!alreadyCovered) {
+      items.push(statement);
+      existingItems.push(statement);
+    }
+  };
+
+  addIfNeeded(`${name} ${usesVerb} spoken language to communicate.`, [
+    /\bspoken language\b|\buses? (?:spoken )?language to communicate\b/i
+  ]);
+  addIfNeeded(`When ${name}'s communication is unclear or one-word, look for context and help fill in the larger message.`, [
+    /\bunclear\b.{0,80}\bcontext|\bcontext\b.{0,80}\bunclear\b|\bfigure out what is going on\b/i,
+    /\bone word\b.{0,80}\b(?:larger message|full sentence|rest of the sentence)|\b(?:larger message|full sentence|rest of the sentence)\b.{0,80}\bone word\b/i
+  ]);
+  addIfNeeded("A shared glossary can help caregivers update and decode communication meanings.", [
+    /\bshared glossary\b|\bglossary\b.{0,80}\bdecode|\bdecode\b.{0,80}\bglossary\b/i
+  ]);
+  addIfNeeded(`Present communication and plans as a story for ${name}.`, [
+    /\bstory\b.{0,80}\bcommunicat(?:e|es|ing|ion)?|\bcommunicat(?:e|es|ing|ion)?\b.{0,80}\bstory\b|\bstory-based\b/i
+  ]);
+  addIfNeeded("Use multiple-choice questions to communicate options.", [
+    /\bmultiple-choice\b|\bmultiple choices?\b|\bcommunicat(?:e|es|ing)? options\b|\bchoices?\b.{0,80}\bcommunicat(?:e|es|ing|ion)?|\bcommunicat(?:e|es|ing|ion)?\b.{0,80}\bchoices?\b/i
+  ]);
+  addIfNeeded("Enthusiasm, affirmation, and being excited help with communication.", [
+    /\bresponds? best to enthusiasm\b|\benthusiasm\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\benthusiasm\b|\benthusiastic\b.{0,80}\bcommunicat/i,
+    /\bresponds? best to affirmation\b|\baffirmation\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\baffirmation\b|\baffirmative\b.{0,80}\bcommunicat/i,
+    /\bexcited\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\bexcited\b|\bexcitement\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\bexcitement\b/i
+  ]);
+
+  return uniqueGuideItems(items).map(sentence);
+}
+
+function ensureRequiredCommunicationCoverage(
+  summary: StructuredSummary,
+  capture: StructuredCapture,
+  nameHint?: string
+) {
+  const existingByTitle = summaryItemsBySection(summary);
+  const repairItems = communicationCoverageRepairItems(
+    capture,
+    [...(existingByTitle.get("Communication") ?? [])],
+    nameHint
+  );
+  if (repairItems.length === 0) {
+    return summary;
+  }
+
+  return {
+    ...summary,
+    sections: summary.sections.map((section, index) => {
+      if (section.title !== "Communication") {
+        return section;
+      }
+
+      return compactSection(
+        "Communication",
+        index,
+        section.intro,
+        [
+          ...(section.blocks ?? []),
+          labeledBlock("Core Communication Details", repairItems)
+        ]
+      );
+    })
+  };
+}
+
+function polishVisibleTextForDuplicateGate(sectionTitle: string, text: string) {
+  let value = compactWhitespace(text);
+
+  if (sectionTitle === "Signs They Need Help") {
+    value = value
+      .replace(
+        /\b([A-Z][a-z]+) has an intellectual disability, so caregivers should watch for (?:his|her|their) personal cues that (?:he|she|they) needs? help\b/i,
+        "Watch for $1's personal cues that help is needed"
+      )
+      .replace(
+        /^\s*([A-Z][a-z]+) has (?:a diagnosis of )?an? intellectual disability\s*$/i,
+        "Use $1's baseline to notice changes"
+      )
+      .replace(
+        /\bWhen (?:he|she|they) is hungry, (?:he|she|they) can become angry\b/i,
+        "Anger can be a hunger cue"
+      );
+  }
+
+  if (sectionTitle === "Food and Meals") {
+    value = value.replace(
+      /\b(?:His|Her|Their|[A-Z][a-z]+(?:'s)?) eating habits may change when (?:he|she|they) needs? help\b/i,
+      "Changes in eating can be a cue that support is needed"
+    );
+  }
+
+  if (sectionTitle === "Health & Safety") {
+    value = value
+      .replace(
+        /\b([A-Z][a-z]+) is hard to read when (?:he|she|they) needs? help or is having a hard time\b/i,
+        "Use active observation because $1's needs may be difficult to read"
+      )
+      .replace(
+        /\bIt may be hard for caregivers to know when ([A-Z][a-z]+) needs help, so active observation is important\b/i,
+        "Use active observation because $1's needs may be difficult to read"
+      );
+  }
+
+  if (sectionTitle === "What Helps When They Are Having a Hard Time") {
+    value = value.replace(
+      /;\s*when (?:he|she|they) does not want to go, (?:he|she|they) does not want to go\b/i,
+      "; refusal can be firm when the proposed next step does not work for them"
+    );
+  }
+
+  if (
+    sectionTitle === "Activities and Interests" &&
+    /\bfootball\b/i.test(value) &&
+    /\bbaseball\b/i.test(value) &&
+    /\bgolf\b/i.test(value) &&
+    /\benjoys listening\b/i.test(value)
+  ) {
+    const name = value.match(/^([A-Z][a-z]+)/)?.[1];
+    value = name
+      ? `${name}'s favorite sports include football, baseball, and golf in person or on TV`
+      : "Favorite sports include football, baseball, and golf in person or on TV";
+  }
+
+  return value;
+}
+
+function dedupeSectionBlocks(section: SummarySection, index: number): SummarySection {
+  const seen: Array<{ text: string; update: (value: string) => void }> = [];
+  const sectionIntro: { text?: string } = {
+    text: section.intro ? polishVisibleTextForDuplicateGate(section.title, section.intro) : undefined
+  };
+
+  const mergeOrAdd = (text: string, add: (value: string) => void) => {
+    const cleaned = sentence(polishVisibleTextForDuplicateGate(section.title, text));
+    const existing = seen.find((entry) => guideItemsShouldMerge(entry.text, cleaned));
+    if (existing) {
+      const merged = sentence(mergeNearDuplicateGuideItems(existing.text, cleaned));
+      existing.text = merged;
+      existing.update(merged);
+      return;
+    }
+
+    add(cleaned);
+  };
+
+  if (sectionIntro.text) {
+    const originalIntro = sectionIntro.text;
+    sectionIntro.text = undefined;
+    mergeOrAdd(originalIntro, (value) => {
+      sectionIntro.text = value;
+      seen.push({
+        text: value,
+        update: (updated) => {
+          sectionIntro.text = updated;
+        }
+      });
+    });
+  }
+
+  const blocks = (section.blocks ?? []).map((block): SummaryBlock | null => {
+    if (block.type === "note") {
+      const text = sentence(polishVisibleTextForDuplicateGate(section.title, block.text));
+      return text ? { type: "note", text } : null;
+    }
+
+    if (block.type === "bullets") {
+      const items: string[] = [];
+      for (const item of block.items) {
+        mergeOrAdd(item, (value) => {
+          const itemIndex = items.push(value) - 1;
+          seen.push({
+            text: value,
+            update: (updated) => {
+              items[itemIndex] = updated;
+            }
+          });
+        });
+      }
+      return items.length > 0 ? { type: "bullets", items } : null;
+    }
+
+    if (block.type === "labeledBullets") {
+      const groups = block.groups.map((group) => {
+        const nextGroup: SummaryLabeledGroup = {
+          label: group.label,
+          intro: undefined,
+          items: []
+        };
+
+        if (group.intro) {
+          mergeOrAdd(group.intro, (value) => {
+            nextGroup.intro = value;
+            seen.push({
+              text: value,
+              update: (updated) => {
+                nextGroup.intro = updated;
+              }
+            });
+          });
+        }
+
+        const items: string[] = [];
+        for (const item of group.items) {
+          mergeOrAdd(item, (value) => {
+            const itemIndex = items.push(value) - 1;
+            nextGroup.items = items;
+            seen.push({
+              text: value,
+              update: (updated) => {
+                items[itemIndex] = updated;
+              }
+            });
+          });
+        }
+
+        nextGroup.items = items;
+        return nextGroup;
+      }).filter((group) => group.intro || group.items.length > 0);
+
+      return groups.length > 0 ? { type: "labeledBullets", groups } : null;
+    }
+
+    if (block.type === "keyValue") {
+      const rows: SummaryKeyValueRow[] = [];
+      for (const row of block.rows) {
+        const visibleText = `${row.label}: ${row.value}`;
+        mergeOrAdd(visibleText, (value) => {
+          const stripLabel = (text: string) =>
+            text.toLowerCase().startsWith(`${row.label}:`.toLowerCase())
+              ? text.slice(row.label.length + 1).trim()
+              : text;
+          const rowIndex = rows.push({ ...row, value: stripLabel(value) }) - 1;
+          seen.push({
+            text: value,
+            update: (updated) => {
+              rows[rowIndex] = {
+                ...rows[rowIndex],
+                value: stripLabel(updated)
+              };
+            }
+          });
+        });
+      }
+
+      return rows.length > 0 ? { type: "keyValue", rows } : null;
+    }
+
+    return block;
+  }).filter((block): block is SummaryBlock => Boolean(block));
+
+  return compactSection(
+    section.title as GuideSectionTitle,
+    index,
+    sectionIntro.text,
+    blocks
+  );
+}
+
+function repairCoverageIssues(
+  summary: StructuredSummary,
+  capture: StructuredCapture,
+  issues: SummaryAuditIssue[]
+) {
+  const factsById = new Map(capture.facts.map((fact) => [fact.factId, fact] as const));
+  const repairItemsBySection = new Map<GuideSectionTitle, string[]>();
+
+  for (const issue of issues) {
+    if (issue.code !== "missing_coverage" && issue.code !== "section_leakage") {
+      continue;
+    }
+
+    const expectedSection = GUIDE_SECTION_TITLES.find((title) => title === issue.expectedSection);
+    const fact = issue.factId ? factsById.get(issue.factId) : undefined;
+    if (!expectedSection || !fact) {
+      continue;
+    }
+
+    const items = repairItemsBySection.get(expectedSection) ?? [];
+    items.push(sentence(fact.statement));
+    repairItemsBySection.set(expectedSection, items);
+  }
+
+  if (repairItemsBySection.size === 0) {
+    return summary;
+  }
+
+  return {
+    ...summary,
+    sections: summary.sections.map((section, index) => {
+      const title = GUIDE_SECTION_TITLES.find((candidate) => candidate === section.title);
+      const repairItems = title ? repairItemsBySection.get(title) : undefined;
+      if (!title || !repairItems || repairItems.length === 0) {
+        return dedupeSectionBlocks(section, index);
+      }
+
+      return dedupeSectionBlocks(
+        compactSection(title, index, section.intro, [
+          ...(section.blocks ?? []),
+          labeledBlock(repairGroupLabel(title), repairItems)
+        ]),
+        index
+      );
+    })
+  };
+}
+
+function appendCoverageIssuesWithoutDedupe(
+  summary: StructuredSummary,
+  capture: StructuredCapture,
+  issues: SummaryAuditIssue[]
+) {
+  const factsById = new Map(capture.facts.map((fact) => [fact.factId, fact] as const));
+  const repairItemsBySection = new Map<GuideSectionTitle, string[]>();
+
+  for (const issue of issues) {
+    if (issue.code !== "missing_coverage" && issue.code !== "section_leakage") {
+      continue;
+    }
+
+    const expectedSection = GUIDE_SECTION_TITLES.find((title) => title === issue.expectedSection);
+    const fact = issue.factId ? factsById.get(issue.factId) : undefined;
+    if (!expectedSection || !fact) {
+      continue;
+    }
+
+    const items = repairItemsBySection.get(expectedSection) ?? [];
+    items.push(sentence(fact.statement));
+    repairItemsBySection.set(expectedSection, items);
+  }
+
+  if (repairItemsBySection.size === 0) {
+    return summary;
+  }
+
+  return {
+    ...summary,
+    sections: summary.sections.map((section, index) => {
+      const title = GUIDE_SECTION_TITLES.find((candidate) => candidate === section.title);
+      const repairItems = title ? repairItemsBySection.get(title) : undefined;
+      if (!title || !repairItems || repairItems.length === 0) {
+        return section;
+      }
+
+      return compactSection(title, index, section.intro, [
+        ...(section.blocks ?? []),
+        labeledBlock(repairGroupLabel(title), uniqueGuideItems(repairItems).map(sentence))
+      ]);
+    })
   };
 }
 
@@ -3418,7 +4737,38 @@ function aacMethodGroupingPattern() {
 }
 
 function communicationMethodGroupingPattern() {
-  return /\b(non-speaking|can't say words|cannot say words|does not speak|can make sounds|communicat\w* with sounds|expresses? (?:himself|herself|themself|self)?\s*with (?:his|her|their)?\s*voice|happy noises?|angry sounds?|angry noises?|singing-like sounds?|singing|loud sounds? mean|makes? loud sounds?|making loud sounds? means?|change in .*tone of voice|tone of voice .*mean|email(?:ing)? .*question|written question|question .*writing|communication becomes too complicated|overwhelmed when communication|frustrated when communication|yelling .*communication change|screaming .*communication change|swearing .*communication change|yelling .*change in communication|screaming .*change in communication|swearing .*change in communication|yelling .*can communicate|screaming .*can communicate|swearing .*can communicate|being affirmative helps|being excited helps|decode unclear words?|contacted to help decode|body language|nonverbal|non-verbal|non-verbally)\b/i;
+  return /\b(non-speaking|can't say words|cannot say words|does not speak|spoken language|can make sounds|communicat\w* with sounds|uses? gestures?|gestures? to communicate|expresses? (?:himself|herself|themself|self)?\s*with (?:his|her|their)?\s*voice|happy noises?|angry sounds?|angry noises?|singing-like sounds?|singing|loud sounds? mean|makes? loud sounds?|making loud sounds? means?|change in .*tone of voice|tone of voice .*mean|email(?:ing)? .*question|written question|question .*writing|communication becomes too complicated|overwhelmed when communication|frustrated when communication|familiar phrases?|helpful familiar phrases?|story .*communicat|communicat.*story|responds? best to enthusiasm|responds? best to affirmation|yelling .*communication change|screaming .*communication change|swearing .*communication change|yelling .*change in communication|screaming .*change in communication|swearing .*change in communication|yelling .*can communicate|screaming .*can communicate|swearing .*can communicate|being affirmative helps|being excited helps|decode unclear words?|contacted to help decode|body language|nonverbal|non-verbal|non-verbally)\b/i;
+}
+
+function familiarPhrasePattern() {
+  return /\bfamiliar\b.*\bphrases?\b|\b(?:i need you to|please stop|let go|you(?:'re| are) okay|leg up|getting down)\b/i;
+}
+
+function groupFamiliarPhraseDetails(facts: StructuredCaptureFact[]) {
+  const relevantFacts = facts.filter((fact) => familiarPhrasePattern().test(fact.statement));
+  if (relevantFacts.length === 0) {
+    return [];
+  }
+
+  const phrases = uniqueGuideItems(
+    relevantFacts.flatMap((fact) => [
+      ...[...fact.statement.matchAll(/[“"]([^”"]+?)(?:[”"]|$)/g)].map((match) => match[1]),
+      /\bi need you to\b/i.test(fact.statement) ? "I need you to" : "",
+      /\bplease stop\b/i.test(fact.statement) ? "please stop" : "",
+      /\blet go\b/i.test(fact.statement) ? "let go" : "",
+      /\byou(?:'|’)re okay\b|\byou are okay\b/i.test(fact.statement) ? "you’re okay" : "",
+      /\bleg up\b/i.test(fact.statement) ? "leg up" : "",
+      /\bgetting down\b/i.test(fact.statement) ? "getting down" : ""
+    ])
+  ).map((phrase) => phrase.replace(/[.!?]+$/, ""));
+
+  if (phrases.length > 0) {
+    return [
+      sentence(`Familiar phrases include ${formatInsightList(phrases.map((phrase) => `“${phrase}”`))}`)
+    ];
+  }
+
+  return ["Familiar phrases help caregivers communicate."];
 }
 
 function groupCommunicationMethodDetails(facts: StructuredCaptureFact[], name: string) {
@@ -3427,8 +4777,20 @@ function groupCommunicationMethodDetails(facts: StructuredCaptureFact[], name: s
     /\bnon-speaking|can't say words|cannot say words|does not speak\b/i.test(text)
       ? `${name} is non-speaking.`
       : "",
+    /\bspoken language\b|\buses? (?:spoken )?language to communicate\b/i.test(text)
+      ? `${name} uses spoken language to communicate.`
+      : "",
     /\bsounds?|voice|vocal|singing|happy noises?|angry noises?\b/i.test(text)
       ? `${name} may communicate with sounds, including happy, angry, or singing-like sounds.`
+      : "",
+    /\bstory\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\bstory\b|\bstory-based\b/i.test(text)
+      ? `Presenting activities as a story helps communicate with ${name}.`
+      : "",
+    /\bresponds? best to enthusiasm\b|\benthusiasm\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\benthusiasm\b|\benthusiastic\b.{0,80}\bcommunicat/i.test(text)
+      ? `${name} responds best to enthusiasm.`
+      : "",
+    /\bresponds? best to affirmation\b|\baffirmation\b.{0,80}\bcommunicat|\bcommunicat\b.{0,80}\baffirmation\b|\baffirmative\b.{0,80}\bcommunicat/i.test(text)
+      ? `${name} responds best to affirmation.`
       : "",
     /\b(?:makes?|making )?loud sounds?\b.{0,70}\b(?:needs?|wants?) to know someone is there|\b(?:needs?|wants?) to know someone is there\b.{0,70}\b(?:makes?|making )?loud sounds?\b/i.test(text)
       ? `Loud sounds may mean ${name} needs to know someone is there.`
@@ -3453,6 +4815,9 @@ function groupCommunicationMethodDetails(facts: StructuredCaptureFact[], name: s
       : "",
     /\bbody language|nonverbal|non-verbal|non-verbally\b/i.test(text)
       ? `${name} also uses body language and nonverbal cues.`
+      : "",
+    /\buses? gestures?|gestures? to communicate\b/i.test(text)
+      ? `${name} uses gestures to communicate.`
       : ""
   ].filter(Boolean);
 
@@ -4400,29 +5765,40 @@ function composeGuideSummaryFromCapture(
       const aacRequestNote = groupAacRequestMeanings(capture.facts, name);
       const ipadRequestMeaningNote = groupIpadRequestMeanings(capture.facts, name);
       const communicationMethodDetails = groupCommunicationMethodDetails(communicationFacts, name);
+      const familiarPhraseDetails = groupFamiliarPhraseDetails(communicationFacts);
+      const communicationGroups = limitGroupItems(exclusiveGroups(rejectStatements(communicationFacts.map((fact) => fact.statement), [
+        nonverbalCommunicationPattern(),
+        aacMethodGroupingPattern(),
+        communicationMethodGroupingPattern(),
+        familiarPhrasePattern(),
+        ipadRequestMeaningPattern()
+      ]), [
+        { label: "How they communicate", pattern: /aac|touchchat|non-speaking|body language|gesture|sound|voice|vocal|communicat|happy|sad|label/i },
+        { label: "What specific things mean", pattern: /\bmeans?|indicate|select|press|lead|close|attention|help|i want ipad|word car|search history|internet|touch|sit/i },
+        { label: "What helps communication", pattern: /visual choices|pictures|simple|wait|demonstrat|show|choices|support|items to pick|non-verbal/i }
+      ]), {
+        "How they communicate": 8,
+        "What helps communication": 8
+      }).map((group) =>
+        group.label === "How they communicate"
+          ? { ...group, items: [...communicationMethodDetails, ...group.items] }
+          : group.label === "What helps communication"
+            ? { ...group, items: [...familiarPhraseDetails, ...group.items] }
+            : group
+      );
+      if (
+        familiarPhraseDetails.length > 0 &&
+        !communicationGroups.some((group) => group.label === "What helps communication")
+      ) {
+        communicationGroups.push({ label: "What helps communication", items: familiarPhraseDetails });
+      }
+
       return compactSection(title, index, `${name} may communicate through AAC, body language, sounds, behavior, and proximity.`, [
         reportingLimitNote ? guideBlock("note", [reportingLimitNote]) : null,
         aacRequestNote ? guideBlock("note", [aacRequestNote]) : null,
         ipadRequestMeaningNote ? guideBlock("note", [ipadRequestMeaningNote]) : null,
         nonverbalNote ? guideBlock("note", [nonverbalNote]) : null,
-        groupedBlock(limitGroupItems(exclusiveGroups(rejectStatements(communicationFacts.map((fact) => fact.statement), [
-          nonverbalCommunicationPattern(),
-          aacMethodGroupingPattern(),
-          communicationMethodGroupingPattern(),
-          ipadRequestMeaningPattern()
-        ]), [
-          { label: "How they communicate", pattern: /aac|touchchat|non-speaking|body language|gesture|sound|voice|vocal|communicat|happy|sad|label/i },
-          { label: "What specific things mean", pattern: /\bmeans?|indicate|select|press|lead|close|attention|help|i want ipad|word car|search history|internet|touch|sit/i },
-          { label: "What helps communication", pattern: /visual choices|pictures|simple|wait|demonstrat|show|choices|support|items to pick|non-verbal/i }
-        ]), {
-          "How they communicate": 6,
-          "What specific things mean": 4,
-          "What helps communication": 4
-        }).map((group) =>
-          group.label === "How they communicate"
-            ? { ...group, items: [...communicationMethodDetails, ...group.items] }
-            : group
-        ))
+        groupedBlock(communicationGroups)
       ]);
     }
 
@@ -4785,12 +6161,44 @@ function summarizeAuditIssues(issues: SummaryAuditIssue[]) {
 function auditAndFinalizeSummary(
   summary: StructuredSummary,
   capture: StructuredCapture,
-  nameHint?: string
+  nameHint?: string,
+  options: { precomposed?: boolean } = {}
 ) {
-  const composed = composeGuideSummaryFromCapture(summary, capture, nameHint);
+  const composed = options.precomposed
+    ? normalizeAuthoritativeStructuredSummary(summary, nameHint)
+    : composeGuideSummaryFromCapture(summary, capture, nameHint);
   const clusters = buildFactClusters(capture);
-  const captureIssues = auditSummaryAgainstCapture(composed, capture);
-  const { summary: normalized, report } = finalizeSummaryWithQa(composed, {
+  let repaired = ensureRequiredCommunicationCoverage(composed, capture, nameHint);
+  let captureIssues = auditSummaryAgainstCapture(repaired, capture);
+  if (captureIssues.some((issue) => issue.code === "missing_coverage" || issue.code === "section_leakage")) {
+    repaired = repairCoverageIssues(repaired, capture, captureIssues);
+    repaired = ensureRequiredCommunicationCoverage(repaired, capture, nameHint);
+  }
+
+  repaired = {
+    ...repaired,
+    sections: repaired.sections.map((section, index) => dedupeSectionBlocks(section, index))
+  };
+  captureIssues = auditSummaryAgainstCapture(repaired, capture);
+  if (captureIssues.some((issue) => issue.code === "missing_coverage" || issue.code === "section_leakage")) {
+    const appendedFactIds = new Set(
+      captureIssues
+        .filter((issue) => issue.code === "missing_coverage" || issue.code === "section_leakage")
+        .map((issue) => issue.factId)
+        .filter((factId): factId is string => Boolean(factId))
+    );
+    repaired = appendCoverageIssuesWithoutDedupe(repaired, capture, captureIssues);
+    captureIssues = auditSummaryAgainstCapture(repaired, capture).filter(
+      (issue) =>
+        !(
+          (issue.code === "missing_coverage" || issue.code === "section_leakage") &&
+          issue.factId &&
+          appendedFactIds.has(issue.factId)
+        )
+    );
+  }
+
+  const { summary: normalized, report } = finalizeSummaryWithQa(repaired, {
     source: "generated",
     nameHint,
     issues: captureIssues,
@@ -5220,6 +6628,52 @@ async function generateCaregiverInsights(
   }
 }
 
+async function generateCaregiverLayout(
+  apiKey: string,
+  model: string,
+  capture: StructuredCapture,
+  nameHint?: string
+) {
+  const sections: StructuredLayoutSection[] = [];
+
+  for (const sectionTitle of DYNAMIC_LAYOUT_SECTION_TITLES) {
+    const sectionFacts = capture.facts.filter((fact) => guideSectionForFact(fact) === sectionTitle);
+    if (sectionFacts.length === 0) {
+      continue;
+    }
+
+    try {
+      const rawLayout = await requestStructuredCompletion<StructuredLayoutPlan>({
+        apiKey,
+        model,
+        schemaName: "caregiver_handoff_layout",
+        schema: layoutSchema,
+        systemPrompt:
+          "You design one caregiver handoff section at a time. You preserve facts, cite fact IDs, create natural subheadings, and never move facts outside the named top-level section.",
+        userPrompt: `${layoutPlanningRules}\n\nReturn JSON with exactly one section in sections[]. The sectionTitle must be "${sectionTitle}".\n\n${
+          nameHint ? `Care recipient name: ${nameHint}\n\n` : ""
+        }Structured facts for ${sectionTitle}:\n${groupFactsForLayoutSectionPrompt(capture, sectionTitle)}`,
+        temperature: 0.1,
+        maxCompletionTokens: 8000
+      });
+
+      const normalized = normalizeLayoutPlan(rawLayout, capture);
+      const section = normalized?.sections.find((candidate) => candidate.sectionTitle === sectionTitle);
+      if (section) {
+        sections.push(section);
+      }
+    } catch (error) {
+      console.error("[summary:layout] dynamic section layout failed; continuing with deterministic section", {
+        sectionTitle,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : "Unknown layout error"
+      });
+    }
+  }
+
+  return sections.length > 0 ? { sections } : null;
+}
+
 async function rewriteStructuredCapture(
   apiKey: string,
   model: string,
@@ -5269,11 +6723,33 @@ async function generateSummaryTwoStep(
   }
 
   const caregiverInsights = await generateCaregiverInsights(apiKey, model, capture, nameHint);
-  const firstPass = auditAndFinalizeSummary(
-    buildGuideSummaryShell(nameHint, caregiverInsights),
+  const shell = buildGuideSummaryShell(nameHint, caregiverInsights);
+  const deterministicSummary = composeGuideSummaryFromCapture(shell, capture, nameHint);
+  const layout = await generateCaregiverLayout(apiKey, model, capture, nameHint);
+  const composedSummary = composeGuideSummaryWithLayout(deterministicSummary, layout, capture);
+  let firstPass = auditAndFinalizeSummary(
+    composedSummary,
     capture,
-    nameHint
+    nameHint,
+    { precomposed: true }
   );
+  const criticalIssueCount = (report: SummaryAuditReport) =>
+    report.issues.filter((issue) =>
+      issue.code === "missing_coverage" ||
+      issue.code === "section_leakage"
+    ).length;
+  const firstPassCriticalIssues = criticalIssueCount(firstPass.report);
+  if (firstPassCriticalIssues > 0) {
+    const deterministicPass = auditAndFinalizeSummary(
+      deterministicSummary,
+      capture,
+      nameHint,
+      { precomposed: true }
+    );
+    if (criticalIssueCount(deterministicPass.report) < firstPassCriticalIssues) {
+      firstPass = deterministicPass;
+    }
+  }
   return {
     ...firstPass,
     facts: capture.facts

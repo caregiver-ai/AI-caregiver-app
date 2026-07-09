@@ -66,7 +66,11 @@ export function blockHasContent(block: SummaryBlock) {
   }
 
   if (block.type === "labeledBullets") {
-    return block.groups.some((group) => group.items.some((item) => !isNoInformation(item)));
+    return block.groups.some(
+      (group) =>
+        (compactWhitespace(group.intro ?? "") && !isNoInformation(group.intro ?? "")) ||
+        group.items.some((item) => !isNoInformation(item))
+    );
   }
 
   if (block.type === "keyValue") {
@@ -125,11 +129,14 @@ export function blockToPlainTextLines(block: SummaryBlock): string[] {
     return uniqueStrings(
       block.groups.flatMap((group) => {
         const label = compactWhitespace(group.label);
-        return group.items
-          .map((item) => {
+        return [
+          group.intro && label ? `${label}: ${compactWhitespace(group.intro)}` : compactWhitespace(group.intro ?? ""),
+          ...group.items.map((item) => {
             const text = compactWhitespace(item);
             return label && text ? `${label}: ${text}` : text;
           })
+        ]
+          .map(compactWhitespace)
           .filter((line) => line && !isNoInformation(line));
       })
     );

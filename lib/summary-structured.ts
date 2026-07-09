@@ -9,8 +9,8 @@ import {
   SummarySection
 } from "@/lib/types";
 
-export const SUMMARY_PIPELINE_VERSION = "2026-06-28-person-first-about-paragraph-v4";
-export const SUMMARY_LAYOUT_VERSION = "2026-06-28-person-first-about-paragraph-v4";
+export const SUMMARY_PIPELINE_VERSION = "2026-07-08-dynamic-hierarchy-v1";
+export const SUMMARY_LAYOUT_VERSION = "2026-07-08-dynamic-hierarchy-v1";
 
 type LegacyItemRecord = {
   id: string;
@@ -221,9 +221,12 @@ function extractNameFromTitle(value?: string) {
 function flattenGroupItems(groups: SummaryLabeledGroup[]) {
   return groups.flatMap((group) => {
     const label = `${trimSentence(group.label)}:`;
-    return group.items.map((item) =>
-      sentenceCase(`${label} ${trimSentence(item)}`)
-    );
+    return [
+      group.intro ? sentenceCase(`${label} ${trimSentence(group.intro)}`) : "",
+      ...group.items.map((item) =>
+        sentenceCase(`${label} ${trimSentence(item)}`)
+      )
+    ].filter(Boolean);
   });
 }
 
@@ -278,6 +281,7 @@ function normalizeSummaryGroups(input: unknown) {
     .map((group) => {
       const candidate = group as Partial<SummaryLabeledGroup> | undefined;
       const label = compactWhitespace(String(candidate?.label ?? ""));
+      const intro = compactWhitespace(String(candidate?.intro ?? ""));
       const items = Array.isArray(candidate?.items)
         ? uniqueStrings(
             candidate.items
@@ -290,7 +294,11 @@ function normalizeSummaryGroups(input: unknown) {
         return null;
       }
 
-      return { label, items } satisfies SummaryLabeledGroup;
+      return {
+        label,
+        ...(intro ? { intro } : {}),
+        items
+      } satisfies SummaryLabeledGroup;
     })
     .filter((group): group is SummaryLabeledGroup => Boolean(group));
 }

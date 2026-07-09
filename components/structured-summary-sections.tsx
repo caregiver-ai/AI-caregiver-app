@@ -154,28 +154,53 @@ function BlockEditor({
   return (
     <div className="space-y-3">
       {block.groups.map((group, groupIndex) => (
-        <label key={`${group.label}-${groupIndex}`} className="block space-y-2">
-          <span className="text-sm font-medium text-slate-700">{group.label}</span>
-          <textarea
-            className="min-h-24 w-full rounded-2xl border border-border bg-white px-4 py-3 outline-none transition focus:border-accent"
-            value={itemsToTextarea(group.items)}
-            onChange={(event) => {
-              const nextBlocks = [...blocks];
-              nextBlocks[blockIndex] = {
-                ...block,
-                groups: block.groups.map((entry, entryIndex) =>
-                  entryIndex === groupIndex
-                    ? {
-                        ...entry,
-                        items: textareaToItems(event.target.value)
-                      }
-                    : entry
-                )
-              };
-              updateBlocks(section, nextBlocks, onChange);
-            }}
-          />
-        </label>
+        <div key={`${group.label}-${groupIndex}`} className="space-y-3">
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-slate-700">{group.label}</span>
+            <textarea
+              className="min-h-16 w-full rounded-2xl border border-border bg-white px-4 py-3 outline-none transition focus:border-accent"
+              placeholder="Optional subsection intro"
+              value={group.intro ?? ""}
+              onChange={(event) => {
+                const nextBlocks = [...blocks];
+                nextBlocks[blockIndex] = {
+                  ...block,
+                  groups: block.groups.map((entry, entryIndex) =>
+                    entryIndex === groupIndex
+                      ? {
+                          ...entry,
+                          intro: event.target.value
+                        }
+                      : entry
+                  )
+                };
+                updateBlocks(section, nextBlocks, onChange);
+              }}
+            />
+          </label>
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-slate-600">Bullets</span>
+            <textarea
+              className="min-h-24 w-full rounded-2xl border border-border bg-white px-4 py-3 outline-none transition focus:border-accent"
+              value={itemsToTextarea(group.items)}
+              onChange={(event) => {
+                const nextBlocks = [...blocks];
+                nextBlocks[blockIndex] = {
+                  ...block,
+                  groups: block.groups.map((entry, entryIndex) =>
+                    entryIndex === groupIndex
+                      ? {
+                          ...entry,
+                          items: textareaToItems(event.target.value)
+                        }
+                      : entry
+                  )
+                };
+                updateBlocks(section, nextBlocks, onChange);
+              }}
+            />
+          </label>
+        </div>
       ))}
     </div>
   );
@@ -266,9 +291,10 @@ function SummaryBlockDisplay({ block }: { block: SummaryBlock }) {
       {block.groups.map((group) => (
         <div key={group.label} className="space-y-2">
           <h3 className="text-sm font-semibold text-slate-600">{group.label}</h3>
-          <ul className="space-y-2 text-sm leading-6 text-slate-700">
+          {group.intro ? <p className="text-sm leading-6 text-slate-700">{group.intro}</p> : null}
+          <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-slate-700">
             {group.items.map((item) => (
-              <li key={`${group.label}-${item}`} className="rounded-2xl bg-canvas px-4 py-3">
+              <li key={`${group.label}-${item}`}>
                 {item}
               </li>
             ))}

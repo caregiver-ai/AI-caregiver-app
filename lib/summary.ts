@@ -1710,6 +1710,9 @@ export function summaryToPlainText(summary: StructuredSummary) {
 
       for (const group of block.groups) {
         lines.push(group.label);
+        if (group.intro?.trim() && !isNoInformationItem(group.intro)) {
+          lines.push(group.intro.trim());
+        }
         lines.push(
           ...group.items
             .filter((item) => !isNoInformationItem(item))
