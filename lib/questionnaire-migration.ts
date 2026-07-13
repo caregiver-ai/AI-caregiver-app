@@ -46,6 +46,9 @@ type SavedResponse = {
   content: string;
   skipped: boolean;
   createdAt: string;
+  sourceLanguage?: UiLanguage;
+  sourceContent?: string;
+  translatedAt?: string;
 };
 
 const LEGACY_CONTACT_LABELS: Record<
@@ -101,7 +104,10 @@ function extractSavedResponses(turns: ConversationTurn[]): SavedResponse[] {
       promptId,
       content: turn.content.trim(),
       skipped: Boolean(turn.skipped),
-      createdAt: turn.createdAt
+      createdAt: turn.createdAt,
+      sourceLanguage: turn.sourceLanguage,
+      sourceContent: turn.sourceContent?.trim(),
+      translatedAt: turn.translatedAt
     });
     activePromptId = "";
   }
@@ -136,6 +142,10 @@ export function migrateQuestionnaireTurns(turns: ConversationTurn[], language: U
   for (const [promptId, sourceResponses] of grouped) {
     const seenContent = new Set<string>();
     const contentParts: string[] = [];
+    const sourceContentParts: string[] = [];
+    const sourceLanguage = sourceResponses.find((response) => response.sourceLanguage)
+      ?.sourceLanguage;
+    const translatedAt = sourceResponses.find((response) => response.translatedAt)?.translatedAt;
 
     for (const response of sourceResponses) {
       const content = migratedResponseContent(response, language);
@@ -145,13 +155,20 @@ export function migrateQuestionnaireTurns(turns: ConversationTurn[], language: U
 
       seenContent.add(content);
       contentParts.push(content);
+
+      if (response.sourceContent) {
+        sourceContentParts.push(response.sourceContent);
+      }
     }
 
     migratedResponses[promptId] = {
       promptId,
       content: contentParts.join("\n\n"),
       skipped: contentParts.length === 0 && sourceResponses.every((response) => response.skipped),
-      createdAt: earliestTimestamp(sourceResponses.map((response) => response.createdAt))
+      createdAt: earliestTimestamp(sourceResponses.map((response) => response.createdAt)),
+      sourceLanguage,
+      sourceContent: sourceContentParts.length > 0 ? sourceContentParts.join("\n\n") : undefined,
+      translatedAt
     };
   }
 

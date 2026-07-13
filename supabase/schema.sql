@@ -52,8 +52,15 @@ create table if not exists public.conversation_turns (
   role text not null check (role in ('assistant', 'user')),
   prompt_type text not null check (prompt_type in ('initial', 'follow_up', 'section_prompt', 'system')),
   content text not null,
+  source_language text,
+  source_content text,
+  translated_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+alter table if exists public.conversation_turns add column if not exists source_language text;
+alter table if exists public.conversation_turns add column if not exists source_content text;
+alter table if exists public.conversation_turns add column if not exists translated_at timestamptz;
 
 create table if not exists public.summaries (
   id uuid primary key default gen_random_uuid(),

@@ -127,6 +127,13 @@ type ReflectionCopy = {
   completeButton: string;
   buildingSummaryLabel: string;
   textareaPlaceholder: string;
+  sourceTextareaLabel: string;
+  englishTranslationLabel: string;
+  englishTranslationPlaceholder: string;
+  translationPendingMessage: string;
+  translationFailedMessage: string;
+  translationMissingMessage: string;
+  retryTranslationButton: string;
   allQuestionsAnswered: string;
   recordResponseTitle: string;
   spokenLanguageLabel: string;
@@ -446,6 +453,13 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     completeButton: "Complete",
     buildingSummaryLabel: "Building summary...",
     textareaPlaceholder: "Write the most important details another caregiver should know...",
+    sourceTextareaLabel: "Spanish answer",
+    englishTranslationLabel: "English translation",
+    englishTranslationPlaceholder: "English translation will appear here.",
+    translationPendingMessage: "English translation is updating. Please wait before continuing.",
+    translationFailedMessage: "The English translation could not be updated.",
+    translationMissingMessage: "Translate this Spanish answer before continuing.",
+    retryTranslationButton: "Retry translation",
     allQuestionsAnswered: "All questions answered.",
     recordResponseTitle: "Record a response",
     spokenLanguageLabel: "Spoken language",
@@ -495,6 +509,13 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     completeButton: "Completar",
     buildingSummaryLabel: "Creando resumen...",
     textareaPlaceholder: "Escriba los detalles más importantes que otra persona cuidadora debería saber...",
+    sourceTextareaLabel: "Respuesta en español",
+    englishTranslationLabel: "Traducción al inglés",
+    englishTranslationPlaceholder: "La traducción al inglés aparecerá aquí.",
+    translationPendingMessage: "La traducción al inglés se está actualizando. Espere antes de continuar.",
+    translationFailedMessage: "No fue posible actualizar la traducción al inglés.",
+    translationMissingMessage: "Traduzca esta respuesta en español antes de continuar.",
+    retryTranslationButton: "Reintentar traducción",
     allQuestionsAnswered: "Todas las preguntas están respondidas.",
     recordResponseTitle: "Grabar respuesta",
     spokenLanguageLabel: "Idioma hablado",
@@ -544,6 +565,13 @@ const reflectionCopy: Record<UiLanguage, ReflectionCopy> = {
     completeButton: "完成",
     buildingSummaryLabel: "正在生成摘要...",
     textareaPlaceholder: "请写下另一位照护者最需要知道的内容……",
+    sourceTextareaLabel: "西班牙语回答",
+    englishTranslationLabel: "英文翻译",
+    englishTranslationPlaceholder: "英文翻译会显示在这里。",
+    translationPendingMessage: "英文翻译正在更新。请稍候再继续。",
+    translationFailedMessage: "无法更新英文翻译。",
+    translationMissingMessage: "继续前请先翻译这条西班牙语回答。",
+    retryTranslationButton: "重试翻译",
     allQuestionsAnswered: "所有问题都已回答。",
     recordResponseTitle: "录制回答",
     spokenLanguageLabel: "口语语言",

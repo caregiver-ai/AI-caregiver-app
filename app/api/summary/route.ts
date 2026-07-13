@@ -39,7 +39,10 @@ export async function POST(request: Request) {
       session_id: body.sessionId,
       role: turn.role,
       prompt_type: turn.promptType,
-      content: turn.content
+      content: turn.content,
+      source_language: turn.sourceLanguage ?? null,
+      source_content: turn.sourceContent ?? null,
+      translated_at: turn.translatedAt ?? null
     }));
 
     const { error: turnError } = await supabase.from("conversation_turns").insert(conversationRows);

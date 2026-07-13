@@ -45,6 +45,9 @@ export interface ConversationTurn {
   promptLabel?: string;
   promptExamples?: string[];
   skipped?: boolean;
+  sourceLanguage?: UiLanguage;
+  sourceContent?: string;
+  translatedAt?: string;
 }
 
 export interface SummarySection {

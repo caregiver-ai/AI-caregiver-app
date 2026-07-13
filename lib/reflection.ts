@@ -6,6 +6,9 @@ export type ReflectionResponse = {
   content: string;
   skipped: boolean;
   createdAt: string;
+  sourceLanguage?: UiLanguage;
+  sourceContent?: string;
+  translatedAt?: string;
 };
 
 export function getPromptSequence(language: UiLanguage = "english"): ConversationTurn[] {
@@ -49,7 +52,10 @@ export function getResponsesFromTurns(
       promptId: activePromptId,
       content: turn.content,
       skipped: Boolean(turn.skipped),
-      createdAt: turn.createdAt
+      createdAt: turn.createdAt,
+      sourceLanguage: turn.sourceLanguage,
+      sourceContent: turn.sourceContent,
+      translatedAt: turn.translatedAt
     };
     activePromptId = null;
   }
@@ -83,6 +89,9 @@ export function buildTurnsFromResponses(
         promptLabel: prompt.promptLabel,
         content: response.content,
         skipped: response.skipped,
+        sourceLanguage: response.sourceLanguage,
+        sourceContent: response.sourceContent,
+        translatedAt: response.translatedAt,
         createdAt: response.createdAt
       }
     ];

@@ -27,6 +27,7 @@ import { ReflectionStepId, SessionDraft, UiLanguage } from "@/lib/types";
 
 const MAX_RECORDING_MS = 60 * 1000;
 const MAX_TRANSCRIPTION_UPLOAD_BYTES = 4 * 1024 * 1024;
+const SPANISH_TRANSLATION_DEBOUNCE_MS = 1000;
 const SPOKEN_LANGUAGE_OPTIONS: UiLanguage[] = ["english", "spanish", "mandarin"];
 const EXAMPLE_LABELS: Record<UiLanguage, string> = {
   english: "Examples",
@@ -37,6 +38,20 @@ const EXAMPLE_SENTENCE_ENDINGS: Record<UiLanguage, string> = {
   english: ".",
   spanish: ".",
   mandarin: "。"
+};
+
+type TranslationStatus = {
+  state: "pending" | "error";
+  message?: string;
+};
+
+type TranslationApiResponse = {
+  error?: string;
+  transcript?: string;
+  content?: string;
+  sourceContent?: string;
+  sourceLanguage?: UiLanguage;
+  translatedAt?: string | null;
 };
 
 function formatDuration(durationMs: number) {
@@ -52,7 +67,8 @@ function sanitizeResponses(responses: Record<string, ReflectionResponse>) {
 
   for (const [promptId, response] of Object.entries(responses)) {
     const content = response.content.trim();
-    if (!content) {
+    const sourceContent = response.sourceContent?.trim() ?? "";
+    if (!content && !sourceContent) {
       continue;
     }
 
@@ -60,7 +76,8 @@ function sanitizeResponses(responses: Record<string, ReflectionResponse>) {
       promptId,
       {
         ...response,
-        content
+        content,
+        sourceContent: sourceContent || undefined
       }
     ]);
   }
@@ -100,6 +117,7 @@ export function ReflectionChat() {
   const [recording, setRecording] = useState(false);
   const [recordingDurationMs, setRecordingDurationMs] = useState(0);
   const [transcribing, setTranscribing] = useState(false);
+  const [translationStatuses, setTranslationStatuses] = useState<Record<string, TranslationStatus>>({});
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("english");
   const [audioLanguage, setAudioLanguage] = useState<UiLanguage>("english");
   const recorderRef = useRef<AudioRecorderController | null>(null);
@@ -107,6 +125,9 @@ export function ReflectionChat() {
   const recordingTimerRef = useRef<number | null>(null);
   const recordingTimeoutRef = useRef<number | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
+  const translationTimersRef = useRef<Record<string, number>>({});
+  const translationAbortControllersRef = useRef<Record<string, AbortController>>({});
+  const translationRequestIdsRef = useRef<Record<string, number>>({});
   const shouldScrollToTopRef = useRef(false);
 
   const reflectionCopy = useMemo(() => getReflectionCopy(uiLanguage), [uiLanguage]);
@@ -140,6 +161,10 @@ export function ReflectionChat() {
   const hasAnyResponse = useMemo(
     () => Object.values(sanitizeResponses(responses)).length > 0,
     [responses]
+  );
+  const currentStepTranslationBlocked = useMemo(
+    () => Boolean(getTranslationBlockMessage(stepPrompts.map((prompt) => prompt.id))),
+    [reflectionCopy, responses, stepPrompts, translationStatuses, uiLanguage]
   );
 
   useEffect(() => {
@@ -265,8 +290,36 @@ export function ReflectionChat() {
       if (chime) {
         void chime.close();
       }
+
+      for (const promptId of Object.keys(translationTimersRef.current)) {
+        clearTranslationRequest(promptId);
+      }
+
+      for (const promptId of Object.keys(translationAbortControllersRef.current)) {
+        clearTranslationRequest(promptId);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (uiLanguage !== "spanish") {
+      return;
+    }
+
+    for (const prompt of prompts) {
+      const response = responses[prompt.id];
+      if (
+        response?.sourceLanguage === "spanish" &&
+        response.sourceContent?.trim() &&
+        !response.content.trim() &&
+        !translationTimersRef.current[prompt.id] &&
+        !translationAbortControllersRef.current[prompt.id] &&
+        translationStatuses[prompt.id]?.state !== "pending"
+      ) {
+        scheduleSpanishTranslation(prompt, response.sourceContent);
+      }
+    }
+  }, [prompts, responses, translationStatuses, uiLanguage]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -350,6 +403,214 @@ export function ReflectionChat() {
     }
   }
 
+  function clearTranslationRequest(promptId: string) {
+    const timerId = translationTimersRef.current[promptId];
+    if (timerId) {
+      window.clearTimeout(timerId);
+      delete translationTimersRef.current[promptId];
+    }
+
+    const controller = translationAbortControllersRef.current[promptId];
+    if (controller) {
+      controller.abort();
+      delete translationAbortControllersRef.current[promptId];
+    }
+  }
+
+  function clearTranslationStatus(promptId: string) {
+    setTranslationStatuses((current) => {
+      if (!current[promptId]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[promptId];
+      return next;
+    });
+  }
+
+  function setTranslationStatus(promptId: string, status: TranslationStatus) {
+    setTranslationStatuses((current) => ({
+      ...current,
+      [promptId]: status
+    }));
+  }
+
+  function getTranslationBlockMessage(
+    promptIds: string[],
+    candidateResponses: Record<string, ReflectionResponse> = responses
+  ) {
+    if (uiLanguage !== "spanish") {
+      return "";
+    }
+
+    for (const promptId of promptIds) {
+      const response = candidateResponses[promptId];
+      if (!response || response.skipped || response.sourceLanguage !== "spanish") {
+        continue;
+      }
+
+      const sourceContent = response.sourceContent?.trim() ?? "";
+      if (!sourceContent) {
+        continue;
+      }
+
+      const status = translationStatuses[promptId]?.state;
+      if (status === "pending") {
+        return reflectionCopy.translationPendingMessage;
+      }
+
+      if (status === "error") {
+        return reflectionCopy.translationFailedMessage;
+      }
+
+      if (!response.content.trim()) {
+        return reflectionCopy.translationMissingMessage;
+      }
+    }
+
+    return "";
+  }
+
+  async function requestSpanishTranslation(
+    prompt: (typeof prompts)[number],
+    sourceContent: string,
+    requestId: number,
+    controller: AbortController
+  ) {
+    try {
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          text: sourceContent,
+          sourceLanguage: "spanish",
+          question: prompt.content,
+          sectionTitle: prompt.sectionTitle ?? "",
+          promptLabel: prompt.promptLabel ?? ""
+        })
+      });
+
+      const data = (await response.json().catch(() => ({}))) as TranslationApiResponse;
+      if (!response.ok) {
+        throw new Error(data.error ?? reflectionCopy.translationFailedMessage);
+      }
+
+      const translatedContent = (data.content ?? data.transcript ?? "").trim();
+      if (!translatedContent) {
+        throw new Error(reflectionCopy.translationFailedMessage);
+      }
+
+      if (translationRequestIdsRef.current[prompt.id] !== requestId) {
+        return;
+      }
+
+      setResponses((current) => {
+        const existing = current[prompt.id];
+        if (
+          !existing ||
+          existing.sourceLanguage !== "spanish" ||
+          (existing.sourceContent?.trim() ?? "") !== sourceContent
+        ) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [prompt.id]: {
+            ...existing,
+            content: translatedContent,
+            sourceContent,
+            sourceLanguage: "spanish",
+            translatedAt: data.translatedAt ?? new Date().toISOString()
+          }
+        };
+      });
+      clearTranslationStatus(prompt.id);
+    } catch (translationError) {
+      if (controller.signal.aborted || translationRequestIdsRef.current[prompt.id] !== requestId) {
+        return;
+      }
+
+      setTranslationStatus(prompt.id, {
+        state: "error",
+        message:
+          translationError instanceof Error
+            ? translationError.message
+            : reflectionCopy.translationFailedMessage
+      });
+    } finally {
+      if (translationAbortControllersRef.current[prompt.id] === controller) {
+        delete translationAbortControllersRef.current[prompt.id];
+      }
+    }
+  }
+
+  function scheduleSpanishTranslation(prompt: (typeof prompts)[number], value: string) {
+    clearTranslationRequest(prompt.id);
+
+    const sourceContent = value.trim();
+    if (!sourceContent) {
+      clearTranslationStatus(prompt.id);
+      return;
+    }
+
+    setTranslationStatus(prompt.id, { state: "pending" });
+    const requestId = (translationRequestIdsRef.current[prompt.id] ?? 0) + 1;
+    translationRequestIdsRef.current[prompt.id] = requestId;
+
+    translationTimersRef.current[prompt.id] = window.setTimeout(() => {
+      delete translationTimersRef.current[prompt.id];
+      const controller = new AbortController();
+      translationAbortControllersRef.current[prompt.id] = controller;
+      void requestSpanishTranslation(prompt, sourceContent, requestId, controller);
+    }, SPANISH_TRANSLATION_DEBOUNCE_MS);
+  }
+
+  function retrySpanishTranslation(prompt: (typeof prompts)[number]) {
+    const sourceContent = responses[prompt.id]?.sourceContent?.trim() ?? "";
+    if (!sourceContent) {
+      return;
+    }
+
+    scheduleSpanishTranslation(prompt, sourceContent);
+  }
+
+  function updateSpanishSourceResponse(prompt: (typeof prompts)[number], value: string) {
+    setActivePromptId(prompt.id);
+    setError("");
+    setStatusMessage("");
+
+    setResponses((current) => {
+      if (!value.trim()) {
+        if (!current[prompt.id]) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[prompt.id];
+        return next;
+      }
+
+      return {
+        ...current,
+        [prompt.id]: {
+          promptId: prompt.id,
+          content: "",
+          sourceContent: value,
+          sourceLanguage: "spanish",
+          skipped: false,
+          createdAt: current[prompt.id]?.createdAt ?? new Date().toISOString()
+        }
+      };
+    });
+
+    scheduleSpanishTranslation(prompt, value);
+  }
+
   function updateResponse(promptId: string, value: string) {
     setActivePromptId(promptId);
     setError("");
@@ -386,7 +647,8 @@ export function ReflectionChat() {
       if (existing) {
         nextResponses[prompt.id] = {
           ...existing,
-          content: existing.content.trim()
+          content: existing.content.trim(),
+          sourceContent: existing.sourceContent?.trim() || undefined
         };
         continue;
       }
@@ -443,6 +705,10 @@ export function ReflectionChat() {
       let data: {
         error?: string;
         transcript?: string;
+        content?: string;
+        sourceContent?: string;
+        sourceLanguage?: UiLanguage;
+        translatedAt?: string | null;
       } = {};
 
       try {
@@ -480,27 +746,40 @@ export function ReflectionChat() {
         throw new Error(reflectionCopy.unableToTranscribe);
       }
 
-      const transcriptText = data.transcript?.trim() ?? "";
-      if (!transcriptText) {
+      const transcriptText = (data.content ?? data.transcript)?.trim() ?? "";
+      const sourceTranscriptText = data.sourceContent?.trim() ?? "";
+      if (!transcriptText && !sourceTranscriptText) {
         setStatusMessage(reflectionCopy.noSpeechDetected);
         setStatusTone("info");
         return;
       }
 
       setResponses((current) => {
-        const currentValue = current[currentPrompt.id]?.content.trim() ?? "";
-        const nextValue = currentValue ? `${currentValue}\n${transcriptText}` : transcriptText;
+        const existing = current[currentPrompt.id];
+        const currentValue = existing?.content.trim() ?? "";
+        const nextValue =
+          currentValue && transcriptText ? `${currentValue}\n${transcriptText}` : transcriptText || currentValue;
+        const currentSourceValue = existing?.sourceContent?.trim() ?? "";
+        const nextSourceValue =
+          currentSourceValue && sourceTranscriptText
+            ? `${currentSourceValue}\n${sourceTranscriptText}`
+            : sourceTranscriptText || currentSourceValue;
 
         return {
           ...current,
           [currentPrompt.id]: {
             promptId: currentPrompt.id,
             content: nextValue,
+            sourceContent: nextSourceValue || undefined,
+            sourceLanguage: data.sourceLanguage ?? existing?.sourceLanguage,
+            translatedAt: data.translatedAt ?? existing?.translatedAt,
             skipped: false,
-            createdAt: current[currentPrompt.id]?.createdAt ?? new Date().toISOString()
+            createdAt: existing?.createdAt ?? new Date().toISOString()
           }
         };
       });
+      clearTranslationRequest(currentPrompt.id);
+      clearTranslationStatus(currentPrompt.id);
       setStatusMessage(reflectionCopy.audioAdded(audioLanguage === "english"));
       setStatusTone("success");
     } catch (requestError) {
@@ -631,6 +910,15 @@ export function ReflectionChat() {
       return;
     }
 
+    const translationBlockMessage = getTranslationBlockMessage(
+      prompts.map((prompt) => prompt.id),
+      sanitizedResponses
+    );
+    if (translationBlockMessage) {
+      setError(translationBlockMessage);
+      return;
+    }
+
     setSubmitting(true);
     setError("");
     setStatusMessage("");
@@ -685,6 +973,13 @@ export function ReflectionChat() {
   }
 
   async function handleContinue() {
+    const translationBlockMessage = getTranslationBlockMessage(stepPrompts.map((prompt) => prompt.id));
+    if (translationBlockMessage) {
+      setError(translationBlockMessage);
+      setStatusMessage("");
+      return;
+    }
+
     const nextResponses = completeCurrentStepResponses();
     setResponses(nextResponses);
     setError("");
@@ -775,6 +1070,9 @@ export function ReflectionChat() {
 
           {stepPrompts.map((prompt) => {
             const isActive = currentPrompt?.id === prompt.id;
+            const response = responses[prompt.id];
+            const translationStatus = translationStatuses[prompt.id];
+            const showSpanishAnswerEditor = uiLanguage === "spanish";
 
             return (
               <div
@@ -792,14 +1090,73 @@ export function ReflectionChat() {
                   ) : null}
                 </div>
 
-                <textarea
-                  className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent disabled:bg-slate-50"
-                  disabled={transcribing || recording || Boolean(pendingStepAdvance)}
-                  placeholder={reflectionCopy.textareaPlaceholder}
-                  value={responses[prompt.id]?.skipped ? "" : responses[prompt.id]?.content ?? ""}
-                  onChange={(event) => updateResponse(prompt.id, event.target.value)}
-                  onFocus={() => setActivePromptId(prompt.id)}
-                />
+                {showSpanishAnswerEditor ? (
+                  <div className="space-y-3">
+                    <label className="block space-y-2">
+                      <span className="text-sm font-semibold text-slate-700">
+                        {reflectionCopy.sourceTextareaLabel}
+                      </span>
+                      <textarea
+                        className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent disabled:bg-slate-50"
+                        disabled={transcribing || recording || Boolean(pendingStepAdvance)}
+                        placeholder={reflectionCopy.textareaPlaceholder}
+                        value={
+                          response?.skipped || response?.sourceLanguage !== "spanish"
+                            ? ""
+                            : response?.sourceContent ?? ""
+                        }
+                        onChange={(event) => updateSpanishSourceResponse(prompt, event.target.value)}
+                        onFocus={() => setActivePromptId(prompt.id)}
+                      />
+                    </label>
+
+                    <label className="block space-y-2">
+                      <span className="text-sm font-semibold text-slate-700">
+                        {reflectionCopy.englishTranslationLabel}
+                      </span>
+                      <textarea
+                        className="min-h-24 w-full resize-none rounded-2xl border border-border bg-slate-50 px-4 py-3 text-slate-700 outline-none"
+                        placeholder={reflectionCopy.englishTranslationPlaceholder}
+                        readOnly
+                        value={response?.skipped ? "" : response?.content ?? ""}
+                      />
+                    </label>
+
+                    {translationStatus ? (
+                      <div
+                        className={`rounded-2xl border px-4 py-3 text-sm ${
+                          translationStatus.state === "error"
+                            ? "border-red-200 bg-red-50 text-red-800"
+                            : "border-amber-200 bg-amber-50 text-amber-900"
+                        }`}
+                      >
+                        <div>
+                          {translationStatus.state === "error"
+                            ? translationStatus.message ?? reflectionCopy.translationFailedMessage
+                            : reflectionCopy.translationPendingMessage}
+                        </div>
+                        {translationStatus.state === "error" ? (
+                          <button
+                            className="mt-3 rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-800 transition hover:bg-red-100"
+                            type="button"
+                            onClick={() => retrySpanishTranslation(prompt)}
+                          >
+                            {reflectionCopy.retryTranslationButton}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <textarea
+                    className="min-h-28 w-full rounded-2xl border border-border px-4 py-3 outline-none transition focus:border-accent disabled:bg-slate-50"
+                    disabled={transcribing || recording || Boolean(pendingStepAdvance)}
+                    placeholder={reflectionCopy.textareaPlaceholder}
+                    value={response?.skipped ? "" : response?.content ?? ""}
+                    onChange={(event) => updateResponse(prompt.id, event.target.value)}
+                    onFocus={() => setActivePromptId(prompt.id)}
+                  />
+                )}
 
                 {isActive ? (
                   <div className="rounded-2xl border border-border bg-canvas px-4 py-3">
@@ -877,7 +1234,13 @@ export function ReflectionChat() {
             </button>
             <button
               className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={recording || transcribing || !sessionId || Boolean(pendingStepAdvance)}
+              disabled={
+                recording ||
+                transcribing ||
+                currentStepTranslationBlocked ||
+                !sessionId ||
+                Boolean(pendingStepAdvance)
+              }
               type="button"
               onClick={handleContinue}
             >

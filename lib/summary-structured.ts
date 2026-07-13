@@ -398,7 +398,9 @@ export function computeTurnsHash(turns: ConversationTurn[]) {
         sectionTitle: turn.sectionTitle ?? "",
         stepTitle: turn.stepTitle ?? "",
         skipped: Boolean(turn.skipped),
-        content: compactWhitespace(turn.content)
+        content: compactWhitespace(turn.content),
+        sourceLanguage: turn.sourceLanguage ?? "",
+        sourceContent: compactWhitespace(turn.sourceContent ?? "")
       })
     )
     .join("\n");

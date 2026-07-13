@@ -1,22 +1,15 @@
 import { NextResponse } from "next/server";
+import {
+  TranslatableLanguage,
+  getCaregiverPromptContext,
+  translateCaregiverTranscriptToEnglish
+} from "@/lib/caregiver-translation";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
-const DEFAULT_TEXT_MODEL = "gpt-4.1";
 const MAX_TRANSCRIPTION_ATTEMPTS = 3;
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 503]);
 const SUPPORTED_SPOKEN_LANGUAGES = new Set(["english", "spanish", "mandarin"]);
-
-const translationSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    transcript: {
-      type: "string"
-    }
-  },
-  required: ["transcript"]
-} as const;
 
 type SpokenLanguage = "english" | "spanish" | "mandarin";
 
@@ -24,23 +17,6 @@ function sleep(delayMs: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, delayMs);
   });
-}
-
-function extractChatCompletionText(
-  content?: string | Array<{ type?: string; text?: string }>
-) {
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return "";
-  }
-
-  return content
-    .map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
-    .join("")
-    .trim();
 }
 
 async function requestWithRetry(
@@ -79,18 +55,6 @@ function normalizeSpokenLanguage(value: string): SpokenLanguage {
   }
 
   return "english";
-}
-
-function getPromptContext({
-  question,
-  sectionTitle,
-  promptLabel
-}: {
-  question: string;
-  sectionTitle: string;
-  promptLabel: string;
-}) {
-  return [sectionTitle, promptLabel, question].filter(Boolean).join(" / ");
 }
 
 function getSpokenLanguageCode(spokenLanguage: SpokenLanguage) {
@@ -162,87 +126,6 @@ async function requestOpenAITranscription({
   );
 }
 
-async function translateTranscriptToEnglish({
-  apiKey,
-  model,
-  transcript,
-  promptContext,
-  spokenLanguage
-}: {
-  apiKey: string;
-  model: string;
-  transcript: string;
-  promptContext: string;
-  spokenLanguage: Exclude<SpokenLanguage, "english">;
-}) {
-  const response = await requestWithRetry(
-    () =>
-      fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model,
-          store: false,
-          temperature: 0,
-          messages: [
-            {
-              role: "system",
-              content:
-                "You translate caregiver intake transcripts into natural English. Preserve meaning and important detail. Do not summarize, answer the prompt, or add commentary."
-            },
-            {
-              role: "user",
-              content: [
-                `Spoken language: ${spokenLanguage}.`,
-                promptContext ? `Caregiver intake prompt: ${promptContext}.` : "",
-                "Return JSON with one key: transcript.",
-                "The transcript must be in natural English only.",
-                `Transcript:\n${transcript}`
-              ]
-                .filter(Boolean)
-                .join("\n\n")
-            }
-          ],
-          response_format: {
-            type: "json_schema",
-            json_schema: {
-              name: "translated_transcript",
-              strict: true,
-              schema: translationSchema
-            }
-          }
-        })
-      }),
-    "Unknown OpenAI translation error."
-  );
-
-  const data = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string | Array<{
-          type?: string;
-          text?: string;
-        }>;
-      };
-    }>;
-  };
-
-  const content = extractChatCompletionText(data.choices?.[0]?.message?.content);
-  if (!content) {
-    return "";
-  }
-
-  try {
-    const parsed = JSON.parse(content) as { transcript?: string };
-    return typeof parsed.transcript === "string" ? parsed.transcript.trim() : "";
-  } catch {
-    return content.trim();
-  }
-}
-
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -276,8 +159,7 @@ export async function POST(request: Request) {
 
   const transcriptionModel =
     process.env.OPENAI_TRANSCRIPTION_MODEL ?? DEFAULT_TRANSCRIPTION_MODEL;
-  const textModel = process.env.OPENAI_MODEL ?? DEFAULT_TEXT_MODEL;
-  const promptContext = getPromptContext({ question, sectionTitle, promptLabel });
+  const promptContext = getCaregiverPromptContext({ question, sectionTitle, promptLabel });
 
   try {
     const transcriptionResponse = await requestOpenAITranscription({
@@ -297,18 +179,24 @@ export async function POST(request: Request) {
     }
 
     if (spokenLanguage === "english") {
-      return NextResponse.json({ transcript });
+      return NextResponse.json({ transcript, content: transcript });
     }
 
-    const translatedTranscript = await translateTranscriptToEnglish({
+    const translatedTranscript = await translateCaregiverTranscriptToEnglish({
       apiKey,
-      model: textModel,
       transcript,
       promptContext,
-      spokenLanguage
+      sourceLanguage: spokenLanguage as TranslatableLanguage
     });
 
-    return NextResponse.json({ transcript: translatedTranscript });
+    return NextResponse.json({
+      transcript: translatedTranscript,
+      content: translatedTranscript,
+      sourceTranscript: transcript,
+      sourceContent: transcript,
+      sourceLanguage: spokenLanguage,
+      translatedAt: new Date().toISOString()
+    });
   } catch (error) {
     const status = error instanceof Error && "status" in error ? Number(error.status) : 500;
     const rawMessage = error instanceof Error ? error.message : "Unknown transcription failure.";

@@ -1936,6 +1936,22 @@ function testSummaryFreshnessVersions() {
     requiresRegeneration: true,
   });
 
+  const sourceEditedTurns = turns.map((turn) =>
+    turn.role === "user"
+      ? {
+          ...turn,
+          sourceLanguage: "spanish" as const,
+          sourceContent: "Usa frases cortas y gestos.",
+        }
+      : turn,
+  );
+  assert.notEqual(computeTurnsHash(sourceEditedTurns), computeTurnsHash(turns));
+  assert.deepEqual(getSummaryFreshness(sourceEditedTurns, current, current), {
+    generated: "stale",
+    edited: "stale",
+    requiresRegeneration: true,
+  });
+
   const draft = {
     ...makeDraft(turns),
     structuredSummary: stale,
