@@ -1176,13 +1176,13 @@ export function ReflectionChat() {
                       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
                         {reflectionCopy.audioLimitNotice}
                       </div>
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                        <label className="flex-1 text-sm text-slate-600">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                        <label className="w-full text-sm text-slate-600 sm:w-auto sm:min-w-48 sm:flex-1">
                           <span className="mb-2 block font-medium text-slate-700">
                             {reflectionCopy.spokenLanguageLabel}
                           </span>
                           <select
-                            className="w-full rounded-full border border-border bg-white px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-accent disabled:bg-slate-50"
+                            className="w-full min-w-0 rounded-full border border-border bg-white px-4 py-2.5 pr-10 text-sm font-medium text-slate-700 outline-none transition focus:border-accent disabled:bg-slate-50"
                             disabled={recording || transcribing || Boolean(pendingStepAdvance)}
                             value={audioLanguage}
                             onChange={(event) => setAudioLanguage(event.target.value as UiLanguage)}
