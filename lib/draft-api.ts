@@ -1,6 +1,10 @@
 "use client";
 
-import { getStoredSupabaseSession, getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import {
+  getStoredSupabaseSession,
+  getSupabaseBrowserClient,
+  hasSupabaseBrowserConfig
+} from "@/lib/supabase-browser";
 import { SessionDraft, SummaryFreshness } from "@/lib/types";
 
 type DraftResponse = {
@@ -13,6 +17,10 @@ function isMissingOwnedDraftError(status: number, error?: string) {
 }
 
 async function waitForAuthSession() {
+  if (!hasSupabaseBrowserConfig()) {
+    return null;
+  }
+
   const supabase = getSupabaseBrowserClient();
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const session = await Promise.race([
@@ -130,6 +138,10 @@ export async function saveRemoteDraft(draft: SessionDraft, status: string) {
 }
 
 export async function getCurrentAuthUser() {
+  if (!hasSupabaseBrowserConfig()) {
+    return null;
+  }
+
   const supabase = getSupabaseBrowserClient();
   const session = await waitForAuthSession();
   if (session?.user) {
