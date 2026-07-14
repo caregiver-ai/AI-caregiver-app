@@ -25,6 +25,7 @@ type BenchmarkFixture = {
     sectionChecks?: Record<string, PhraseCheck[]>;
     bannedPhrases?: string[];
     maxDuplicateItems?: number;
+    maxIncompleteSentences?: number;
     sectionBannedPhrases?: Record<string, string[]>;
     maxDuplicateItemsBySection?: Record<string, number>;
   };
@@ -178,6 +179,35 @@ function duplicateCountForItems(items: string[]) {
   return duplicates;
 }
 
+function hasTerminalSentencePunctuation(value: string) {
+  return /[.!?][)"'”’\]]*$/.test(value.replace(/\s+/g, " ").trim());
+}
+
+function itemLooksIncompleteOrMalformed(item: string) {
+  const text = item.replace(/\s+/g, " ").trim();
+  if (!text || normalizeText(text).replace(/[.!?]+$/g, "") === "(no information provided)") {
+    return false;
+  }
+
+  const withoutTerminalPunctuation = text.replace(/[.!?][)"'”’\]]*$/, "").trim();
+  return (
+    !hasTerminalSentencePunctuation(text) ||
+    /[.!?]{2,}/.test(text) ||
+    /\bmay mean or if\b/i.test(text) ||
+    /\b(?:and|or|but|because|including|such as|with|to|if|when)$/i.test(withoutTerminalPunctuation) ||
+    /[:,;]$/.test(text) ||
+    /\b(?:a|p)\.$/i.test(text) ||
+    /"[^"]*$/.test(text) ||
+    /“[^”]*$/.test(text)
+  );
+}
+
+function incompleteSentenceCount(summary: StructuredSummary) {
+  return summary.sections
+    .flatMap((section) => section.items)
+    .filter(itemLooksIncompleteOrMalformed).length;
+}
+
 function evaluateSummary(
   summary: StructuredSummary,
   fixture: BenchmarkFixture,
@@ -257,6 +287,18 @@ function evaluateSummary(
     } else {
       failures.push(
         `Duplicate items: ${duplicates} exceeds max ${fixture.expectations.maxDuplicateItems}`
+      );
+    }
+  }
+
+  if (typeof fixture.expectations.maxIncompleteSentences === "number") {
+    const incomplete = incompleteSentenceCount(summary);
+    totalChecks += 1;
+    if (incomplete <= fixture.expectations.maxIncompleteSentences) {
+      passedChecks += 1;
+    } else {
+      failures.push(
+        `Incomplete or malformed sentences: ${incomplete} exceeds max ${fixture.expectations.maxIncompleteSentences}`
       );
     }
   }

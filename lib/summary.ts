@@ -7,6 +7,7 @@ import { deriveItemsFromBlocks, hydrateStructuredSection } from "@/lib/summary-s
 import {
   CaregiverInsight,
   ConversationTurn,
+  SummaryBlock,
   StructuredSummary,
   SummarySection,
   UiLanguage
@@ -1320,6 +1321,16 @@ export function inferAuthoritativeSectionTitle(
     return "What Helps When They Are Having a Hard Time";
   }
 
+  if (
+    currentTitle === "What Helps When They Are Having a Hard Time" &&
+    (
+      /\b(?:take|try|use|go for)\b.{0,80}\bcar rides?\b/i.test(item) ||
+      /\bcar rides?\b.{0,80}\b(?:calm|reset|helps?|works?|few minutes|escalat|if that does not work)\b/i.test(item)
+    )
+  ) {
+    return "What Helps When They Are Having a Hard Time";
+  }
+
   if (itemLooksLikePreferredActivitiesList(item) && !itemExplicitlySaysPreferenceHelps(item)) {
     return "Activities and Interests";
   }
@@ -1395,6 +1406,79 @@ function inferFallbackTitle(turn: ConversationTurn, item: string) {
   );
 }
 
+function fallbackGroupedSupportBlocks(items: string[], nameHint?: string): SummaryBlock[] | null {
+  const remaining = uniqueItems(items).filter((item) => !isNoInformationItem(item));
+  if (remaining.length === 0) {
+    return null;
+  }
+
+  const take = (pattern: RegExp) => {
+    const matched = remaining.filter((item) => pattern.test(item));
+    for (const item of matched) {
+      const index = remaining.indexOf(item);
+      if (index >= 0) {
+        remaining.splice(index, 1);
+      }
+    }
+    return matched;
+  };
+
+  const hasName = Boolean(compactWhitespace(nameHint ?? ""));
+  const name = hasName ? compactWhitespace(nameHint ?? "") : "They";
+  const continueVerb = hasName ? "Continues" : "Continue";
+  const earlySignItems = take(HARD_TIME_SIGNS_PATTERN);
+  const firstItems = take(/\b(space|quiet|low-light|reduce noise|reduce stimulation|time alone|do not crowd|don't crowd|back off|hand biting|block|bite you)\b/i);
+  const nextItems = take(/\b(squeeze and release|deep breaths?|count(?:ing)? to 10|gumm(?:y|ies)|candy|swedish fish|ipad|internet|history|youtube|video|visual schedule|written schedule|visual timer|first[ -]?then|reward|motivat|preferred)\b/i);
+  const escalationItems = take(/\b(car rides?|driv(?:e|ing)|buckle buddy|seat ?belt|back seat|backseat|two adults?|two caregivers?|few minutes|within minutes|settle|calm)\b/i);
+  const groups = [
+    {
+      label: "Recognize the Early Signs",
+      items: earlySignItems
+    },
+    {
+      label: "First: Give Space",
+      items: firstItems
+    },
+    {
+      label: "Next: Try Simple Solutions",
+      items: [...nextItems, ...remaining.splice(0, remaining.length)]
+    },
+    {
+      label: `If ${name} ${continueVerb} to Escalate`,
+      items: escalationItems
+    }
+  ].filter((group) => group.items.length > 0);
+
+  return groups.length > 0
+    ? [
+        {
+          type: "labeledBullets",
+          groups
+        }
+      ]
+    : null;
+}
+
+function applyFallbackStructuredBlocks(
+  sections: SummarySection[],
+  nameHint?: string
+): SummarySection[] {
+  return sections.map((section) => {
+    if (section.title !== "What Helps When They Are Having a Hard Time") {
+      return section;
+    }
+
+    const blocks = fallbackGroupedSupportBlocks(section.items, nameHint);
+    return blocks
+      ? {
+          ...section,
+          blocks,
+          items: deriveItemsFromBlocks(blocks)
+        }
+      : section;
+  });
+}
+
 export function buildFallbackSummary(
   turns: ConversationTurn[],
   nameHint?: string
@@ -1414,13 +1498,13 @@ export function buildFallbackSummary(
     }
   }
 
-  const sections = normalizeSections(
+  const sections = applyFallbackStructuredBlocks(normalizeSections(
     PREFERRED_SUMMARY_SECTION_ORDER.map((title, index) => ({
       id: `${slugify(title)}-${index + 1}`,
       title,
       items: buckets.get(title) ?? []
     }))
-  );
+  ), nameHint);
 
   return {
     ...EMPTY_SUMMARY,

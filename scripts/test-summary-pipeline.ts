@@ -17,6 +17,7 @@ import {
   summaryToPlainText,
 } from "../lib/summary";
 import { buildSummaryEmailHtml } from "../lib/summary-pdf";
+import { getSummarySectionDisplayTitle } from "../lib/summary-display";
 import {
   expandTurnsForSummaryCapture,
   generateCaregiverSummaryWithQa,
@@ -678,12 +679,298 @@ async function testGuideLayoutGroupingWithMockedFacts() {
     assert.match(sectionText(result.summary, "Understanding and Learning"), /things to pick/i);
     assert.match(sectionText(result.summary, "Understanding and Learning"), /choices.*shown|shown.*choices|visual/i);
     assert.match(sectionText(result.summary, "What Helps When They Are Having a Hard Time"), /space|quiet/i);
-    assert.match(sectionText(result.summary, "What Helps When They Are Having a Hard Time"), /Environmental supports include/i);
+    assert.match(sectionText(result.summary, "What Helps When They Are Having a Hard Time"), /First: Give Space/i);
+    assert.match(sectionText(result.summary, "What Helps When They Are Having a Hard Time"), /Next: Try Simple Solutions/i);
     assert.match(sectionText(result.summary, "Health & Safety"), /Sensory Processing Difficulty|noise-canceling headphones/i);
     assert.match(sectionText(result.summary, "Health & Safety"), /Abilify\/aripiprazole.*15 mg.*once daily.*3pm.*irritability.*aggression.*repetitive behaviors.*self-injury/i);
     assert.match(sectionText(result.summary, "Health & Safety"), /polyethylene glycol\/MiraLax.*daily.*water.*stool regular/i);
     assert.equal(countSectionMatches(result.summary, "Health & Safety", /Abilify|ARIPiprazole|aripiprazole/i), 1);
     assert.equal(countSectionMatches(result.summary, "Health & Safety", /MiraLax|Polyethylene glycol|polyethylene glycol/i), 1);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousApiKey;
+    }
+  }
+}
+
+async function testGavinHardTimeVoiceInputGrouping() {
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+
+  process.env.OPENAI_API_KEY = "test-summary-key";
+  globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+      response_format?: { json_schema?: { name?: string } };
+    };
+    const schemaName = requestBody.response_format?.json_schema?.name;
+
+    if (schemaName === "caregiver_handoff_structured_capture") {
+      const facts = [
+        ["Communication", "communication_method", "AAC", "Gavin communicates with an iPad."],
+        ["Signs They Are Having a Hard Time", "help_sign", "Early signs", "Gavin makes aggravated sounds when he is having a hard time."],
+        ["Signs They Are Having a Hard Time", "help_sign", "Early signs", "Gavin appears agitated when he is having a hard time."],
+        ["Signs They Are Having a Hard Time", "help_sign", "Early signs", "Gavin starts pacing when he is having a hard time."],
+        ["What helps when they are having a hard time", "caregiver_action", "Space", "Do not touch Gavin when he is escalating because it agitates him more."],
+        ["What helps when they are having a hard time", "caregiver_action", "Space", "Do not talk to Gavin when he is escalating because it agitates him more."],
+        ["What helps when they are having a hard time", "caregiver_action", "Space", "Do not try to comfort or hug Gavin when he is escalating."],
+        ["What helps when they are having a hard time", "caregiver_action", "Space", "Give Gavin space and walk away if it is safe."],
+        ["What helps when they are having a hard time", "caregiver_action", "Space", "Gavin needs time to work it out himself."],
+        ["What helps when they are having a hard time", "caregiver_action", "Sensory", "Gavin may go to his sensory room to swing when reminded."],
+        ["What helps when they are having a hard time", "caregiver_action", "Treat", "Offer Gavin gummies when he is not calming down."],
+        ["What helps when they are having a hard time", "caregiver_action", "iPad", "If Gavin's iPad is causing frustration, check whether the internet is working."],
+        ["What helps when they are having a hard time", "caregiver_action", "iPad", "If Gavin cannot find the YouTube video he wants, open his viewing history so he can look through previously watched videos."],
+        ["What helps when they are having a hard time", "caregiver_action", "Car ride", "If Gavin continues escalating, take him for a car ride."],
+        ["What helps when they are having a hard time", "caregiver_action", "Car ride", "A car ride is the only thing that will calm Gavin down at that point."],
+        ["What helps when they are having a hard time", "caregiver_action", "Car ride", "Gavin usually calms down within a few minutes of driving and can return home."],
+        ["Health & Safety", "equipment", "Car safety", "Seat Gavin in the back seat for car rides."],
+        ["Health & Safety", "equipment", "Car safety", "Use the Buckle Buddy for car safety."],
+        ["Health & Safety", "equipment", "Car safety", "Pull the seat belt all the way out and release it so it locks and Gavin cannot loosen it."],
+      ].map(([section, factKind, subcategory, statement], index) => ({
+        entryId: `Entry ${index + 1}`,
+        section,
+        factKind,
+        subcategory,
+        statement,
+        safetyRelevant: /escalating|car safety|seat belt|buckle|back seat|cannot loosen/i.test(statement),
+      }));
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ facts }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (schemaName === "caregiver_handoff_insights") {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ insights: [] }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (schemaName === "caregiver_handoff_layout") {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ sections: [] }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    throw new Error(`Unexpected schema ${schemaName ?? "unknown"}`);
+  }) as typeof fetch;
+
+  try {
+    const result = await generateCaregiverSummaryWithQa(
+      responseTurns(
+        "gavin-hard-time-voice",
+        "What helps when they are having a hard time?",
+        "So Gavin, when he's having a hard time, you can definitely tell because he makes noises that he's aggravated. You can tell he's agitated. He'll start pacing. The last thing you want to do is touch him or talk to him. You need to give him space. If you try to comfort him, if you try to hug him, just walk away. If reminded, he may go to his sensory room and swing. Gummies may help. If the iPad is the problem, check the internet and open his viewing history so he can find the YouTube video. If he is still escalating, take him on a car ride. Use the back seat, Buckle Buddy, and lock the seat belt by pulling it all the way out and releasing it. Within a few minutes he calms down.",
+        "2026-06-01T12:00:00.000Z",
+      ),
+      "Gavin",
+      "two-step",
+    );
+
+    const supportSection = result.summary.sections.find(
+      (section) => section.title === "What Helps When They Are Having a Hard Time",
+    );
+    const supportGroups =
+      supportSection?.blocks?.flatMap((block) => block.type === "labeledBullets" ? block.groups : []) ?? [];
+    const supportText = sectionText(result.summary, "What Helps When They Are Having a Hard Time");
+    const healthText = sectionText(result.summary, "Health & Safety");
+
+    assert.equal(
+      getSummarySectionDisplayTitle(result.summary, supportSection!),
+      "What Helps When Gavin Is Having a Hard Time",
+    );
+    assert.deepEqual(
+      supportGroups.map((group) => group.label),
+      [
+        "Recognize the Early Signs",
+        "First: Give Space",
+        "Next: Try Simple Solutions",
+        "If Gavin Continues to Escalate",
+      ],
+    );
+    assert.match(supportText, /aggravated.*agitated.*pacing|agitated.*pacing|aggravated/i);
+    assert.match(supportText, /Do not touch, hug, crowd, or keep talking to Gavin/i);
+    assert.match(supportText, /Give Gavin space.*walk away/i);
+    assert.match(supportText, /sensory room.*swing/i);
+    assert.match(supportText, /gummies|Swedish Fish|preferred treat/i);
+    assert.match(supportText, /iPad.*internet.*viewing history.*video/i);
+    assert.match(supportText, /car ride|drive/i);
+    assert.match(supportText, /back seat.*Buckle Buddy.*lock the seat belt|Buckle Buddy.*lock the seat belt/i);
+    assert.match(supportText, /few calm minutes|few minutes/i);
+    assert.match(healthText, /Buckle Buddy|seat belt/i);
+    assert.equal(countSectionMatches(result.summary, "What Helps When They Are Having a Hard Time", /gumm|candy|Swedish Fish/i), 1);
+    assert.equal(countSectionMatches(result.summary, "What Helps When They Are Having a Hard Time", /internet/i), 1);
+    assert.equal(result.auditReport.issues.filter((issue) => issue.code === "duplicate_item").length, 0);
+    assert.equal(result.auditReport.issues.filter((issue) => issue.code === "incomplete_sentence").length, 0);
+    assert.doesNotMatch(summaryToPlainText(result.summary), /may mean or if|[.!?]{2,}|that\.”\./i);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousApiKey;
+    }
+  }
+}
+
+async function testNonGavinHardTimeGroupingWithMockedFacts() {
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+  const cases = [
+    { id: "jevon", name: "Jevon", subject: "he", object: "him" },
+    { id: "tatiana", name: "Tatiana", subject: "she", object: "her" },
+    { id: "joe", name: "Joe", subject: "he", object: "him" },
+    { id: "ashley", name: "Ashley", subject: "she", object: "her" },
+    { id: "joe-raw-like", name: "Joe", subject: "he", object: "him" },
+  ] as const;
+  let activeCase: (typeof cases)[number] = cases[0];
+
+  process.env.OPENAI_API_KEY = "test-summary-key";
+  globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+      response_format?: { json_schema?: { name?: string } };
+    };
+    const schemaName = requestBody.response_format?.json_schema?.name;
+
+    if (schemaName === "caregiver_handoff_structured_capture") {
+      const { name, subject, object } = activeCase;
+      const facts = [
+        ["Signs They Are Having a Hard Time", "help_sign", "Early signs", `${name} makes frustrated sounds when ${subject} is having a hard time.`],
+        ["Signs They Are Having a Hard Time", "help_sign", "Early signs", `${name} starts pacing when ${subject} is getting overwhelmed.`],
+        ["What helps when they are having a hard time", "caregiver_action", "Space", `Give ${name} space and reduce stimulation when ${subject} is escalating.`],
+        ["What helps when they are having a hard time", "caregiver_action", "Space", `Do not touch, comfort, or hug ${name} because it can make escalation worse.`],
+        ["What helps when they are having a hard time", "caregiver_action", "Calming", `If ${name} is still somewhat calm, try deep breaths or counting to 10.`],
+        ["What helps when they are having a hard time", "caregiver_action", "Treat", `Offer ${name} gummies or another preferred snack if it helps redirect ${object}.`],
+        ["What helps when they are having a hard time", "caregiver_action", "Car ride", `If other strategies do not work, take ${name} for a car ride.`],
+        ["Health & Safety", "equipment", "Car safety", `For car rides, seat ${name} in the back seat and lock the seat belt so ${subject} cannot loosen it.`],
+      ].map(([section, factKind, subcategory, statement], index) => ({
+        entryId: `Entry ${index + 1}`,
+        section,
+        factKind,
+        subcategory,
+        statement,
+        safetyRelevant: /car rides|seat belt|back seat|escalation/i.test(statement),
+      }));
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ facts }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (schemaName === "caregiver_handoff_insights") {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ insights: [] }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (schemaName === "caregiver_handoff_layout") {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ sections: [] }) },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    throw new Error(`Unexpected schema ${schemaName ?? "unknown"}`);
+  }) as typeof fetch;
+
+  try {
+    for (const currentCase of cases) {
+      activeCase = currentCase;
+      const result = await generateCaregiverSummaryWithQa(
+        responseTurns(
+          currentCase.id,
+          "What helps when they are having a hard time?",
+          `${currentCase.name} needs space, simple calming supports, and a car ride if escalation continues.`,
+          "2026-06-01T12:00:00.000Z",
+        ),
+        currentCase.name,
+        "two-step",
+      );
+      const supportSection = result.summary.sections.find(
+        (section) => section.title === "What Helps When They Are Having a Hard Time",
+      );
+      const supportGroups =
+        supportSection?.blocks?.flatMap((block) => block.type === "labeledBullets" ? block.groups : []) ?? [];
+      const supportText = sectionText(result.summary, "What Helps When They Are Having a Hard Time");
+
+      assert.equal(
+        getSummarySectionDisplayTitle(result.summary, supportSection!),
+        `What Helps When ${currentCase.name} Is Having a Hard Time`,
+      );
+      assert.deepEqual(
+        supportGroups.map((group) => group.label),
+        [
+          "Recognize the Early Signs",
+          "First: Give Space",
+          "Next: Try Simple Solutions",
+          `If ${currentCase.name} Continues to Escalate`,
+        ],
+      );
+      assert.match(supportText, /frustrated.*pacing|pacing.*frustrated|frustrated|pacing/i);
+      assert.match(supportText, /Do not touch, hug, crowd, or keep talking|Do not touch/i);
+      assert.match(supportText, /deep breaths.*counting to 10|counting to 10.*deep breaths/i);
+      assert.match(supportText, /gummies|preferred snack|preferred treat/i);
+      assert.match(supportText, /car ride|drive/i);
+      assert.match(supportText, /back seat.*seat belt|seat belt.*back seat/i);
+      assert.equal(result.auditReport.issues.filter((issue) => issue.code === "duplicate_item").length, 0);
+      const wrongSectionIssues = result.auditReport.issues.filter((issue) => issue.code === "wrong_section");
+      assert.equal(
+        wrongSectionIssues.length,
+        0,
+        JSON.stringify(wrongSectionIssues.map((issue) => issue.message), null, 2),
+      );
+      assert.equal(result.auditReport.issues.filter((issue) => issue.code === "incomplete_sentence").length, 0);
+      assert.doesNotMatch(summaryToPlainText(result.summary), /They Continues|They is|may mean or if|[.!?]{2,}/i);
+    }
   } finally {
     globalThis.fetch = previousFetch;
     if (previousApiKey === undefined) {
@@ -1750,7 +2037,8 @@ function testSevenSectionSummaryOutputs() {
   assert.match(emailHtml, /highly visual learner/i);
   assert.match(emailHtml, /About Jay/);
 
-  for (const heading of expectedSections) {
+  for (const section of summary.sections) {
+    const heading = getSummarySectionDisplayTitle(summary, section);
     assert.match(plainText, new RegExp(heading.replace("&", "\\&")));
     assert.match(emailHtml, new RegExp(heading.replace("&", "&amp;")));
   }
@@ -1871,6 +2159,25 @@ function testFallbackAndRawCaptureRouting() {
       .find((section) => section.title === "Health & Safety")
       ?.items.some((item) => item.includes("Call Maya")),
   );
+  const noNameFallback = buildFallbackSummary([
+    {
+      id: "fallback-hard-time-no-name",
+      role: "user",
+      promptType: "section_prompt",
+      content:
+        "Give space and reduce stimulation when escalation starts. If that does not work, take a car ride and wait a few minutes.",
+      createdAt: "2026-06-01T12:20:00.000Z",
+      stepId: "hard_time_support",
+      stepTitle: "What helps when they are having a hard time",
+      promptLabel: "Supports",
+    },
+  ]);
+  const noNameSupportGroups =
+    noNameFallback.sections
+      .find((section) => section.title === "What Helps When They Are Having a Hard Time")
+      ?.blocks?.flatMap((block) => block.type === "labeledBullets" ? block.groups : []) ?? [];
+  assert.ok(noNameSupportGroups.some((group) => group.label === "If They Continue to Escalate"));
+  assert.doesNotMatch(summaryToPlainText(noNameFallback), /They Continues|They is|help They|for They/i);
 
   const rawTurn: ConversationTurn = {
     id: "raw-document",
@@ -2243,6 +2550,8 @@ async function main() {
   testStructuredCompletionParsing();
   await testSummaryCaptureBatchingWithMockedModel();
   await testGuideLayoutGroupingWithMockedFacts();
+  await testGavinHardTimeVoiceInputGrouping();
+  await testNonGavinHardTimeGroupingWithMockedFacts();
   await testConciseAboutParagraphGrammarWithMockedFacts();
   await testDynamicLayoutFallbackWithInvalidFacts();
   testEveryLegacyPromptMapping();

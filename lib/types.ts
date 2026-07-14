@@ -114,6 +114,7 @@ export interface SummaryAuditIssue {
     | "section_leakage"
     | "wrong_section"
     | "duplicate_item"
+    | "incomplete_sentence"
     | "awkward_item";
   message: string;
   factId?: string;

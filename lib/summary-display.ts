@@ -26,6 +26,23 @@ function sectionIsAbout(section: SummarySection) {
   return /^about(?:\s+.+)?$/i.test(compactWhitespace(section.title));
 }
 
+function personalizeSectionTitle(title: string, name: string) {
+  if (!name) {
+    return title;
+  }
+
+  switch (title) {
+    case "What Helps When They Are Having a Hard Time":
+      return `What Helps When ${name} Is Having a Hard Time`;
+    case "What Can Upset or Overwhelm":
+      return `What Can Upset or Overwhelm ${name}`;
+    case "Signs They Need Help":
+      return `Signs ${name} Needs Help`;
+    default:
+      return title;
+  }
+}
+
 export function extractSummaryDisplayName(summary: Pick<StructuredSummary, "title">) {
   const match = summary.title.trim().match(/^Caring for\s+(.+)$/i);
   return compactWhitespace(match?.[1] ?? "");
@@ -35,11 +52,12 @@ export function getSummarySectionDisplayTitle(
   summary: Pick<StructuredSummary, "title">,
   section: SummarySection
 ) {
+  const name = extractSummaryDisplayName(summary);
+
   if (!sectionIsAbout(section)) {
-    return section.title;
+    return personalizeSectionTitle(section.title, name);
   }
 
-  const name = extractSummaryDisplayName(summary);
   return name ? `About ${name}` : "About";
 }
 

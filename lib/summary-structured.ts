@@ -164,7 +164,7 @@ function sentenceCase(value: string) {
     .replace(/\bTouchchat\b/g, "TouchChat")
     .replace(/\bAac\b/g, "AAC");
 
-  return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
+  return /[.!?][)"'”’\]]*$/.test(normalized) ? normalized : `${normalized}.`;
 }
 
 function listFormat(items: string[]) {

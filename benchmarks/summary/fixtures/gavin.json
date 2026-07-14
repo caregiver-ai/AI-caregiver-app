@@ -239,6 +239,15 @@
       ],
       "What helps when they are having a hard time": [
         {
+          "label": "grouped support flow",
+          "anyOf": [
+            "Recognize the Early Signs",
+            "First: Give Space",
+            "Next: Try Simple Solutions",
+            "If Gavin Continues to Escalate"
+          ]
+        },
+        {
           "label": "early calming prompts",
           "anyOf": [
             "squeeze and release",
@@ -291,7 +300,8 @@
     },
     "bannedPhrases": [
       "um, yeah.",
-      "what do they communicate"
+      "what do they communicate",
+      "may mean or if"
     ],
     "sectionBannedPhrases": {
       "Daily Schedule": [
@@ -303,9 +313,11 @@
       ]
     },
     "maxDuplicateItems": 2,
+    "maxIncompleteSentences": 0,
     "maxDuplicateItemsBySection": {
       "Communication": 1,
-      "Health & Safety": 1
+      "Health & Safety": 1,
+      "What helps when they are having a hard time": 0
     }
   }
 }

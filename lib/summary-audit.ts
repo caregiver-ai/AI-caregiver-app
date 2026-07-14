@@ -17,6 +17,10 @@ type SummaryAuditOptions = {
   diagnostics?: string[];
 };
 
+function compactWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 function normalizeAuditText(value: string) {
   return value
     .replace(/^\s*[A-Za-z][A-Za-z0-9 &'’/,-]{1,60}:\s+/, "")
@@ -113,6 +117,41 @@ function isAwkwardLowSignalItem(item: string, sectionTitle: string) {
   return false;
 }
 
+function hasTerminalSentencePunctuation(value: string) {
+  return /[.!?][)"'”’\]]*$/.test(compactWhitespace(value));
+}
+
+function itemLooksIncompleteOrMalformed(item: string) {
+  const text = compactWhitespace(item);
+  if (!text || !isMeaningfulItem(text)) {
+    return false;
+  }
+
+  const withoutTerminalPunctuation = text.replace(/[.!?][)"'”’\]]*$/, "").trim();
+
+  return (
+    !hasTerminalSentencePunctuation(text) ||
+    /[.!?]{2,}/.test(text) ||
+    /\bmay mean or if\b/i.test(text) ||
+    /\bor if\b.{0,80}\bseems\b/i.test(text) ||
+    /\b(?:and|or|but|because|including|such as|with|to|if|when)$/i.test(withoutTerminalPunctuation) ||
+    /[:,;]$/.test(text) ||
+    /\b(?:a|p)\.$/i.test(text) ||
+    /"[^"]*$/.test(text) ||
+    /“[^”]*$/.test(text)
+  );
+}
+
+function itemIsAllowedInCurrentSection(item: string, title: string) {
+  if (title !== "What Helps When They Are Having a Hard Time") {
+    return false;
+  }
+
+  return /\b(recognize|early signs?|starting to have a hard time|aggravat|frustrat|angry|agitat|pacing|space|quiet|stimulation|touch|talk|comfort|hug|walk away|swing|sensory room|squeeze|deep breath|count(?:ing)? to 10|gumm|swedish fish|candy|ipad|internet|history|video|youtube|car ride|drive|reliable reset|documented safety steps|back seat|backseat|buckle buddy|seat ?belt|lock(?:ed)?|loosen|retract|safe|hand biting|bite the caregiver|may bite)\b/i.test(
+    item
+  );
+}
+
 function dedupeIssues(issues: SummaryAuditIssue[]) {
   const seen = new Set<string>();
 
@@ -158,7 +197,7 @@ export function finalizeSummaryWithQa(input: unknown, options: SummaryAuditOptio
 
     for (const item of meaningfulItems) {
       const authoritativeTitle = inferAuthoritativeSectionTitle(item, title);
-      if (authoritativeTitle !== title) {
+      if (authoritativeTitle !== title && !itemIsAllowedInCurrentSection(item, title)) {
         issues.push({
           code: "wrong_section",
           message: `A bullet in ${title} belongs in ${authoritativeTitle}: ${item}`,
@@ -173,6 +212,15 @@ export function finalizeSummaryWithQa(input: unknown, options: SummaryAuditOptio
         issues.push({
           code: "awkward_item",
           message: `${title} contains a low-signal or awkward bullet: ${item}`,
+          sectionTitle: title,
+          item
+        });
+      }
+
+      if (itemLooksIncompleteOrMalformed(item)) {
+        issues.push({
+          code: "incomplete_sentence",
+          message: `${title} contains an incomplete or malformed sentence: ${item}`,
           sectionTitle: title,
           item
         });

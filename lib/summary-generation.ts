@@ -976,11 +976,13 @@ Inside each section, create natural person-specific subheadings that help a care
 Rules:
 - Do not create questionnaire-style headings or headings that end in a question mark.
 - Do not use generic giant catch-all labels such as "Other", "Miscellaneous", or "Additional Notes" for more than two bullets.
-- Combine related atomic facts into caregiver-ready concepts, but do not invent new facts.
+- Combine related atomic facts into caregiver-ready concepts, not one bullet per fact. Prefer one clear bullet that preserves several related details over several nearly identical bullets.
 - Every item must include supportingFactIds from the supplied facts. Do not use unknown IDs.
 - Keep facts in their correct top-level section. If a fact belongs in another section, omit it from this section rather than moving it.
 - Prefer a short group intro when it helps explain the concept, followed by concise bullets for examples, steps, lists, or details.
-- Preserve safety, medication, diagnosis, supervision, communication-signal, and caregiver-action details.`;
+- Preserve safety, medication, diagnosis, supervision, communication-signal, and caregiver-action details.
+- Write complete sentences only. Avoid dangling fragments, duplicate punctuation, repeated labels, or awkward joins such as "may mean or if".
+- For the hard-time support section, organize the flow around what a caregiver should recognize first, try first, try next, and do if escalation continues.`;
 
 const sevenSectionRewriteRules = `Rewrite the structured facts into a concise caregiver-ready handoff.
 
@@ -1545,6 +1547,27 @@ function inferCaptureRouting(
     return { section: "Health & Safety" as SummarySectionTitle, factKind: "medication" as StructuredFactKind };
   }
 
+  if (
+    preferredSection === "What helps when they are having a hard time" &&
+    /\b(ipad|internet|history|youtube|video|content)\b/i.test(statement) &&
+    /\b(check|open|help|find|working|not working|cannot find|can't find|can not find|troubleshoot)\b/i.test(statement)
+  ) {
+    return {
+      section: "What helps when they are having a hard time" as SummarySectionTitle,
+      factKind: "caregiver_action" as StructuredFactKind
+    };
+  }
+
+  if (
+    preferredSection === "What helps when they are having a hard time" &&
+    /\b(?:do not|don't|avoid|last thing)\b.{0,80}\b(?:touch|talk|comfort|hug)\b/i.test(statement)
+  ) {
+    return {
+      section: "What helps when they are having a hard time" as SummarySectionTitle,
+      factKind: "caregiver_action" as StructuredFactKind
+    };
+  }
+
   if (statementLooksLikeLearning(statement)) {
     return {
       section: "Understanding and Learning" as SummarySectionTitle,
@@ -1587,6 +1610,16 @@ function inferCaptureRouting(
     return {
       section: "Signs They Are Having a Hard Time" as SummarySectionTitle,
       factKind: "help_sign" as StructuredFactKind
+    };
+  }
+
+  if (
+    preferredSection === "Signs They Are Having a Hard Time" &&
+    /\b(?:aggravat|frustrat|angry|agitat|pac(?:e|es|ing)|hard time|overwhelm|dysregulat)\b/i.test(statement)
+  ) {
+    return {
+      section: "Signs They Are Having a Hard Time" as SummarySectionTitle,
+      factKind: rawFactKind === "trigger" ? "trigger" as StructuredFactKind : "help_sign" as StructuredFactKind
     };
   }
 
@@ -2051,6 +2084,38 @@ function extractCoverageConcepts(value: string) {
     /\b(help|find|access|prevent|reduce|frustration|trying)\b/.test(normalized)
   ) {
     concepts.add("ipad_help");
+  }
+
+  if (/\b(pacing|paces|pace)\b/.test(normalized)) {
+    concepts.add("pacing_sign");
+  }
+
+  if (/\b(aggravated|frustrated|agitated|agitation)\b/.test(normalized)) {
+    concepts.add("agitation_sign");
+  }
+
+  if (/\b(do not|don t|avoid|last thing)\b.{0,80}\b(touch|talk|comfort|hug)\b|\b(touch|talk|comfort|hug)\b.{0,80}\b(make|makes|making)\b.{0,40}\bworse\b/.test(normalized)) {
+    concepts.add("do_not_touch_talk");
+  }
+
+  if (/\b(swing|sensory room)\b/.test(normalized)) {
+    concepts.add("sensory_swing");
+  }
+
+  if (/\b(back seat|backseat)\b/.test(normalized)) {
+    concepts.add("back_seat");
+  }
+
+  if (/\bseat belt|seatbelt|buckle buddy\b/.test(normalized)) {
+    concepts.add("seat_belt_safety");
+  }
+
+  if (/\bpull\b.{0,40}\bseat ?belt\b.{0,80}\b(lock|locked|loosen|release|retract)|\bseat ?belt\b.{0,80}\b(lock|locked|loosen|release|retract)\b/.test(normalized)) {
+    concepts.add("locked_seat_belt");
+  }
+
+  if (/\b(few minutes?|within minutes?)\b.{0,80}\b(calm|settle|right as rain)|\b(calm|settle|right as rain)\b.{0,80}\b(few minutes?|within minutes?)\b/.test(normalized)) {
+    concepts.add("car_ride_settles");
   }
 
   if (/\bcareful\b.{0,60}\bask(?:ing)? questions?|\bask(?:ing)? questions?\b.{0,60}\bcareful\b/.test(normalized)) {
@@ -2644,6 +2709,16 @@ function factLooksCoveredByItem(fact: StructuredCaptureFact, item: string) {
     "caregiver_leading_sign",
     "attention_sign",
     "offer_car_ride",
+    "car_ride_regulation",
+    "ipad_help",
+    "pacing_sign",
+    "agitation_sign",
+    "do_not_touch_talk",
+    "sensory_swing",
+    "back_seat",
+    "seat_belt_safety",
+    "locked_seat_belt",
+    "car_ride_settles",
     "do_not_block_hand_biting",
     "calming_prompt",
     "buckle_buddy",
@@ -3099,6 +3174,26 @@ function guideSectionForFact(fact: StructuredCaptureFact): GuideSectionTitle {
     return "Activities and Interests";
   }
 
+  if (
+    fact.section === "What helps when they are having a hard time" &&
+    (
+      /\b(?:do not|don't|avoid|last thing)\b.{0,80}\b(?:touch|talk|comfort|hug)\b/i.test(statement) ||
+      (
+        /\b(ipad|internet|history|youtube|video|content)\b/i.test(statement) &&
+        /\b(check|open|help|find|working|not working|cannot find|can't find|can not find|troubleshoot)\b/i.test(statement)
+      )
+    )
+  ) {
+    return "What Helps When They Are Having a Hard Time";
+  }
+
+  if (
+    fact.section === "Signs They Are Having a Hard Time" &&
+    /\b(?:aggravat|frustrat|angry|agitat|pac(?:e|es|ing)|hard time|overwhelm|dysregulat)\b/i.test(statement)
+  ) {
+    return fact.factKind === "trigger" ? "What Can Upset or Overwhelm" : "Signs They Need Help";
+  }
+
   if (/\b(non-speaking|aac|touchchat|communicat\w*|express(?:es)? himself|voice|sounds?|vocal|singing|happy sounds?|happy noises?|sad sounds?|sad noises?|lead|touch|sit(?:s|ting)? close|attention|select(?:s|ed)?|i want ipad|word car|press(?:es)? help|label things)\b/i.test(statement)) {
     return "Communication";
   }
@@ -3411,6 +3506,7 @@ function composeGuideSummaryWithLayout(
       if (
         !layoutSection ||
         title === "About" ||
+        title === "What Helps When They Are Having a Hard Time" ||
         title === "Quick Tips for New Caregivers" ||
         !layoutSectionIsValid(layoutSection, capture)
       ) {
@@ -3778,9 +3874,13 @@ function uniqueGuideItems(values: string[]) {
   return items;
 }
 
+function hasTerminalSentencePunctuation(value: string) {
+  return /[.!?][)"'”’\]]*$/.test(compactWhitespace(value));
+}
+
 function sentence(value: string) {
   const text = compactWhitespace(value);
-  return /[.!?]$/.test(text) ? text : `${text}.`;
+  return hasTerminalSentencePunctuation(text) ? text : `${text}.`;
 }
 
 function sentenceFromList(prefix: string, items: string[]) {
@@ -5140,7 +5240,7 @@ function activityGroupingPattern() {
 }
 
 function supportGroupingPattern() {
-  return /\b(space|quiet|noise|stimulation|crowd|low-light|lights?|environment|time alone|not a lot going on|calm|squeeze|deep breath|count|music|fidget|headphones|car ride|drive|dog|romeo|tough day|sad|reset|redirect|snap out|candy|gumm|swedish fish|transition|schedule|timer|first|then|back off|reward|motivat|preferred|hype|hyping|enthusiastic|enthusiastically|speak|orient|startle|what .*doing|contact .*(?:caregivers?|family)|(?:caregivers?|family).*contact|do not hesitate .*(?:contact|call)|don't hesitate .*(?:contact|call)|seizure|recover|safety checks?|safe in .*space|outside close by|floor|get down|safe|hurt|self-harm|elop|hand biting|block|stop|bite you|cannot hurt)\b/i;
+  return /\b(recognize|early signs?|starting to have a hard time|aggravat|frustrat|angry|agitat|pacing|space|quiet|noise|stimulation|crowd|low-light|lights?|environment|time alone|work it out|regulate|not a lot going on|calms?|settles?|few minutes?|within minutes?|driv(?:e|ing)|squeeze|deep breath|count|music|fidget|headphones|car ride|reliable reset|documented safety steps|dog|romeo|tough day|sad|reset|redirect|snap out|candy|gumm(?:y|ies)?|swedish fish|ipad|internet|history|youtube|video|content|swing|sensory room|back seat|backseat|buckle buddy|seat ?belt|lock(?:ed)?|loosen|retract|transition|schedule|timer|first|then|back off|reward|motivat|preferred|hype|hyping|enthusiastic|enthusiastically|speak|orient|startle|what .*doing|contact .*(?:caregivers?|family)|(?:caregivers?|family).*contact|do not hesitate .*(?:contact|call)|don't hesitate .*(?:contact|call)|seizure|recover|safety checks?|safe in .*space|outside close by|floor|get down|safe|hurt|self-harm|elop|hand biting|block|stop|bite you|cannot hurt)\b/i;
 }
 
 function healthSafetyGroupingPattern() {
@@ -5257,6 +5357,10 @@ function groupEquipmentDetails(facts: StructuredCaptureFact[]) {
     /\bmodified passenger seat\b/i.test(text) ? "modified passenger seat" : "",
     /\bdisposable pull[- ]?up style underwear\b|\bpull[- ]?ups?\b/i.test(text) ? "disposable pull-up style underwear" : "",
     /\bbuckle buddy\b/i.test(text) ? "Buckle Buddy for seat belt safety" : "",
+    /\bback seat|backseat\b/i.test(text) ? "back-seat riding when documented for car safety" : "",
+    /\bseat ?belt\b.{0,80}\b(lock|locked|loosen|release|retract)|\b(lock|locked|loosen|release|retract)\b.{0,80}\bseat ?belt\b/i.test(text)
+      ? "locked seat belt setup so it cannot be loosened"
+      : "",
     /\bgolf cart\b/i.test(text) && /\bseat belts?\b/i.test(text) ? "golf cart with seat belts" : "",
     /\bwhite cane\b/i.test(text) && /\blearning\b/i.test(text) ? "white cane they are learning to use" : ""
   ].filter(Boolean);
@@ -5425,76 +5529,156 @@ function familyCallGuidancePattern() {
   return /\b(call .*family|family .*call|call any time|any time of the day or night|day or night|only have a question|even if .*question|tell .*family .*what is going on|not hesitate to call|should not hesitate to call)\b/i;
 }
 
-function groupSupportFacts(facts: StructuredCaptureFact[]) {
-  const text = factText(facts);
-  const environmental = [
-    /\bspace|do not crowd|don't crowd|back off\b/i.test(text) ? "giving space and not crowding" : "",
-    /\bquiet|noise|stimulation|not a lot going on|environment\b/i.test(text) ? "keep things quiet and reduce stimulation" : "",
-    /\btime alone|moment to (?:himself|herself|themself)\b/i.test(text) ? "allowing time alone when safe" : "",
-    /\blow-light|dim lights?|lights?\b/i.test(text) ? "adjusting lighting" : "",
-    /\bdifferent (?:space|room)|another room|go(?:ing)? outside|go(?:ing)? to the car|change (?:the )?environment|change spaces?\b/i.test(text)
-      ? "changing spaces, such as going outside, going to another room, or going to the car"
+function groupSupportFacts(
+  supportFacts: StructuredCaptureFact[],
+  signFacts: StructuredCaptureFact[],
+  healthFacts: StructuredCaptureFact[],
+  name: string
+) {
+  const supportText = factText(supportFacts);
+  const allText = factText([...supportFacts, ...signFacts, ...healthFacts]);
+  const supportAndSignText = factText([...supportFacts, ...signFacts]);
+  const supportStatements = supportFacts.map((fact) => fact.statement);
+  const isNamedSubject = name !== "They";
+  const sentenceSubject = isNamedSubject ? name : "they";
+  const objectSubject = isNamedSubject ? name : "them";
+  const beVerb = isNamedSubject ? "is" : "are";
+  const continueVerb = isNamedSubject ? "Continues" : "Continue";
+  const pronouns = aboutPronouns([...supportFacts, ...signFacts, ...healthFacts]);
+  const regulatePhrase =
+    pronouns.subject === "he"
+      ? "regulate himself"
+      : pronouns.subject === "she"
+        ? "regulate herself"
+        : "regulate on their own";
+  const wantPhrase =
+    pronouns.subject === "he" || pronouns.subject === "she"
+      ? `${pronouns.subject} wants`
+      : "they want";
+  const earlySigns = [
+    /\baggravat|frustrat|angry (?:sound|noise|vocal)|yell/i.test(allText)
+      ? `${name} may make aggravated, frustrated, angry, or yelling sounds.`
       : "",
-    /\bfreeze\b|pause everything|stop everything|absolute freeze\b/i.test(text)
-      ? "pausing demands and activity when escalation is high"
-      : "",
-    /\blisten\b|honou?r .*request|honou?r .*leave .*alone|leave (?:him|her|them) alone\b/i.test(text)
-      ? "listening and honoring requests for space when safe"
+    /\bagitat/i.test(allText) ? `${name} may appear increasingly agitated.` : "",
+    /\bpac(?:e|es|ing)\b/i.test(allText) ? `${name} may start pacing.` : "",
+    /\bhand biting|biting (?:his|her|their) hand|elop|run away|running away\b/i.test(allText)
+      ? "Escalation signs may include hand biting, eloping, or running away."
       : ""
   ].filter(Boolean);
-  const calming = [
-    /\bcar ride|drive\b/i.test(text) ? "car rides or drives" : "",
-    /\b(dog|romeo)\b.{0,80}\b(support|calm|sad|upset|tough day|hard time|stress|feel less stressed|walk helps?)\b|\b(support|calm|sad|upset|tough day|hard time|stress|feel less stressed|walk helps?)\b.{0,80}\b(dog|romeo)\b/i.test(text) ? "dog support or a walk with the dog" : "",
-    /\bsqueeze|release|deep breath|count(?:ing)? to 10\b/i.test(text) ? "calming prompts such as squeeze-and-release, deep breaths, or counting" : "",
-    /\bmusic|nascar|cooking shows|this old house\b/i.test(text) ? "familiar low-volume audio" : "",
-    /\bfidget|headphones|weighted blanket\b/i.test(text) ? "calming items such as fidgets or headphones" : "",
-    /\bcandy|gumm|swedish fish\b/i.test(text) ? "candy or gummies when they help redirect or motivate" : ""
-  ].filter(Boolean);
-  const transitions = [
-    /\bvisual schedule|written schedule|schedule\b/i.test(text) ? "visual or written schedules" : "",
-    /\bvisual timer|timer\b/i.test(text) ? "timers" : "",
-    /\bfirst[ -]?then|first this,? then that\b/i.test(text) ? "First-Then language" : "",
-    /\btransition|change|advance|beforehand|ahead of time\b/i.test(text) ? "preparing for transitions ahead of time" : "",
-    /\bhype|hyping|enthusiastic|enthusiastically\b/i.test(text) ? "enthusiastically hyping up where they are going or what they will do" : "",
-    /\bspeak|orient|tell .*what|what .*doing|startle\b/i.test(text) ? "speaking first and explaining what is happening" : "",
-    /\breward|motivat|preferred\b/i.test(text) ? "using a preferred item or activity as motivation" : ""
-  ].filter(Boolean);
-  const safety = [
-    /\bsafe|cannot hurt|can't hurt|self-harm|self harm\b/i.test(text) ? "make sure they are safe and cannot hurt themself" : "",
-    /\bfloor|get down|safely down\b/i.test(text) ? "helping them get safely positioned when needed" : "",
-    /\bhand biting|bite you|do not .*block|don't .*block|do not .*stop|don't .*stop\b/i.test(text) ? "do not physically stop or block hand biting because they may bite you or cause caregiver injury" : "",
-    /\belop|run away|running away\b/i.test(text) ? "stay nearby and manage elopement risk" : "",
-    /\bcontact\b.{0,80}\bcaregivers?\b|\bcaregivers?\b.{0,80}\bcontact\b/i.test(text) ? "contact caregivers when you need guidance" : "",
-    /\bcontact\b.{0,80}\bfamily\b|\bfamily\b.{0,80}\bcontact\b|\bdo not hesitate\b.{0,80}\b(?:contact|call)\b|\bdon't hesitate\b.{0,80}\b(?:contact|call)\b/i.test(text)
-      ? "contact family when you need guidance, even if you are unsure"
+
+  const spaceFirst = [
+    /\bspace|do not crowd|don't crowd|back off|walk away\b/i.test(supportText)
+      ? `Give ${objectSubject} space and walk away if it is safe to do so.`
       : "",
-    /\bseizure\b.{0,120}\b(?:car|home|bed|recover)|\b(?:car|home|bed|recover)\b.{0,120}\bseizure\b/i.test(text)
-      ? "after a seizure, help them get safely home and settled for recovery"
+    /\btouch|talk|comfort|hug\b/i.test(supportText) && /\b(do not|don't|last thing|worse|agitat)/i.test(supportText)
+      ? `Do not touch, hug, crowd, or keep talking to ${objectSubject} while escalation is building.`
       : "",
-    /\bsafe in (?:his|her|their) space\b|\bsafety checks?\b|\boutside close by\b/i.test(text)
-      ? "stay close enough to complete safety checks while they remain safe in their space"
+    /\btime alone|moment to (?:himself|herself|themself)|work it out|regulate on (?:his|her|their) own\b/i.test(supportText)
+      ? `Allow ${objectSubject} time to ${regulatePhrase} when it is safe.`
+      : "",
+    /\bquiet|noise|stimulation|not a lot going on|environment\b/i.test(supportText)
+      ? "Keep things quiet and reduce stimulation."
+      : "",
+    /\bswing|sensory room\b/i.test(supportText)
+      ? `If reminded, ${sentenceSubject} may go to a sensory room or swing to help calm.`
+      : "",
+    /\bhand biting|bite you|do not .*block|don't .*block|do not .*stop|don't .*stop\b/i.test(supportText)
+      ? `Do not physically stop hand biting because ${sentenceSubject} may bite the caregiver.`
       : ""
   ].filter(Boolean);
+
+  const nextSteps = [
+    /\bsqueeze|release|deep breath|count(?:ing)? to 10\b/i.test(supportText)
+      ? `If ${sentenceSubject} ${beVerb} still somewhat calm, try squeeze-and-release, deep breaths, or counting to 10.`
+      : "",
+    /\bcandy|gumm|swedish fish\b/i.test(supportText)
+      ? `Offer gummies, Swedish Fish, or another preferred treat when it helps redirect or motivate ${objectSubject}.`
+      : "",
+    /\bipad|internet|history|video|youtube|content\b/i.test(supportText) &&
+    /\bipad|internet|history|video|youtube|content\b/i.test(supportAndSignText)
+      ? `If the iPad seems to be part of the frustration, check the internet and help ${objectSubject}${
+          /\bhistory\b/i.test(supportAndSignText) ? " use viewing history to" : ""
+        } find the video or content ${wantPhrase}.`
+      : "",
+    /\bfidget|headphones|weighted blanket|music|nascar|cooking shows|this old house\b/i.test(supportText)
+      ? "Use calming items or familiar low-volume audio when they help."
+      : "",
+    /\bvisual schedule|written schedule|schedule|visual timer|timer|first[ -]?then|first this,? then that\b/i.test(supportText)
+      ? "Use timers, visual or written schedules, and First-Then language for transitions."
+      : "",
+    /\breward|motivat|preferred\b/i.test(supportText)
+      ? "Use a preferred item, activity, or endpoint as motivation."
+      : "",
+    /\bdog|romeo\b/i.test(supportText)
+      ? "Dog support or a walk with the dog may help when that is part of the person's calming routine."
+      : "",
+    /\bspeak|orient|tell .*what|what .*doing|startle\b/i.test(supportText)
+      ? "Speak first and explain what is happening before moving in to help."
+      : ""
+  ].filter(Boolean);
+
+  const escalationSteps = [
+    /\bcar ride|drive\b/i.test(supportText)
+      ? `If other strategies are not enough, a car ride or drive may be the most reliable reset for ${objectSubject}.`
+      : "",
+    /\b(back seat|backseat|buckle buddy|seat ?belt|locked?|loosen|retract|pull .*all the way)\b/i.test(allText) &&
+      /\bcar ride|drive|car safety|seat ?belt|buckle buddy\b/i.test(allText)
+      ? `For car rides, seat ${objectSubject} in the back seat when documented, use the Buckle Buddy when available, and lock the seat belt so it cannot be loosened.`
+      : "",
+    /\btwo adults?|two caregivers?|two people|more than one person|at least two\b/i.test(allText) &&
+      /\bcar rides?|walks?|outings?\b/i.test(allText)
+      ? `Use the documented staffing level for car rides, walks, or outings when extra adults are needed for safety.`
+      : "",
+    /\b(few minutes?|within minutes?)\b.{0,120}\b(calm|settle|right as rain)|\b(calm|settle|right as rain)\b.{0,120}\b(few minutes?|within minutes?)\b/i.test(supportText)
+      ? `${name} may settle after a few calm minutes, and then the caregiver can return to the usual routine.`
+      : "",
+    /\bcontact\b.{0,80}\bcaregivers?\b|\bcaregivers?\b.{0,80}\bcontact\b/i.test(supportText)
+      ? "Contact caregivers when you need guidance."
+      : "",
+    /\bcontact\b.{0,80}\bfamily\b|\bfamily\b.{0,80}\bcontact\b|\bdo not hesitate\b.{0,80}\b(?:contact|call)\b|\bdon't hesitate\b.{0,80}\b(?:contact|call)\b/i.test(supportText)
+      ? "Contact family when you need guidance, even if you are unsure."
+      : "",
+    /\bseizure\b.{0,120}\b(?:car|home|bed|recover)|\b(?:car|home|bed|recover)\b.{0,120}\bseizure\b/i.test(supportText)
+      ? "After a seizure, help them get safely home and settled for recovery."
+      : "",
+    /\bsafe in (?:his|her|their) space\b|\bsafety checks?\b|\boutside close by\b/i.test(supportText)
+      ? "Stay close enough to complete safety checks while they remain safe in their space."
+      : ""
+  ].filter(Boolean);
+
+  const coveredPatterns = [
+    supportGroupingPattern(),
+    /\bipad|internet|history|video|youtube|content\b/i,
+    /\b(back seat|backseat|buckle buddy|seat ?belt|locked?|loosen|retract|pull .*all the way)\b/i,
+    /\b(few minutes?|within minutes?)\b.{0,120}\b(calm|settle|right as rain)|\b(calm|settle|right as rain)\b.{0,120}\b(few minutes?|within minutes?)\b/i,
+    /\btouch|talk|comfort|hug\b/i,
+    /\bswing|sensory room\b/i
+  ];
+  const remaining = rejectStatements(supportStatements, coveredPatterns)
+    .filter((statement) => !/[“"][^”"]*$/.test(statement));
 
   return groupedBlock([
-    { label: "Environmental supports", items: [groupedListItem("Environmental supports include", environmental)] },
-    { label: "Calming supports", items: [groupedListItem("Calming supports include", calming)] },
-    { label: "Transitions and motivation", items: [groupedListItem("Transition supports include", transitions)] },
-    { label: "Safety in the moment", items: [groupedListItem("In the moment", safety)] }
+    {
+      label: "Recognize the Early Signs",
+      intro: earlySigns.length > 0 ? `These signs can show that ${sentenceSubject} ${beVerb} starting to have a hard time.` : "",
+      items: earlySigns
+    },
+    {
+      label: "First: Give Space",
+      intro: spaceFirst.length > 0 ? "Lower demands before trying to fix the problem." : "",
+      items: spaceFirst
+    },
+    {
+      label: "Next: Try Simple Solutions",
+      intro: nextSteps.length > 0 ? "If space is not enough, look for a simple unmet need or familiar support." : "",
+      items: [...nextSteps, ...remaining.slice(0, 3)]
+    },
+    {
+      label: `If ${name} ${continueVerb} to Escalate`,
+      intro: escalationSteps.length > 0 ? "Use the most reliable reset and follow documented safety steps." : "",
+      items: escalationSteps
+    }
   ]);
-}
-
-function groupEscalationSupport(facts: StructuredCaptureFact[], name: string) {
-  const text = factText(facts);
-  const supports = [
-    /\bspace|do not crowd|don't crowd|back off\b/i.test(text) ? `give ${name} space` : "",
-    /\bquiet|noise|stimulation|not a lot going on|environment\b/i.test(text) ? "keep things quiet" : "",
-    /\bhand biting|bite you|do not .*block|don't .*block|do not .*stop|don't .*stop\b/i.test(text)
-      ? "do not physically stop hand biting"
-      : ""
-  ].filter(Boolean);
-
-  return supports.length >= 2 ? sentence(`When escalation is high, ${formatInsightList(supports)}`) : "";
 }
 
 function communicationChannelsForAbout(facts: StructuredCaptureFact[]) {
@@ -5941,14 +6125,8 @@ function composeGuideSummaryFromCapture(
     }
 
     if (title === "What Helps When They Are Having a Hard Time") {
-      const escalationSupportSummary = groupEscalationSupport(supportFacts, name);
-      const supportStatements = rejectStatements(supportFacts.map((fact) => fact.statement), [
-        supportGroupingPattern()
-      ]).filter((statement) => !/[“"][^”"]*$/.test(statement));
       return compactSection(title, index, undefined, [
-        escalationSupportSummary ? guideBlock("note", [escalationSupportSummary]) : null,
-        groupSupportFacts(supportFacts),
-        labeledBlock("Additional support notes", supportStatements.slice(0, 3))
+        groupSupportFacts(supportFacts, signFacts, healthFacts, name)
       ]);
     }
 

@@ -38,6 +38,8 @@ type CaseReport = {
   missingFactDiagnostics: string[];
   leakedFactDiagnostics: string[];
   groupingWarnings: string[];
+  sentenceQualityWarnings: string[];
+  supportGroupLabels: string[];
   pass: boolean;
 };
 
@@ -260,6 +262,18 @@ function groupingWarnings(summary: StructuredSummary) {
   return warnings;
 }
 
+function supportGroupLabels(summary: StructuredSummary) {
+  return summary.sections
+    .find((section) => section.title === "What Helps When They Are Having a Hard Time")
+    ?.blocks?.flatMap((block) => block.type === "labeledBullets" ? block.groups.map((group) => group.label) : []) ?? [];
+}
+
+function sentenceQualityWarnings(issues: Array<{ code: string; message: string }>) {
+  return issues
+    .filter((issue) => issue.code === "awkward_item" || issue.code === "incomplete_sentence")
+    .map((issue) => issue.message);
+}
+
 function auditIssueCounts(issues: Array<{ code: string }>) {
   return issues.reduce<Record<string, number>>((counts, issue) => {
     counts[issue.code] = (counts[issue.code] ?? 0) + 1;
@@ -338,6 +352,13 @@ async function main() {
 
   await mkdir(outputDir, { recursive: true });
 
+  const missingEnv = ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SECRET_KEY", "OPENAI_API_KEY"].filter(
+    (key) => !process.env[key]
+  );
+  if (missingEnv.length > 0) {
+    throw new Error(`summary:review-cases requires ${missingEnv.join(" and ")}.`);
+  }
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SECRET_KEY!
@@ -360,6 +381,8 @@ async function main() {
         .map((issue) => issue.message);
       const warnings = groupingWarnings(result.summary);
       const issueCounts = auditIssueCounts(result.auditReport.issues);
+      const sentenceWarnings = sentenceQualityWarnings(result.auditReport.issues);
+      const supportLabels = supportGroupLabels(result.summary);
       const report: CaseReport = {
         label: definition.label,
         nameHint: definition.nameHint,
@@ -377,6 +400,8 @@ async function main() {
         missingFactDiagnostics,
         leakedFactDiagnostics,
         groupingWarnings: warnings,
+        sentenceQualityWarnings: sentenceWarnings,
+        supportGroupLabels: supportLabels,
         pass:
           result.facts.length > 0 &&
           duplicates.length === 0 &&
@@ -384,6 +409,9 @@ async function main() {
           leakedFactDiagnostics.length === 0 &&
           (issueCounts.missing_coverage ?? 0) === 0 &&
           (issueCounts.section_leakage ?? 0) === 0 &&
+          (issueCounts.wrong_section ?? 0) === 0 &&
+          (issueCounts.awkward_item ?? 0) === 0 &&
+          (issueCounts.incomplete_sentence ?? 0) === 0 &&
           warnings.length === 0
       };
 
@@ -409,6 +437,8 @@ async function main() {
             missing: report.missingFactDiagnostics.length,
             leaked: report.leakedFactDiagnostics.length,
             groupingWarnings: report.groupingWarnings.length,
+            sentenceQualityWarnings: report.sentenceQualityWarnings.length,
+            supportGroupLabels: report.supportGroupLabels,
             auditIssueCounts: report.auditIssueCounts,
             expectedDocPresent: report.expectedDocPresent
           },
@@ -435,6 +465,8 @@ async function main() {
         missingFactDiagnostics: [],
         leakedFactDiagnostics: [],
         groupingWarnings: [],
+        sentenceQualityWarnings: [],
+        supportGroupLabels: [],
         pass: false
       };
       reports.push(report);
@@ -451,13 +483,19 @@ async function main() {
         `${report.pass ? "PASS" : "FAIL"} ${report.label}`,
         report.error ? `  error=${report.error}` : "",
         `  source=${report.source} turns=${report.sourceTurnCount} facts=${report.factCount} items=${report.visibleItemCount}`,
-        `  duplicates=${report.duplicateCount} missing=${report.missingFactDiagnostics.length} leaked=${report.leakedFactDiagnostics.length} groupingWarnings=${report.groupingWarnings.length}`,
+        `  duplicates=${report.duplicateCount} missing=${report.missingFactDiagnostics.length} leaked=${report.leakedFactDiagnostics.length} groupingWarnings=${report.groupingWarnings.length} sentenceWarnings=${report.sentenceQualityWarnings.length}`,
+        report.supportGroupLabels.length > 0
+          ? `  supportGroupLabels=${report.supportGroupLabels.join(" | ")}`
+          : "",
         `  expectedDocPresent=${report.expectedDocPresent} expectedDocWords=${report.expectedDocWordCount}`,
         report.duplicatePairs.length > 0
           ? `  duplicatePairs=${JSON.stringify(report.duplicatePairs.slice(0, 5))}`
           : "",
         report.groupingWarnings.length > 0
           ? `  groupingWarnings=${report.groupingWarnings.join(" | ")}`
+          : "",
+        report.sentenceQualityWarnings.length > 0
+          ? `  sentenceWarnings=${report.sentenceQualityWarnings.slice(0, 3).join(" | ")}`
           : "",
         report.missingFactDiagnostics.length > 0
           ? `  missingExamples=${report.missingFactDiagnostics.slice(0, 3).join(" | ")}`
