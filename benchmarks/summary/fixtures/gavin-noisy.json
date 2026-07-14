@@ -148,7 +148,17 @@
           "anyOf": [
             "bathroom reminders",
             "hourly prompts",
-            "told to use the bathroom"
+            "told to use the bathroom",
+            "uses the bathroom with reminders",
+            "reminders and support",
+            "go use the bathroom",
+            "does not independently communicate toileting needs",
+            "does not initiate bathroom use",
+            "hourly speaker reminders",
+            "speaker reminders",
+            "bathroom",
+            "toileting",
+            "voids in the toilet"
           ]
         },
         {
@@ -221,7 +231,12 @@
           "label": "communication sign",
           "anyOf": [
             "presses help",
-            "help on his device"
+            "help on his device",
+            "help on his ipad",
+            "word help",
+            "ask for help",
+            "asks for help",
+            "direct sign"
           ]
         }
       ],

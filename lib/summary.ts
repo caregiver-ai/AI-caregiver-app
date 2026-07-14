@@ -1304,8 +1304,50 @@ export function inferAuthoritativeSectionTitle(
     return "Health & Safety";
   }
 
+  if (
+    currentTitle === "Communication" &&
+    COMMUNICATION_PATTERN.test(item) &&
+    !itemLooksLikeLearningItem(item) &&
+    !HARD_TIME_SIGNS_PATTERN.test(item)
+  ) {
+    return currentTitle;
+  }
+
+  if (currentTitle === "Daily Routine" && DAILY_PATTERN.test(item)) {
+    return currentTitle;
+  }
+
+  if (
+    currentTitle === "Food and Meals" &&
+    /\b(food|foods?|meal|meals?|snack|eat|eating|drink|drinking|diet|breakfast|lunch|dinner|cheese|pasta|pita|labneh|zaatar|lettuce|beans?|cauliflower|water|sippy cup|grazes?|bite-sized|appetite)\b/i.test(item)
+  ) {
+    return currentTitle;
+  }
+
+  if (currentTitle === "Activities and Interests" && ACTIVITIES_PATTERN.test(item)) {
+    return currentTitle;
+  }
+
   if (STRONG_HEALTH_PATTERN.test(item)) {
     return "Health & Safety";
+  }
+
+  if (
+    /^(?:do not|don't)\b.*\b(?:block|stop)\b.*\b(?:hand|biting)\b/i.test(item)
+  ) {
+    return "What Helps When They Are Having a Hard Time";
+  }
+
+  if (itemLooksLikeHardTimeSupport(item)) {
+    return "What Helps When They Are Having a Hard Time";
+  }
+
+  if (currentTitle === "Signs They Need Help" && HARD_TIME_SIGNS_PATTERN.test(item)) {
+    return currentTitle;
+  }
+
+  if (currentTitle === "Health & Safety" && (STRONG_HEALTH_PATTERN.test(item) || HEALTH_PATTERN.test(item))) {
+    return currentTitle;
   }
 
   if (
@@ -1313,12 +1355,6 @@ export function inferAuthoritativeSectionTitle(
     /\b(?:when|need|needs|needed|signal|sign|mean|means)\b/i.test(item)
   ) {
     return "Signs They Need Help";
-  }
-
-  if (
-    /^(?:do not|don't)\b.*\b(?:block|stop)\b.*\b(?:hand|biting)\b/i.test(item)
-  ) {
-    return "What Helps When They Are Having a Hard Time";
   }
 
   if (
@@ -1333,10 +1369,6 @@ export function inferAuthoritativeSectionTitle(
 
   if (itemLooksLikePreferredActivitiesList(item) && !itemExplicitlySaysPreferenceHelps(item)) {
     return "Activities and Interests";
-  }
-
-  if (itemLooksLikeHardTimeSupport(item)) {
-    return "What Helps When They Are Having a Hard Time";
   }
 
   if (itemLooksLikeLearningItem(item)) {

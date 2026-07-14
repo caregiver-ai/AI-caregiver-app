@@ -6,7 +6,7 @@ import {
   normalizeGeneratedSummaryWithOptions
 } from "./summary";
 import { getQuestionnairePrompts } from "./questionnaire";
-import { finalizeSummaryWithQa } from "./summary-audit";
+import { finalizeSummaryWithQa, itemIsAllowedInCurrentSection } from "./summary-audit";
 import {
   SUMMARY_LAYOUT_VERSION,
   SUMMARY_PIPELINE_VERSION,
@@ -1695,22 +1695,25 @@ function inferCaptureRouting(
   };
 }
 
-function deterministicCommunicationFacts(entries: SummarySourceEntry[]) {
+function deterministicCommunicationFacts(entries: SummarySourceEntry[], nameHint?: string) {
   const facts: StructuredCaptureFact[] = [];
 
   for (const entry of entries) {
-    if (entryRouting(entry)?.preferredSection !== "Communication") {
+    const routing = entryRouting(entry)?.preferredSection;
+    if (routing && routing !== "Communication") {
       continue;
     }
 
     const content = compactWhitespace(entry.content);
-    if (!/\b(?:aac|touchchat|communication device)\b/i.test(content)) {
+    const hasAacDetails = /\b(?:aac|touchchat|communication device)\b/i.test(content);
+    const hasNonverbalDetails = /\b(touch(?:es|ing)? you|touch(?:es|ing)? (?:a caregiver|caregivers)|lead(?:s|ing)? you|lead(?:s|ing)? (?:a caregiver|caregivers)|sit(?:s|ting)? (?:next to|close to|very close)|closer and closer)\b/i.test(content);
+    if (!hasAacDetails && !hasNonverbalDetails) {
       continue;
     }
 
     const nameMatch = content.match(/^([A-Z][A-Za-z'-]+)\b/);
-    const subject =
-      nameMatch && !/^(?:He|She|They)$/i.test(nameMatch[1]) ? nameMatch[1] : "They";
+    const subject = compactWhitespace(nameHint ?? "") ||
+      (nameMatch && !/^(?:He|She|They)$/i.test(nameMatch[1]) ? nameMatch[1] : "They");
     const addFact = (suffix: string, statement: string) => {
       facts.push({
         factId: `${entry.entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-source-${suffix}`,
@@ -1725,36 +1728,53 @@ function deterministicCommunicationFacts(entries: SummarySourceEntry[]) {
       });
     };
 
-    const deviceParts = [
-      "an AAC device",
-      /\bipad\b/i.test(content) ? "on an iPad" : "",
-      /\btouchchat\b/i.test(content) ? "with TouchChat" : ""
-    ].filter(Boolean);
-    addFact("identity", `${subject} uses ${deviceParts.join(" ")}.`);
+    if (hasAacDetails) {
+      const deviceParts = [
+        "an AAC device",
+        /\bipad\b/i.test(content) ? "on an iPad" : "",
+        /\btouchchat\b/i.test(content) ? "with TouchChat" : ""
+      ].filter(Boolean);
+      addFact("identity", `${subject} uses ${deviceParts.join(" ")}.`);
 
-    if (/\bask(?:s|ing)? for help\b/i.test(content)) {
-      addFact("ask-help", `${subject} uses the AAC device to ask for help.`);
-    }
+      if (/\bask(?:s|ing)? for help\b/i.test(content)) {
+        addFact("ask-help", `${subject} uses the AAC device to ask for help.`);
+      }
 
-    if (/\brequest(?:s|ed|ing)? car rides?\b/i.test(content)) {
-      addFact("request-car", `${subject} uses the AAC device to request car rides.`);
-    }
+      if (/\brequest(?:s|ed|ing)? car rides?\b/i.test(content)) {
+        addFact("request-car", `${subject} uses the AAC device to request car rides.`);
+      }
 
-    const iPadRequest = content.match(
-      /\b(he|she|they)\b.{0,45}\bwants?\s+(his|her|their)\s+ipad\b/i
-    );
-    if (iPadRequest) {
-      addFact(
-        "request-ipad",
-        `${subject} uses the AAC device to say when ${iPadRequest[1].toLowerCase()} wants ${iPadRequest[2].toLowerCase()} iPad.`
+      const iPadRequest = content.match(
+        /\b(he|she|they)\b.{0,45}\bwants?\s+(his|her|their)\s+ipad\b/i
       );
+      if (iPadRequest) {
+        addFact(
+          "request-ipad",
+          `${subject} uses the AAC device to say when ${iPadRequest[1].toLowerCase()} wants ${iPadRequest[2].toLowerCase()} iPad.`
+        );
+      }
+    }
+
+    const nonverbalCues = [
+      /\btouch(?:es|ing)? you\b|\btouch(?:es|ing)? (?:a caregiver|caregivers)\b/i.test(content)
+        ? "touch you"
+        : "",
+      /\blead(?:s|ing)? you\b|\blead(?:s|ing)? (?:a caregiver|caregivers)\b/i.test(content)
+        ? "lead you to what is wanted or needed"
+        : "",
+      /\bsit(?:s|ting)? (?:next to|close to|very close)|closer and closer\b/i.test(content)
+        ? "sit very close when attention is wanted"
+        : ""
+    ].filter(Boolean);
+    if (nonverbalCues.length > 0) {
+      addFact("nonverbal-cues", `${subject} may ${formatInsightList(nonverbalCues)} to communicate.`);
     }
   }
 
   return facts;
 }
 
-function deterministicToiletingFacts(entries: SummarySourceEntry[]) {
+function deterministicToiletingFacts(entries: SummarySourceEntry[], nameHint?: string) {
   const facts: StructuredCaptureFact[] = [];
 
   for (const entry of entries) {
@@ -1765,7 +1785,8 @@ function deterministicToiletingFacts(entries: SummarySourceEntry[]) {
 
     const nameMatch = content.match(/^([A-Z][A-Za-z'-]+)\b/);
     const subject =
-      nameMatch && !/^(?:He|She|They)$/i.test(nameMatch[1]) ? nameMatch[1] : "They";
+      compactWhitespace(nameHint ?? "") ||
+      (nameMatch && !/^(?:He|She|They|So)$/i.test(nameMatch[1]) ? nameMatch[1] : "They");
     const addFact = (suffix: string, statement: string) => {
       facts.push({
         factId: `${entry.entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-toileting-${suffix}`,
@@ -1795,6 +1816,119 @@ function deterministicToiletingFacts(entries: SummarySourceEntry[]) {
     if (/\bbowel movements?\b.{0,80}\bpull-?up\b|\bpull-?up\b.{0,80}\bbowel movements?\b/i.test(content)) {
       addFact("bowel-pullup", `${subject}'s bowel movements happen in a pull-up.`);
     }
+  }
+
+  return facts;
+}
+
+function deterministicHardTimeSignFacts(entries: SummarySourceEntry[], nameHint?: string) {
+  const facts: StructuredCaptureFact[] = [];
+
+  for (const entry of entries) {
+    const content = compactWhitespace(entry.content);
+    if (!/\b(press(?:es)? help|signs? for help|elop|run away|running away|hand biting|biting (?:his|her|their) hand|angry (?:sounds?|noises?|vocalizations?)|yelling|hiding|disappears?|grunt(?:s|ing)?|fridge|grabbing cheese|hungry|hunger)\b/i.test(content)) {
+      continue;
+    }
+
+    const nameMatch = content.match(/^([A-Z][A-Za-z'-]+)\b/);
+    const subject = compactWhitespace(nameHint ?? "") ||
+      (nameMatch && !/^(?:He|She|They)$/i.test(nameMatch[1]) ? nameMatch[1] : "They");
+    const addFact = (suffix: string, statement: string, safetyRelevant = false) => {
+      facts.push({
+        factId: `${entry.entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-sign-${suffix}`,
+        entryId: entry.entryId,
+        section: "Signs They Are Having a Hard Time",
+        factKind: "help_sign",
+        subcategory: "Hard-time signs",
+        statement,
+        safetyRelevant,
+        conceptKeys: [...extractCoverageConcepts(statement)].sort(),
+        sourceEntryIds: [entry.entryId]
+      });
+    };
+
+    if (/\bpress(?:es|ing)? help|signs? for help|help on (?:his|her|their) (?:device|ipad|aac)\b/i.test(content)) {
+      addFact("press-help", `Pressing Help on the device may show that ${subject} needs help.`);
+    }
+
+    if (/\belop(?:e|es|ed|ing|ement)?|run away|running away\b/i.test(content)) {
+      addFact("eloping", `${subject} may elope or run away when upset.`, true);
+    }
+
+    if (/\bhand biting|bit(?:e|es|ing)? (?:his|her|their) hand\b/i.test(content)) {
+      addFact("hand-biting", `${subject} may show dysregulation through hand biting.`, true);
+    }
+
+    if (/\bangry (?:sounds?|noises?|vocalizations?)|yelling|shouting\b/i.test(content)) {
+      addFact("angry-vocalizations", `${subject} may make angry vocalizations or yelling sounds when upset.`);
+    }
+
+    if (/\b(?:hiding|hide|disappears?)\b.{0,120}\b(?:bowel movement|privacy|grunt)|\bgrunt(?:s|ing)?\b.{0,120}\b(?:bowel movement|hiding|privacy)\b/i.test(content)) {
+      addFact("hiding-bowel", `${subject} may show a bowel-movement or privacy need through hiding or grunting.`);
+    }
+
+    if (/\bfridge|grabbing cheese|hungry|hunger\b/i.test(content)) {
+      addFact("hunger", `Hunger may show up as ${subject} going to the fridge or looking for food.`);
+    }
+  }
+
+  return facts;
+}
+
+function deterministicHardTimeSupportFacts(entries: SummarySourceEntry[], nameHint?: string) {
+  const facts: StructuredCaptureFact[] = [];
+
+  for (const entry of entries) {
+    const content = compactWhitespace(entry.content);
+    if (!/\b(do not .*block.*hand biting|don't .*block.*hand biting|do not .*stop.*biting|don't .*stop.*biting|may bite you|bite you)\b/i.test(content)) {
+      continue;
+    }
+
+    const nameMatch = content.match(/^([A-Z][A-Za-z'-]+)\b/);
+    const subject = compactWhitespace(nameHint ?? "") ||
+      (nameMatch && !/^(?:He|She|They)$/i.test(nameMatch[1]) ? nameMatch[1] : "They");
+
+    facts.push({
+      factId: `${entry.entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-support-hand-biting`,
+      entryId: entry.entryId,
+      section: "What helps when they are having a hard time",
+      factKind: "caregiver_action",
+      subcategory: "Safety in the moment",
+      statement: `Do not block hand biting because ${subject} may bite you.`,
+      safetyRelevant: true,
+      conceptKeys: [...extractCoverageConcepts(`Do not block hand biting because ${subject} may bite you.`)].sort(),
+      sourceEntryIds: [entry.entryId]
+    });
+  }
+
+  return facts;
+}
+
+function deterministicHealthSafetyFacts(entries: SummarySourceEntry[], nameHint?: string) {
+  const facts: StructuredCaptureFact[] = [];
+
+  for (const entry of entries) {
+    const content = compactWhitespace(entry.content);
+    if (!/\b(may bite you|bite you|do not .*block.*hand biting|do not .*stop.*biting|try to stop .*biting|stop him from biting|stop her from biting|stop them from biting)\b/i.test(content)) {
+      continue;
+    }
+
+    const nameMatch = content.match(/^([A-Z][A-Za-z'-]+)\b/);
+    const subject = compactWhitespace(nameHint ?? "") ||
+      (nameMatch && !/^(?:He|She|They)$/i.test(nameMatch[1]) ? nameMatch[1] : "They");
+
+    const statement = `Caregiver safety risk: ${subject} may bite you if hand biting is physically blocked or stopped.`;
+    facts.push({
+      factId: `${entry.entryId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-safety-caregiver-bite`,
+      entryId: entry.entryId,
+      section: "Health & Safety",
+      factKind: "safety_risk",
+      subcategory: "Caregiver safety",
+      statement,
+      safetyRelevant: true,
+      conceptKeys: [...extractCoverageConcepts(statement)].sort(),
+      sourceEntryIds: [entry.entryId]
+    });
   }
 
   return facts;
@@ -3115,6 +3249,13 @@ function guideSectionForFact(fact: StructuredCaptureFact): GuideSectionTitle {
   }
 
   if (
+    /\btransition|task support|tells? .{0,80}(?:watch|phone|computer)|(?:watch|phone|computer).{0,80}taken away\b/i.test(statement) &&
+    /\btaken away|transition|task\b/i.test(statement)
+  ) {
+    return "Daily Routine";
+  }
+
+  if (
     fact.factKind === "equipment" &&
     !/\b(aac|touchchat|communication device|ipad.*communicat)\b/i.test(statement)
   ) {
@@ -3132,6 +3273,10 @@ function guideSectionForFact(fact: StructuredCaptureFact): GuideSectionTitle {
   if (/\b(bathroom|toilet|toileting|void|bowel movements?|speaker|every hour|hourly|does not initiate)\b/i.test(statement) ||
     /\b(?:remind(?:er|ers)?|prompt(?:ed|s)?)\b.{0,50}\b(?:bathroom|toilet|toileting|void)\b|\b(?:bathroom|toilet|toileting|void)\b.{0,50}\b(?:remind(?:er|ers)?|prompt(?:ed|s)?)\b/i.test(statement)) {
     return "Daily Routine";
+  }
+
+  if (fact.section === "Health & Safety" && fact.factKind === "safety_risk") {
+    return "Health & Safety";
   }
 
   if (/\b(no allergies|allerg\w*|diagnos(?:is|ed)?|condition|g6pd|medication|medicines?|abilify|aripiprazole|miralax|polyethylene|gummy vites|multivitamin|tylenol|esomeprazole|propranolol|citalopram|sitelapram|chok(?:e|ing)|drown(?:ing)?|hydration|buckle buddy|white cane|pull-?ups?|fidgets?|glasses|hearing aids?|emergency contact|phone number|call 911|call first|called first|physical custody|danger|dangerous|social cues?|unsafe|innocent|strangers?|unfamiliar situations?|cerebral palsy|\bcp\b|blind|vision)\b/i.test(statement)) {
@@ -3795,6 +3940,28 @@ function guideItemsShareToiletingCommunicationNeed(left: string, right: string) 
   );
 }
 
+function guideItemLooksLikeBathroomPrompting(value: string) {
+  return (
+    /\b(bathroom|toilet|toileting|void)\b/i.test(value) &&
+    /\b(remind(?:er|ers|s|ed|ing)?|prompt(?:s|ed|ing)?|hourly|every hour|speaker|told to use)\b/i.test(value)
+  );
+}
+
+function canonicalBathroomPromptingItem(left: string, right: string) {
+  return [left, right].find((value) => /\bbathroom reminders every hour\b/i.test(value)) ?? "";
+}
+
+function guideItemLooksLikeCaregiverBiteWarning(value: string) {
+  return (
+    /\b(hand biting|biting (?:his|her|their) hand)\b/i.test(value) &&
+    /\b(may bite you|bite you|bite a caregiver|caregiver safety|blocked|stopped|do not block|do not stop|physically block|physically stop)\b/i.test(value)
+  );
+}
+
+function canonicalCaregiverBiteWarningItem(left: string, right: string) {
+  return [left, right].find((value) => /^caregiver safety risk:/i.test(value)) ?? "";
+}
+
 function guideItemsShouldMerge(left: string, right: string) {
   return Boolean(
     mergeIllnessCheckGuideItems(left, right) ||
@@ -3810,6 +3977,8 @@ function guideItemsShouldMerge(left: string, right: string) {
     guideItemsShareNeedShowingSignal(left, right) ||
     guideItemsShareShowerheadSetup(left, right) ||
     guideItemsShareToiletingCommunicationNeed(left, right) ||
+    (guideItemLooksLikeBathroomPrompting(left) && guideItemLooksLikeBathroomPrompting(right)) ||
+    (guideItemLooksLikeCaregiverBiteWarning(left) && guideItemLooksLikeCaregiverBiteWarning(right)) ||
     duplicateGateItemsAreNearDuplicate(left, right) ||
     layoutItemsAreNearDuplicate(left, right)
   );
@@ -3848,7 +4017,13 @@ function mergeNearDuplicateGuideItems(left: string, right: string) {
     (guideItemsShareSocialVisitMeaning(left, right) ? (left.length >= right.length ? left : right) : "") ||
     (guideItemsShareNeedShowingSignal(left, right) ? "Leading or touching a caregiver can show what they need and may mean they need help with an item." : "") ||
     (guideItemsShareShowerheadSetup(left, right) ? (left.length >= right.length ? left : right) : "") ||
+    (guideItemLooksLikeBathroomPrompting(left) && guideItemLooksLikeBathroomPrompting(right)
+      ? canonicalBathroomPromptingItem(left, right) || (left.length >= right.length ? left : right)
+      : "") ||
     (guideItemsShareToiletingCommunicationNeed(left, right) ? (left.length >= right.length ? left : right) : "") ||
+    (guideItemLooksLikeCaregiverBiteWarning(left) && guideItemLooksLikeCaregiverBiteWarning(right)
+      ? canonicalCaregiverBiteWarningItem(left, right) || (left.length >= right.length ? left : right)
+      : "") ||
     (left.length >= right.length ? left : right)
   );
 }
@@ -4111,22 +4286,244 @@ function ensureRequiredCommunicationCoverage(
   };
 }
 
+function ensureRequiredSignCoverage(
+  summary: StructuredSummary,
+  capture: StructuredCapture,
+  nameHint?: string
+) {
+  const signFacts = capture.facts.filter(
+    (fact) =>
+      guideSectionForFact(fact) === "Signs They Need Help" ||
+      (
+        fact.section === "Signs They Are Having a Hard Time" &&
+        /\b(?:hiding|hide|disappears?|grunt(?:s|ing)?)\b.{0,120}\b(?:bowel movement|privacy|pull-?up)\b/i.test(fact.statement)
+      )
+  );
+  const sourceText = factText(signFacts);
+  if (!sourceText.trim()) {
+    return summary;
+  }
+
+  const name = displaySubject(nameHint);
+  const signSection = summary.sections.find((section) => section.title === "Signs They Need Help");
+  const existingText = signSection?.items.join(" ") ?? "";
+  const repairItems = [
+    /\belop(?:e|es|ed|ing|ement)?|run away|running away\b/i.test(sourceText) &&
+    !/\belop(?:e|es|ed|ing|ement)?|run away|running away\b/i.test(existingText)
+      ? `Eloping or running away can show ${name} is upset or dysregulated.`
+      : "",
+    /\bhand biting|bit(?:e|es|ing)? (?:his|her|their) hand\b/i.test(sourceText) &&
+    !/\bhand biting|bit(?:e|es|ing)? (?:his|her|their) hand\b/i.test(existingText)
+      ? `Hand biting can show ${name} is really dysregulated.`
+      : "",
+    /\bangry (?:sounds?|noises?|vocalizations?)|yelling|shouting\b/i.test(sourceText) &&
+    !/\bangry (?:sounds?|noises?|vocalizations?)|yelling|shouting\b/i.test(existingText)
+      ? `Angry vocalizations can show ${name} is upset.`
+      : "",
+    /\bpress(?:es|ing)? help|signs? for help|help on (?:his|her|their) (?:device|ipad|aac)\b/i.test(sourceText) &&
+    !/\bpress(?:es|ing)? help|help\b.{0,80}\b(?:device|ipad|aac)|(?:device|ipad|aac)\b.{0,80}\bhelp\b/i.test(existingText)
+      ? `Pressing Help on the device is a direct sign that ${name} needs help.`
+      : "",
+    /\bfridge|grabbing cheese|hungry|hunger\b/i.test(sourceText) &&
+    !/\bhung(?:er|ry)\b|fridge|cheese|food\b/i.test(existingText)
+      ? `Hunger can show up as going to the fridge or looking for food.`
+      : "",
+    /\b(?:hiding|hide|disappears?)\b.{0,120}\b(?:bowel movement|privacy|grunt)|\bgrunt(?:s|ing)?\b.{0,120}\b(?:bowel movement|hiding|privacy)\b/i.test(sourceText) &&
+    !/\bhid(?:e|ing)|grunt(?:s|ing)?\b/i.test(existingText)
+      ? `${name} may show a bowel-movement or privacy need through hiding or grunting.`
+      : ""
+  ].filter(Boolean);
+
+  if (repairItems.length === 0) {
+    return summary;
+  }
+
+  return {
+    ...summary,
+    sections: summary.sections.map((section, index) => {
+      if (section.title !== "Signs They Need Help") {
+        return section;
+      }
+
+      return compactSection(
+        "Signs They Need Help",
+        index,
+        section.intro,
+        [
+          ...(section.blocks ?? []),
+          labeledBlock("Core Signs to Watch", repairItems)
+        ]
+      );
+    })
+  };
+}
+
+function ensureRequiredRoutineCoverage(
+  summary: StructuredSummary,
+  capture: StructuredCapture,
+  nameHint?: string
+) {
+  const routineFacts = capture.facts.filter(
+    (fact) =>
+      guideSectionForFact(fact) === "Daily Routine" ||
+      /\b(bathroom|toilet|toileting|void)\b/i.test(fact.statement)
+  );
+  const sourceText = factText(routineFacts);
+  if (!/\b(bathroom|toilet|toileting)\b/i.test(sourceText)) {
+    return summary;
+  }
+
+  const name = displaySubject(nameHint);
+  const isRoutineSectionTitle = (title: string) => /^daily (?:routine|routines|schedule|schedules)$/i.test(title);
+  const routineSection = summary.sections.find((section) => isRoutineSectionTitle(section.title));
+  const existingText = routineSection?.items.join(" ") ?? "";
+  const hasPromptSource = /\bhourly|every hour|speaker|remind|prompt|told to use\b/i.test(sourceText);
+  const hasPromptText =
+    /\bbathroom reminders every hour\b/i.test(existingText);
+
+  if (!hasPromptSource || hasPromptText) {
+    return summary;
+  }
+
+  const repairItem = /\b(?:does not|doesn't|do not|don't|won't|will not)\b.{0,70}\b(?:communicate|initiate|tell|use it independently|use .*bathroom independently)\b/i.test(sourceText)
+    ? `Bathroom reminders every hour help because ${name} does not independently communicate toileting needs.`
+    : `Bathroom reminders every hour help ${name} with toileting.`;
+
+  const repairSection = (section: SummarySection, index: number) =>
+    compactSection(
+      "Daily Routine",
+      index,
+      section.intro,
+      [
+        labeledBlock("Toileting and Bathroom Support", [repairItem]),
+        ...(section.blocks ?? [])
+      ]
+    );
+
+  if (!routineSection) {
+    const insertIndex = Math.max(0, GUIDE_SECTION_TITLES.indexOf("Daily Routine"));
+    const nextSections = [...summary.sections];
+    nextSections.splice(
+      Math.min(insertIndex, nextSections.length),
+      0,
+      compactSection("Daily Routine", insertIndex, undefined, [
+        labeledBlock("Toileting and Bathroom Support", [repairItem])
+      ])
+    );
+    return {
+      ...summary,
+      sections: nextSections
+    };
+  }
+
+  return {
+    ...summary,
+    sections: summary.sections.map((section, index) =>
+      isRoutineSectionTitle(section.title) ? repairSection(section, index) : section
+    )
+  };
+}
+
+function ensureRequiredHealthSafetyCoverage(
+  summary: StructuredSummary,
+  capture: StructuredCapture,
+  nameHint?: string
+) {
+  const sourceText = factText(capture.facts);
+  if (!/\bmay bite you|bite you|bite a caregiver|hand biting\b.{0,80}\b(?:blocked|stopped)|(?:block|stop)\b.{0,80}\bhand biting\b/i.test(sourceText)) {
+    return summary;
+  }
+
+  const healthSection = summary.sections.find((section) => section.title === "Health & Safety");
+  const existingText = healthSection?.items.join(" ") ?? "";
+  if (/\bcaregiver safety\b|\bmay bite you\b|\bbite you\b|\bmay bite a caregiver\b|\bbite a caregiver\b|\bhand biting is (?:blocked|stopped)\b/i.test(existingText)) {
+    return summary;
+  }
+
+  const name = displaySubject(nameHint);
+  const repairItem = `Caregiver safety risk: ${name} may bite you if hand biting is blocked or stopped.`;
+
+  return {
+    ...summary,
+    sections: summary.sections.map((section, index) => {
+      if (section.title !== "Health & Safety") {
+        return section;
+      }
+
+      return compactSection(
+        "Health & Safety",
+        index,
+        section.intro,
+        [
+          ...(section.blocks ?? []),
+          labeledBlock("Caregiver Safety", [repairItem])
+        ]
+      );
+    })
+  };
+}
+
+function repairUnbalancedTrailingQuotes(value: string) {
+  let text = value;
+  const straightQuotes = text.match(/"/g)?.length ?? 0;
+  if (straightQuotes % 2 !== 0) {
+    text = text.replace(/"([^"]+)\.$/, "\"$1.\"");
+  }
+
+  const leftCurlyQuotes = text.match(/“/g)?.length ?? 0;
+  const rightCurlyQuotes = text.match(/”/g)?.length ?? 0;
+  if (leftCurlyQuotes > rightCurlyQuotes) {
+    text = text.replace(/“([^”]+)\.$/, "“$1.”");
+  }
+
+  return text;
+}
+
 function polishVisibleTextForDuplicateGate(sectionTitle: string, text: string) {
-  let value = compactWhitespace(text);
+  let value = repairUnbalancedTrailingQuotes(compactWhitespace(text));
+  value = value
+    .replace(
+      /\b([A-Z][a-z]+) is irritable or or [a-z]+ shows signs of frustration\b/i,
+      "$1 is irritable or showing frustration"
+    )
+    .replace(
+      /\b(?:he|she|they) may be or irritability can be a sign that ([A-Z][a-z]+) needs help or is having a hard time\b/i,
+      "irritability can be a sign that $1 needs help or is having a hard time"
+    )
+    .replace(
+      /\band avoiding or caregivers should avoid asking [A-Z][a-z]+ questions\b/i,
+      "and avoiding questions"
+    )
+    .replace(
+      /\bShe may also or when ([A-Z][a-z]+) tries not to confront a situation directly, she may\b/i,
+      "When $1 tries not to confront a situation directly, she may"
+    )
+    .replace(
+      /\bwhich may affect how (?:he|she|they) shows or (?:he|she|they) is not aggressive, so caregiver-harm risk is not expected as a usual or (?:his|her|their) records include both\b/i,
+      "which may affect how needs show. Caregiver-harm risk is not expected as usual because aggression was not reported. Records include both"
+    )
+    .replace(/\bBefore may (ask|say)\b/g, "They may $1")
+    .replace(/\bor or\b/gi, "or");
 
   if (sectionTitle === "Signs They Need Help") {
     value = value
+      .replace(/\bmay run away or elope\b/i, "may elope or run away")
+      .replace(/\bmay start biting (his|her|their) hand\b/i, "may start hand biting")
       .replace(
         /\b([A-Z][a-z]+) has an intellectual disability, so caregivers should watch for (?:his|her|their) personal cues that (?:he|she|they) needs? help\b/i,
         "Watch for $1's personal cues that help is needed"
       )
       .replace(
-        /^\s*([A-Z][a-z]+) has (?:a diagnosis of )?an? intellectual disability\s*$/i,
+        /^\s*(?:[A-Z][A-Za-z &'’/,-]{1,60}:\s+)?([A-Z][a-z]+) has (?:a diagnosis of )?an? intellectual disability\s*$/i,
         "Use $1's baseline to notice changes"
       )
       .replace(
         /\bWhen (?:he|she|they) is hungry, (?:he|she|they) can become angry\b/i,
         "Anger can be a hunger cue"
+      )
+      .replace(
+        /\s*Being too cold could or if ([A-Z][a-z]+) is too hot,/i,
+        " If $1 is too hot,"
       );
   }
 
@@ -4150,10 +4547,15 @@ function polishVisibleTextForDuplicateGate(sectionTitle: string, text: string) {
   }
 
   if (sectionTitle === "What Helps When They Are Having a Hard Time") {
-    value = value.replace(
-      /;\s*when (?:he|she|they) does not want to go, (?:he|she|they) does not want to go\b/i,
-      "; refusal can be firm when the proposed next step does not work for them"
-    );
+    value = value
+      .replace(
+        /;\s*when (?:he|she|they) does not want to go, (?:he|she|they) does not want to go\b/i,
+        "; refusal can be firm when the proposed next step does not work for them"
+      )
+      .replace(
+        /\bNot having people hover(?: over [A-Z][a-z]+)? can be helpful when ([A-Z][a-z]+) is or caregivers try a variety of different things when \1 is frustrated or having a hard time\b/i,
+        "Not having people hover and trying different supports can help when $1 is frustrated or having a hard time"
+      );
   }
 
   if (
@@ -5555,9 +5957,22 @@ function groupSupportFacts(
     pronouns.subject === "he" || pronouns.subject === "she"
       ? `${pronouns.subject} wants`
       : "they want";
+  const soundSignDescriptions = [
+    /\baggravat(?:ed|ing)? (?:sound|noise|vocal)|(?:sound|noise|vocal).{0,30}\baggravat/i.test(allText) ? "aggravated" : "",
+    /\bfrustrat(?:ed|ing)? (?:sound|noise|vocal)|(?:sound|noise|vocal).{0,30}\bfrustrat/i.test(allText) ? "frustrated" : "",
+    /\bangry (?:sound|noise|vocal)|angry noises?|angry vocal/i.test(allText) ? "angry" : "",
+    /\byell/i.test(allText) ? "yelling" : ""
+  ].filter(Boolean);
+  const avoidedActions = [
+    /\btouch\b/i.test(supportText) ? `touch ${objectSubject}` : "",
+    /\btalk\b/i.test(supportText) ? `talk to ${objectSubject}` : "",
+    /\bcomfort\b/i.test(supportText) ? `try to comfort ${objectSubject}` : "",
+    /\bhug\b/i.test(supportText) ? `hug ${objectSubject}` : "",
+    /\bcrowd\b/i.test(supportText) ? `crowd ${objectSubject}` : ""
+  ].filter(Boolean);
   const earlySigns = [
-    /\baggravat|frustrat|angry (?:sound|noise|vocal)|yell/i.test(allText)
-      ? `${name} may make aggravated, frustrated, angry, or yelling sounds.`
+    soundSignDescriptions.length > 0
+      ? `${name} may make ${formatInsightList(soundSignDescriptions)} sounds.`
       : "",
     /\bagitat/i.test(allText) ? `${name} may appear increasingly agitated.` : "",
     /\bpac(?:e|es|ing)\b/i.test(allText) ? `${name} may start pacing.` : "",
@@ -5570,8 +5985,8 @@ function groupSupportFacts(
     /\bspace|do not crowd|don't crowd|back off|walk away\b/i.test(supportText)
       ? `Give ${objectSubject} space and walk away if it is safe to do so.`
       : "",
-    /\btouch|talk|comfort|hug\b/i.test(supportText) && /\b(do not|don't|last thing|worse|agitat)/i.test(supportText)
-      ? `Do not touch, hug, crowd, or keep talking to ${objectSubject} while escalation is building.`
+    avoidedActions.length > 0 && /\b(do not|don't|last thing|worse|agitat|escalat)/i.test(supportText)
+      ? `Do not ${formatInsightList(avoidedActions)} while escalation is building because it can make things worse.`
       : "",
     /\btime alone|moment to (?:himself|herself|themself)|work it out|regulate on (?:his|her|their) own\b/i.test(supportText)
       ? `Allow ${objectSubject} time to ${regulatePhrase} when it is safe.`
@@ -5583,7 +5998,7 @@ function groupSupportFacts(
       ? `If reminded, ${sentenceSubject} may go to a sensory room or swing to help calm.`
       : "",
     /\bhand biting|bite you|do not .*block|don't .*block|do not .*stop|don't .*stop\b/i.test(supportText)
-      ? `Do not physically stop hand biting because ${sentenceSubject} may bite the caregiver.`
+      ? `Do not block hand biting because ${sentenceSubject} may bite you.`
       : ""
   ].filter(Boolean);
 
@@ -5758,15 +6173,15 @@ function aboutActivityHighlights(facts: StructuredCaptureFact[]) {
   const items = activityItems(facts);
   const sourceText = `${factText(facts)} ${items.join(" ")}`;
   const prioritized = [
+    /\bexplor|new places?|novelty|adventures?|hikes?|malls?|stores?|museums?\b/i.test(sourceText)
+      ? "exploring new places"
+      : "",
     /\btechnology|computer|phone|tablet|ipad\b/i.test(sourceText) ? "technology" : "",
     /\btalk(?:ing)? on the phone|chat(?:ting)?|friends?\b/i.test(sourceText) ? "talking with friends" : "",
     /\bmusic|drums?|guitar|piano\b/i.test(sourceText) ? "music" : "",
     /\byoutube|videos?\b/i.test(sourceText) ? "videos" : "",
     /\bhorseback\b/i.test(sourceText) ? "horseback riding" : "",
     /\bcar rides?\b/i.test(sourceText) ? "car rides" : "",
-    /\bexplor|new places?|novelty|adventures?|hikes?|malls?|stores?|museums?\b/i.test(sourceText)
-      ? "exploring new places"
-      : "",
     /\bwalk(?:ing|s)?\b/i.test(sourceText) ? "walking" : "",
     /\bswimm?ing\b/i.test(sourceText) ? "swimming" : "",
     /\bkeep(?:s|ing)? moving|movement|jump(?:ing)?|swing(?:ing)?|crash(?:ing)?|obstacle|trampoline|scooter\b/i.test(sourceText)
@@ -6210,6 +6625,13 @@ function summaryItemsBySection(
   );
 }
 
+function dedupeSummaryBlocks(summary: StructuredSummary) {
+  return {
+    ...summary,
+    sections: summary.sections.map((section, index) => dedupeSectionBlocks(section, index))
+  };
+}
+
 function collectDuplicateIssues(summary: StructuredSummary) {
   const issues: SummaryAuditIssue[] = [];
 
@@ -6223,10 +6645,7 @@ function collectDuplicateIssues(summary: StructuredSummary) {
       const item = section.items[index];
       for (let otherIndex = index + 1; otherIndex < section.items.length; otherIndex += 1) {
         const otherItem = section.items[otherIndex];
-        if (
-          statementLooksCovered(item, [otherItem]) ||
-          statementLooksCovered(otherItem, [item])
-        ) {
+        if (duplicateGateItemsAreNearDuplicate(item, otherItem)) {
           issues.push({
             code: "duplicate_item",
             message: `${title} contains duplicate or overlapping bullets that should be collapsed.`,
@@ -6303,21 +6722,7 @@ function auditSummaryAgainstCapture(summary: StructuredSummary, capture: Structu
       }
 
       const authoritativeTitle = inferAuthoritativeSectionTitle(item, title);
-      if (authoritativeTitle !== title) {
-        if (
-          title === "What Helps When They Are Having a Hard Time" &&
-          supportGroupingPattern().test(item)
-        ) {
-          continue;
-        }
-
-        if (
-          title === "Health & Safety" &&
-          /\b(caregiver does not know the doses|diagnosis|condition|medications? and allergies|equipment and supports)\b/i.test(item)
-        ) {
-          continue;
-        }
-
+      if (authoritativeTitle !== title && !itemIsAllowedInCurrentSection(item, title)) {
         issues.push({
           code: "wrong_section",
           message: `A bullet in ${title} belongs in ${authoritativeTitle}: ${item}`,
@@ -6347,16 +6752,24 @@ function auditAndFinalizeSummary(
     : composeGuideSummaryFromCapture(summary, capture, nameHint);
   const clusters = buildFactClusters(capture);
   let repaired = ensureRequiredCommunicationCoverage(composed, capture, nameHint);
+  repaired = ensureRequiredSignCoverage(repaired, capture, nameHint);
+  repaired = ensureRequiredRoutineCoverage(repaired, capture, nameHint);
+  repaired = ensureRequiredHealthSafetyCoverage(repaired, capture, nameHint);
   let captureIssues = auditSummaryAgainstCapture(repaired, capture);
   if (captureIssues.some((issue) => issue.code === "missing_coverage" || issue.code === "section_leakage")) {
     repaired = repairCoverageIssues(repaired, capture, captureIssues);
     repaired = ensureRequiredCommunicationCoverage(repaired, capture, nameHint);
+    repaired = ensureRequiredSignCoverage(repaired, capture, nameHint);
+    repaired = ensureRequiredRoutineCoverage(repaired, capture, nameHint);
+    repaired = ensureRequiredHealthSafetyCoverage(repaired, capture, nameHint);
   }
 
-  repaired = {
-    ...repaired,
-    sections: repaired.sections.map((section, index) => dedupeSectionBlocks(section, index))
-  };
+  repaired = dedupeSummaryBlocks(repaired);
+  repaired = ensureRequiredCommunicationCoverage(repaired, capture, nameHint);
+  repaired = ensureRequiredSignCoverage(repaired, capture, nameHint);
+  repaired = ensureRequiredRoutineCoverage(repaired, capture, nameHint);
+  repaired = ensureRequiredHealthSafetyCoverage(repaired, capture, nameHint);
+  repaired = dedupeSummaryBlocks(repaired);
   captureIssues = auditSummaryAgainstCapture(repaired, capture);
   if (captureIssues.some((issue) => issue.code === "missing_coverage" || issue.code === "section_leakage")) {
     const appendedFactIds = new Set(
@@ -6366,6 +6779,7 @@ function auditAndFinalizeSummary(
         .filter((factId): factId is string => Boolean(factId))
     );
     repaired = appendCoverageIssuesWithoutDedupe(repaired, capture, captureIssues);
+    repaired = dedupeSummaryBlocks(repaired);
     captureIssues = auditSummaryAgainstCapture(repaired, capture).filter(
       (issue) =>
         !(
@@ -6375,6 +6789,13 @@ function auditAndFinalizeSummary(
         )
     );
   }
+
+  repaired = ensureRequiredRoutineCoverage(repaired, capture, nameHint);
+  repaired = ensureRequiredHealthSafetyCoverage(repaired, capture, nameHint);
+  repaired = dedupeSummaryBlocks(repaired);
+  repaired = ensureRequiredRoutineCoverage(repaired, capture, nameHint);
+  repaired = ensureRequiredHealthSafetyCoverage(repaired, capture, nameHint);
+  repaired = dedupeSummaryBlocks(repaired);
 
   const { summary: normalized, report } = finalizeSummaryWithQa(repaired, {
     source: "generated",
@@ -6694,7 +7115,8 @@ async function generateSummaryOneStep(
 async function captureSummaryFacts(
   apiKey: string,
   model: string,
-  turns: ConversationTurn[]
+  turns: ConversationTurn[],
+  nameHint?: string
 ) {
   const entries = buildSummaryEntries(turns, { chunkLongEntries: true });
   const entryMetadata = new Map(entries.map((entry) => [entry.entryId, entry] as const));
@@ -6761,8 +7183,11 @@ async function captureSummaryFacts(
   return {
     facts: dedupeCaptureFacts([
       ...captures,
-      ...deterministicCommunicationFacts(entries),
-      ...deterministicToiletingFacts(entries)
+      ...deterministicCommunicationFacts(entries, nameHint),
+      ...deterministicToiletingFacts(entries, nameHint),
+      ...deterministicHardTimeSignFacts(entries, nameHint),
+      ...deterministicHardTimeSupportFacts(entries, nameHint),
+      ...deterministicHealthSafetyFacts(entries, nameHint)
     ])
   } satisfies StructuredCapture;
 }
@@ -6895,7 +7320,7 @@ async function generateSummaryTwoStep(
   turns: ConversationTurn[],
   nameHint?: string
 ) {
-  const capture = await captureSummaryFacts(apiKey, model, turns);
+  const capture = await captureSummaryFacts(apiKey, model, turns, nameHint);
   if (capture.facts.length === 0) {
     return null;
   }

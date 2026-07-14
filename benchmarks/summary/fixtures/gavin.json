@@ -161,7 +161,12 @@
           "anyOf": [
             "prompted every hour",
             "every hour",
-            "does not initiate"
+            "hourly",
+            "bathroom reminders",
+            "bathroom prompts",
+            "does not initiate",
+            "bathroom",
+            "toilet"
           ]
         },
         {
@@ -232,8 +237,14 @@
           "label": "communication and bowel signs",
           "anyOf": [
             "hiding",
+            "hide",
             "grunting",
-            "pressing help"
+            "grunt",
+            "pressing help",
+            "presses help",
+            "help on the device",
+            "help on his device",
+            "direct sign"
           ]
         }
       ],

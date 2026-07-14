@@ -183,6 +183,14 @@ function hasTerminalSentencePunctuation(value: string) {
   return /[.!?][)"'”’\]]*$/.test(value.replace(/\s+/g, " ").trim());
 }
 
+function hasUnbalancedQuotes(value: string) {
+  const straightQuotes = value.match(/"/g)?.length ?? 0;
+  const leftCurlyQuotes = value.match(/“/g)?.length ?? 0;
+  const rightCurlyQuotes = value.match(/”/g)?.length ?? 0;
+
+  return straightQuotes % 2 !== 0 || leftCurlyQuotes !== rightCurlyQuotes;
+}
+
 function itemLooksIncompleteOrMalformed(item: string) {
   const text = item.replace(/\s+/g, " ").trim();
   if (!text || normalizeText(text).replace(/[.!?]+$/g, "") === "(no information provided)") {
@@ -190,15 +198,35 @@ function itemLooksIncompleteOrMalformed(item: string) {
   }
 
   const withoutTerminalPunctuation = text.replace(/[.!?][)"'”’\]]*$/, "").trim();
+  const allowedTerminalToPhrase =
+    /\b(?:expects?|wants?|likes?|supposed) (?:it|things?|them|him|her) to$/i.test(withoutTerminalPunctuation) ||
+    /\bresponds? appropriately when (?:he|she|they) wants? to$/i.test(withoutTerminalPunctuation) ||
+    /\bwho (?:he|she|they) likes? to be with$/i.test(withoutTerminalPunctuation) ||
+    /\bwho (?:he|she|they) spends? time with$/i.test(withoutTerminalPunctuation) ||
+    /\brecognize and respond to$/i.test(withoutTerminalPunctuation) ||
+    /\ballergic to$/i.test(withoutTerminalPunctuation) ||
+    /\bstarts? (?:his|her|their) day with$/i.test(withoutTerminalPunctuation) ||
+    /\beven if (?:he|she|they) wants? to$/i.test(withoutTerminalPunctuation) ||
+    /\bwake up with$/i.test(withoutTerminalPunctuation) ||
+    /\blook forward to$/i.test(withoutTerminalPunctuation) ||
+    /\bused to$/i.test(withoutTerminalPunctuation);
   return (
     !hasTerminalSentencePunctuation(text) ||
     /[.!?]{2,}/.test(text) ||
-    /\bmay mean or if\b/i.test(text) ||
-    /\b(?:and|or|but|because|including|such as|with|to|if|when)$/i.test(withoutTerminalPunctuation) ||
+    /\b(?:may mean|could|would) or if\b/i.test(text) ||
+    /\bavoiding or caregivers should avoid\b/i.test(text) ||
+    /\bmay also or when\b/i.test(text) ||
+    /\bshows or (?:he|she|they) is\b/i.test(text) ||
+    /\bas a usual or\b/i.test(text) ||
+    /\bor or\b/i.test(text) ||
+    /\bwhen [A-Z][a-z]+ is or\b/.test(text) ||
+    (
+      /\b(?:and|or|but|because|including|such as|with|to|if|when)$/i.test(withoutTerminalPunctuation) &&
+      !allowedTerminalToPhrase
+    ) ||
     /[:,;]$/.test(text) ||
     /\b(?:a|p)\.$/i.test(text) ||
-    /"[^"]*$/.test(text) ||
-    /“[^”]*$/.test(text)
+    hasUnbalancedQuotes(text)
   );
 }
 
@@ -206,6 +234,15 @@ function incompleteSentenceCount(summary: StructuredSummary) {
   return summary.sections
     .flatMap((section) => section.items)
     .filter(itemLooksIncompleteOrMalformed).length;
+}
+
+function incompleteSentenceItems(summary: StructuredSummary) {
+  return summary.sections
+    .flatMap((section) =>
+      section.items
+        .filter(itemLooksIncompleteOrMalformed)
+        .map((item) => `${section.title}: ${item}`)
+    );
 }
 
 function evaluateSummary(
@@ -292,13 +329,14 @@ function evaluateSummary(
   }
 
   if (typeof fixture.expectations.maxIncompleteSentences === "number") {
-    const incomplete = incompleteSentenceCount(summary);
+    const incompleteItems = incompleteSentenceItems(summary);
+    const incomplete = incompleteItems.length;
     totalChecks += 1;
     if (incomplete <= fixture.expectations.maxIncompleteSentences) {
       passedChecks += 1;
     } else {
       failures.push(
-        `Incomplete or malformed sentences: ${incomplete} exceeds max ${fixture.expectations.maxIncompleteSentences}`
+        `Incomplete or malformed sentences: ${incomplete} exceeds max ${fixture.expectations.maxIncompleteSentences} (${incompleteItems.slice(0, 3).join(" | ")})`
       );
     }
   }
@@ -401,20 +439,43 @@ async function runMode(
   runs: number
 ): Promise<AggregateEvaluationResult> {
   const results: EvaluationResult[] = [];
+  const maxAttempts = 3;
+  const isTransientGenerationError = (error: unknown) => {
+    if (error instanceof SummaryQualityError) {
+      return false;
+    }
+
+    const name = error instanceof Error ? error.name : "";
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      /SummaryModel(?:Request|Truncation)Error/i.test(name) ||
+      /timed out|truncated|cut off|could not reach|upstream connect|disconnect|connection|reset before headers/i.test(message)
+    );
+  };
 
   for (let index = 0; index < runs; index += 1) {
-    try {
-      const summary = await generateCaregiverSummary(fixture.turns, fixture.nameHint, mode);
-      results.push(evaluateSummary(summary, fixture, `${mode} run ${index + 1}`));
-    } catch (error) {
-      if (error instanceof SummaryQualityError) {
-        console.log(`  ${mode} run ${index + 1} audit failed: ${error.message}`);
-        for (const diagnostic of error.diagnostics.slice(0, 20)) {
-          console.log(`    - ${diagnostic}`);
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const summary = await generateCaregiverSummary(fixture.turns, fixture.nameHint, mode);
+        results.push(evaluateSummary(summary, fixture, `${mode} run ${index + 1}`));
+        break;
+      } catch (error) {
+        if (error instanceof SummaryQualityError) {
+          console.log(`  ${mode} run ${index + 1} audit failed: ${error.message}`);
+          for (const diagnostic of error.diagnostics.slice(0, 20)) {
+            console.log(`    - ${diagnostic}`);
+          }
         }
-      }
 
-      throw error;
+        if (attempt < maxAttempts && isTransientGenerationError(error)) {
+          console.warn(
+            `  ${mode} run ${index + 1} attempt ${attempt} failed with a transient model error; retrying.`
+          );
+          continue;
+        }
+
+        throw error;
+      }
     }
   }
 

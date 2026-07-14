@@ -814,8 +814,9 @@ async function testGavinHardTimeVoiceInputGrouping() {
         "If Gavin Continues to Escalate",
       ],
     );
-    assert.match(supportText, /aggravated.*agitated.*pacing|agitated.*pacing|aggravated/i);
-    assert.match(supportText, /Do not touch, hug, crowd, or keep talking to Gavin/i);
+    assert.match(supportText, /aggravated sounds[\s\S]*agitated[\s\S]*pacing/i);
+    assert.doesNotMatch(supportText, /frustrated, angry, or yelling sounds/i);
+    assert.match(supportText, /Do not touch Gavin, talk to Gavin, try to comfort Gavin, and hug Gavin/i);
     assert.match(supportText, /Give Gavin space.*walk away/i);
     assert.match(supportText, /sensory room.*swing/i);
     assert.match(supportText, /gummies|Swedish Fish|preferred treat/i);
@@ -956,7 +957,10 @@ async function testNonGavinHardTimeGroupingWithMockedFacts() {
         ],
       );
       assert.match(supportText, /frustrated.*pacing|pacing.*frustrated|frustrated|pacing/i);
-      assert.match(supportText, /Do not touch, hug, crowd, or keep talking|Do not touch/i);
+      assert.match(
+        supportText,
+        new RegExp(`Do not touch ${currentCase.name}, try to comfort ${currentCase.name}, and hug ${currentCase.name}`, "i"),
+      );
       assert.match(supportText, /deep breaths.*counting to 10|counting to 10.*deep breaths/i);
       assert.match(supportText, /gummies|preferred snack|preferred treat/i);
       assert.match(supportText, /car ride|drive/i);

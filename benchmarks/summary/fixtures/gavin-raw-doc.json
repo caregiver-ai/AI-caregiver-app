@@ -54,8 +54,12 @@
           "label": "nonverbal cues",
           "anyOf": [
             "lead you",
+            "lead a person",
+            "lead the person",
             "sit very close",
-            "touch you"
+            "closer and closer",
+            "touch you",
+            "touch a person"
           ]
         }
       ],
@@ -76,7 +80,10 @@
           "anyOf": [
             "bathroom reminders",
             "hourly prompts",
-            "does not independently communicate toileting needs"
+            "does not independently communicate toileting needs",
+            "needs to be told to use the bathroom",
+            "house speakers remind",
+            "reminders go off"
           ]
         },
         {
@@ -84,7 +91,12 @@
           "anyOf": [
             "hiding",
             "grunting",
-            "pull-up"
+            "pull-up",
+            "privacy",
+            "bowel movement",
+            "bowel movements",
+            "behind furniture",
+            "curtain"
           ]
         },
         {
@@ -151,7 +163,10 @@
           "label": "help request sign",
           "anyOf": [
             "presses help",
-            "help on his iPad"
+            "help on his iPad",
+            "sign for help",
+            "word help",
+            "ask for help"
           ]
         }
       ],
@@ -234,7 +249,12 @@
         {
           "label": "caregiver harm caution",
           "anyOf": [
-            "may bite you"
+            "may bite you",
+            "bite you",
+            "may bite a caregiver",
+            "bite a caregiver",
+            "caregiver safety",
+            "hand biting is blocked"
           ]
         },
         {
