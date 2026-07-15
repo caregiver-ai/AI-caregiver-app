@@ -37,6 +37,52 @@ function buildEmptyIntakeDetails(): SessionIntakeDetails {
   };
 }
 
+function hasText(value: string | null | undefined) {
+  return Boolean(value?.trim());
+}
+
+function draftHasIntakeContent(draft: SessionDraft | null) {
+  if (!draft?.intakeDetails) {
+    return false;
+  }
+
+  const { intakeDetails } = draft;
+  return [
+    intakeDetails.caregiverFirstName,
+    intakeDetails.caregiverLastName,
+    intakeDetails.caregiver55OrOlder,
+    intakeDetails.caregiverPhone,
+    intakeDetails.careRecipientFirstName,
+    intakeDetails.careRecipientLastName,
+    intakeDetails.careRecipientPreferredName,
+    intakeDetails.careRecipientDateOfBirth
+  ].some(hasText);
+}
+
+function sessionHasResumeContent(row: SessionRow) {
+  const draft = row.draft_json;
+
+  return (
+    row.consented ||
+    Boolean(draft?.consented) ||
+    row.caregiver_is_55_or_older !== null ||
+    [
+      row.caregiver_name,
+      row.caregiver_first_name,
+      row.caregiver_last_name,
+      row.caregiver_phone,
+      row.care_recipient_name,
+      row.care_recipient_first_name,
+      row.care_recipient_last_name,
+      row.care_recipient_preferred_name,
+      row.care_recipient_date_of_birth
+    ].some(hasText) ||
+    draftHasIntakeContent(draft) ||
+    Boolean(draft?.turns?.length) ||
+    Boolean(draft?.structuredSummary || draft?.editedSummary || draft?.feedback)
+  );
+}
+
 function buildDraftFromSessionRow(row: SessionRow, email: string): SessionDraft {
   if (row.draft_json) {
     return migrateSessionDraftQuestionnaire({
@@ -142,7 +188,11 @@ async function resolvePublicUser(authUser: { id: string; email?: string | null }
   };
 }
 
-async function getLatestSessionWithStatuses(publicUserId: string, statuses: string[]) {
+async function getLatestSessionsWithStatuses(
+  publicUserId: string,
+  statuses: string[],
+  limit = 1
+) {
   const supabase = createSupabaseServerClient();
   if (!supabase) {
     throw new Error("Supabase server client is not configured.");
@@ -156,14 +206,18 @@ async function getLatestSessionWithStatuses(publicUserId: string, statuses: stri
     .eq("user_id", publicUserId)
     .in("status", statuses)
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(limit);
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return data as SessionRow | null;
+  return (data ?? []) as SessionRow[];
+}
+
+async function getLatestSessionWithStatuses(publicUserId: string, statuses: string[]) {
+  const [session] = await getLatestSessionsWithStatuses(publicUserId, statuses, 1);
+  return session ?? null;
 }
 
 async function getLatestActiveSession(publicUserId: string) {
@@ -171,7 +225,12 @@ async function getLatestActiveSession(publicUserId: string) {
 }
 
 async function getLatestResumeSession(publicUserId: string) {
-  const activeSession = await getLatestActiveSession(publicUserId);
+  const activeSessions = await getLatestSessionsWithStatuses(
+    publicUserId,
+    ["draft", "in_progress"],
+    10
+  );
+  const activeSession = activeSessions.find(sessionHasResumeContent);
   if (activeSession) {
     return activeSession;
   }
