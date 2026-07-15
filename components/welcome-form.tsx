@@ -91,6 +91,10 @@ function isIntakeReadyForReflection(draft: Pick<SessionDraft, "intakeDetails" | 
 }
 
 function getResumePath(draft: SessionDraft) {
+  if (draft.editedSummary) {
+    return "/complete";
+  }
+
   if (draft.structuredSummary) {
     return "/review";
   }
@@ -100,6 +104,10 @@ function getResumePath(draft: SessionDraft) {
   }
 
   return null;
+}
+
+function shouldResumeImmediately(draft: SessionDraft) {
+  return Boolean(draft.editedSummary || draft.structuredSummary);
 }
 
 function isEmailNotConfirmedError(error: unknown) {
@@ -212,7 +220,7 @@ export function WelcomeForm() {
       saveDraft(draft);
 
       const resumePath = getResumePath(draft);
-      if (resumePath && resumeAfterAuthRef.current) {
+      if (resumePath && (resumeAfterAuthRef.current || shouldResumeImmediately(draft))) {
         resumeAfterAuthRef.current = false;
         router.replace(resumePath);
         return;
@@ -231,7 +239,7 @@ export function WelcomeForm() {
         saveDraft(localDraft);
 
         const resumePath = getResumePath(localDraft);
-        if (resumePath && resumeAfterAuthRef.current) {
+        if (resumePath && (resumeAfterAuthRef.current || shouldResumeImmediately(localDraft))) {
           resumeAfterAuthRef.current = false;
           router.replace(resumePath);
           return;

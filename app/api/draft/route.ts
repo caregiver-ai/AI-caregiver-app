@@ -142,7 +142,7 @@ async function resolvePublicUser(authUser: { id: string; email?: string | null }
   };
 }
 
-async function getLatestDraftSession(publicUserId: string) {
+async function getLatestSessionWithStatuses(publicUserId: string, statuses: string[]) {
   const supabase = createSupabaseServerClient();
   if (!supabase) {
     throw new Error("Supabase server client is not configured.");
@@ -154,7 +154,7 @@ async function getLatestDraftSession(publicUserId: string) {
       "id, consented, status, caregiver_name, caregiver_first_name, caregiver_last_name, caregiver_is_55_or_older, caregiver_phone, care_recipient_name, care_recipient_first_name, care_recipient_last_name, care_recipient_preferred_name, care_recipient_date_of_birth, draft_json"
     )
     .eq("user_id", publicUserId)
-    .in("status", ["draft", "in_progress"])
+    .in("status", statuses)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -164,6 +164,19 @@ async function getLatestDraftSession(publicUserId: string) {
   }
 
   return data as SessionRow | null;
+}
+
+async function getLatestActiveSession(publicUserId: string) {
+  return getLatestSessionWithStatuses(publicUserId, ["draft", "in_progress"]);
+}
+
+async function getLatestResumeSession(publicUserId: string) {
+  const activeSession = await getLatestActiveSession(publicUserId);
+  if (activeSession) {
+    return activeSession;
+  }
+
+  return getLatestSessionWithStatuses(publicUserId, ["completed"]);
 }
 
 async function getOwnedSessionById(publicUserId: string, sessionId: string) {
@@ -256,7 +269,7 @@ export async function GET(request: Request) {
 
   try {
     const { publicUserId, email } = await resolvePublicUser(user);
-    const session = await getLatestDraftSession(publicUserId);
+    const session = await getLatestResumeSession(publicUserId);
     const draft = session ? buildDraftFromSessionRow(session, email) : null;
 
     return NextResponse.json({
@@ -298,7 +311,7 @@ export async function POST(request: Request) {
         : undefined;
     let existingSession = incomingSessionId
       ? await getOwnedSessionById(publicUserId, incomingSessionId)
-      : await getLatestDraftSession(publicUserId);
+      : await getLatestActiveSession(publicUserId);
 
     if (incomingSessionId && !existingSession) {
       const existingSessionOwner = await getSessionById(incomingSessionId);
