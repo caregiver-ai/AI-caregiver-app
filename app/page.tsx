@@ -1,5 +1,5 @@
-import { WelcomeForm } from "@/components/welcome-form";
+import { Dashboard } from "@/components/dashboard";
 
 export default function HomePage() {
-  return <WelcomeForm />;
+  return <Dashboard />;
 }

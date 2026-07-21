@@ -140,6 +140,7 @@ Supabase handles:
 - `draft_json` snapshots, including raw turns and saved summaries
 - finalized summary records
 - summary facts and section summaries
+- Care Records workspaces and approved items
 - feedback
 
 Core tables:
@@ -150,11 +151,14 @@ Core tables:
 - `feedback`
 - `summary_facts`
 - `summary_section_summaries`
+- `care_record_workspaces`
+- `care_record_items`
 
 Notes:
 
 - The raw source input used by regeneration lives in `sessions.draft_json.turns`.
 - `conversation_turns` still exists in the schema, but the current summary regeneration path reads from `draft_json.turns`.
+- Care Records share only the `users` table with the existing workflow. They do not write to `sessions`, `summaries`, or summary artifact tables.
 
 For a new project:
 
@@ -182,10 +186,13 @@ npm run build
 npm run start
 npm run lint
 npm run typecheck
+npm run care-records:test
 npm run summary:test
 npm run summary:benchmark
 npm run summary:review-cases
 ```
+
+`care-records:test` checks Care Records category validation, extraction normalization, fallback extraction, and grouping helpers.
 
 `summary:test` exercises the questionnaire contract, legacy draft migration, summary routing, and freshness logic directly.
 
@@ -236,10 +243,13 @@ Changing only `supabase/schema.sql` is not enough for production.
 
 Pages:
 
-- `app/page.tsx`: intake, auth, and resume entry
+- `app/page.tsx`: auth-backed dashboard with the two workflow modules
+- `app/know-my-loved-one/page.tsx`: existing intake, auth fallback, and resume entry
 - `app/reflection/page.tsx`: guided reflection flow
 - `app/review/page.tsx`: summary review and editing
 - `app/complete/page.tsx`: completion, feedback, and email send
+- `app/care-records/page.tsx`: Care Records extraction, review, and saved records
+- `app/handoff/page.tsx`: read-only combined handoff view
 - `app/update-password/page.tsx`: password reset completion
 
 API routes:
@@ -251,19 +261,28 @@ API routes:
 - `app/api/summary/regenerate/route.ts`: regenerate from saved turns and persisted facts
 - `app/api/summary/save/route.ts`: confirm edited summary and mark the session completed
 - `app/api/summary/email/route.ts`: email the finalized summary
+- `app/api/care-records/route.ts`: load/create the Care Records workspace and save reviewed items
+- `app/api/care-records/extract/route.ts`: extract unsaved Care Records suggestions from text/image/PDF
+- `app/api/care-records/[itemId]/route.ts`: edit or delete saved Care Records
+- `app/api/handoff/route.ts`: load the latest existing summary plus approved Care Records
 - `app/api/feedback/route.ts`: save completion feedback
 - `app/api/auth/signup/route.ts`: server-side signup
 - `app/api/auth/confirm-existing/route.ts`: confirm an existing auth user
 
 Core client components:
 
+- `components/dashboard.tsx`: logged-in module dashboard
 - `components/welcome-form.tsx`: auth, intake, and resume behavior
 - `components/reflection-chat.tsx`: guided reflection experience
 - `components/review-editor.tsx`: regenerate, edit, and save summary
 - `components/completion-view.tsx`: final review, feedback, and email send
+- `components/care-records-workspace.tsx`: Care Records input, extraction review, and saved records
+- `components/handoff-view.tsx`: read-only combined handoff display
 
 Core server logic:
 
+- `lib/care-records.ts`: Care Records categories, types, normalization, and fallback extraction helpers
+- `lib/care-records-server.ts`: Care Records workspace/item persistence helpers
 - `lib/summary-generation.ts`: summary generation, normalization, QA, and artifact creation
 - `lib/summary-audit.ts`: summary audit and repair helpers
 - `lib/summary-persistence.ts`: `summary_facts` and `summary_section_summaries` persistence

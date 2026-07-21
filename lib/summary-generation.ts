@@ -4132,6 +4132,116 @@ function groupEscalationSupport(facts: StructuredCaptureFact[], name: string) {
   return supports.length >= 2 ? sentence(`When escalation is high, ${formatInsightList(supports)}`) : "";
 }
 
+function pickAboutActivities(facts: StructuredCaptureFact[], pattern: RegExp, fallbackItems: string[] = []) {
+  const directItems = activityItems(facts).filter((item) => pattern.test(item));
+  const sourceText = factText(facts);
+  const inferredItems = fallbackItems.filter((item) => pattern.test(item) && pattern.test(sourceText));
+
+  return uniqueGuideItems([...directItems, ...inferredItems]).slice(0, 4);
+}
+
+function communicationChannelsForAbout(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  return [
+    /\baac|touchchat|communication device|device on an ipad\b/i.test(text) ? "AAC" : "",
+    /\bbody language|nonverbal|non-verbal|non-verbally|gesture\b/i.test(text) ? "body language" : "",
+    /\bsounds?|voice|vocal|singing|happy noises?|angry noises?\b/i.test(text) ? "sounds" : "",
+    /\blead(?:s|ing)? (?:you|a caregiver|caregivers|them|him|her)|touch(?:es|ing)? (?:you|a caregiver|caregivers|them|him|her)|sit(?:s|ting)? close|closer and closer\b/i.test(text)
+      ? "proximity and movement"
+      : ""
+  ].filter(Boolean);
+}
+
+function learningSupportsForAbout(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  return [
+    /\bvisual\w*|pictures?|actual items?|items themselves|shown? .*choices?|choices? .*shown?\b/i.test(text)
+      ? "visual choices"
+      : "",
+    /\bvideos?|watch(?:ing)?|model(?:ing)?|demonstrat/i.test(text) ? "videos or modeling" : "",
+    /\btwo-step|2-step|first[ -]?then|first this,? then that\b/i.test(text) ? "First-Then or two-step language" : "",
+    /\bphysical cues?|tap(?:ping)? .*foot|gentle tap\b/i.test(text) ? "gentle physical cues" : ""
+  ].filter(Boolean);
+}
+
+function understandsMoreThanSpeechShows(facts: StructuredCaptureFact[]) {
+  const text = factText(facts);
+  const expressionLimit =
+    /\bnon-speaking|can't say words|cannot say words|does not speak|doesn't speak|communication becomes too complicated|more than (?:he|she|they) can express\b/i.test(text);
+  const understandingSupport =
+    /\bunderstands? more than|more than (?:he|she|they) can express|knows? what you mean|understand|visual\w*|two-step|2-step|first[ -]?then|model(?:ing)?|videos?\b/i.test(text);
+
+  return expressionLimit && understandingSupport;
+}
+
+function buildAboutSection(
+  title: GuideSectionTitle,
+  index: number,
+  facts: StructuredCaptureFact[],
+  name: string
+) {
+  const communicationFacts = facts.filter((fact) => guideSectionForFact(fact) === "Communication");
+  const learningFacts = facts.filter((fact) => guideSectionForFact(fact) === "Understanding and Learning");
+  const activityFacts = facts.filter((fact) =>
+    guideSectionForFact(fact) === "Activities and Interests" ||
+    (fact.section === "Activities & Preferences" && fact.factKind === "preference")
+  );
+  const allAboutFacts = [...communicationFacts, ...learningFacts, ...activityFacts];
+  const allAboutText = factText(allAboutFacts);
+  const explorationItems = pickAboutActivities(activityFacts, /\b(explor|new places?|novelty|adventures?|hikes?|malls?|stores?|museums?|car rides?)\b/i, [
+    "exploring new places",
+    "new experiences",
+    "car rides"
+  ]);
+  const favoriteItems = activityItems(activityFacts)
+    .filter((item) => !/\b(cupcakes?|cake|frosting|sprinkles|candy|sweets)\b/i.test(item))
+    .slice(0, 5);
+  const socialItems = socialActivityItems(activityFacts, name).slice(0, 3);
+  const learningSupports = learningSupportsForAbout(learningFacts);
+  const communicationChannels = communicationChannelsForAbout(communicationFacts);
+  const understandsBeyondSpeech = understandsMoreThanSpeechShows(allAboutFacts);
+  const intro = [
+    explorationItems.length > 0
+      ? `${name} is curious and enjoys exploration, especially ${formatInsightList(explorationItems)}`
+      : "",
+    understandsBeyondSpeech
+      ? `New caregivers should assume ${name} may understand more than speech alone can show`
+      : ""
+  ].filter(Boolean).join(". ");
+
+  const bullets = [
+    explorationItems.length > 0
+      ? `${name} enjoys new experiences such as ${formatInsightList(explorationItems)}`
+      : "",
+    favoriteItems.length > 0
+      ? `${name}'s interests include ${formatInsightList(favoriteItems)}`
+      : "",
+    understandsBeyondSpeech
+      ? `A new caregiver should assume ${name} may understand more than speech alone can show`
+      : "",
+    communicationChannels.length > 0
+      ? `${name} communicates through ${formatInsightList(communicationChannels)}`
+      : "",
+    learningSupports.length > 0
+      ? `${name} learns and understands best with ${formatInsightList(learningSupports)}`
+      : "",
+    socialItems.length > 0
+      ? `${name}'s connection and downtime preferences include ${formatInsightList(socialItems)}`
+      : ""
+  ].filter(Boolean);
+
+  if (!intro && bullets.length === 0 && !allAboutText.trim()) {
+    return compactSection(title, index, undefined, []);
+  }
+
+  return compactSection(
+    title,
+    index,
+    intro || undefined,
+    [guideBlock("bullets", bullets)]
+  );
+}
+
 function composeGuideSummaryFromCapture(
   summary: StructuredSummary,
   capture: StructuredCapture,
@@ -4148,12 +4258,6 @@ function composeGuideSummaryFromCapture(
   }
 
   const factsFor = (title: GuideSectionTitle) => byGuide.get(title) ?? [];
-  const aboutFacts = capture.facts.filter((fact) =>
-    fact.safetyRelevant ||
-    fact.factKind === "communication_method" ||
-    fact.factKind === "learning" ||
-    fact.factKind === "condition"
-  );
   const communicationFacts = factsFor("Communication");
   const learningFacts = factsFor("Understanding and Learning");
   const routineFacts = factsFor("Daily Routine");
@@ -4170,16 +4274,7 @@ function composeGuideSummaryFromCapture(
 
   const sections = GUIDE_SECTION_TITLES.map((title, index) => {
     if (title === "About") {
-      return compactSection(
-        title,
-        index,
-        `${name} has practical support needs that are easiest to understand when communication, routines, regulation, and safety are viewed together`,
-        [
-          guideBlock("note", [
-            `Use this guide to understand ${name}'s support needs across communication, routines, regulation, food, activities, and health and safety.`
-          ])
-        ]
-      );
+      return buildAboutSection(title, index, capture.facts, name);
     }
 
     if (title === "Communication") {

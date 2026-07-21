@@ -1,5 +1,10 @@
 import type { PDFDocument, PDFFont, PDFPage } from "pdf-lib";
-import { getSectionBlocks, getVisibleSections } from "@/lib/summary-display";
+import {
+  getSectionBlocks,
+  getSummarySectionDisplayTitle,
+  getVisibleAboutSection,
+  getVisibleDetailSections
+} from "@/lib/summary-display";
 import { formatSummaryGeneratedAt, getOverviewLines } from "@/lib/summary";
 import { StructuredSummary, SummaryBlock } from "@/lib/types";
 
@@ -293,6 +298,32 @@ export async function createSummaryPdf(summary: StructuredSummary) {
     state.y -= SMALL_SIZE + 12;
   }
 
+  const aboutSection = getVisibleAboutSection(summary);
+  if (aboutSection) {
+    const blocks = getSectionBlocks(aboutSection);
+
+    state = ensureSpace(pdf, state, SECTION_TITLE_SIZE + 20);
+    state.page.drawText(getSummarySectionDisplayTitle(summary, aboutSection), {
+      x: PAGE_MARGIN_X,
+      y: state.y,
+      size: SECTION_TITLE_SIZE,
+      font: boldFont,
+      color: muted
+    });
+    state.y -= SECTION_TITLE_SIZE + 10;
+
+    if (aboutSection.intro?.trim()) {
+      state = drawParagraph(pdf, state, aboutSection.intro.trim(), regularFont, BODY_SIZE, slate);
+      state.y -= 8;
+    }
+
+    for (const block of blocks) {
+      state = drawSectionBlock(pdf, state, block, regularFont, boldFont, slate, muted);
+    }
+
+    state.y -= SECTION_GAP;
+  }
+
   const overviewLines = getOverviewLines(summary.overview.trim());
   if (overviewLines.length > 0) {
     state.page.drawText("Overview", {
@@ -327,11 +358,11 @@ export async function createSummaryPdf(summary: StructuredSummary) {
     state.y -= SECTION_GAP;
   }
 
-  for (const section of getVisibleSections(summary)) {
+  for (const section of getVisibleDetailSections(summary)) {
     const blocks = getSectionBlocks(section);
 
     state = ensureSpace(pdf, state, SECTION_TITLE_SIZE + 20);
-    state.page.drawText(section.title.trim(), {
+    state.page.drawText(getSummarySectionDisplayTitle(summary, section), {
       x: PAGE_MARGIN_X,
       y: state.y,
       size: SECTION_TITLE_SIZE,
@@ -370,23 +401,22 @@ export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: stri
         </ul>
       `
       : "";
-  const sections = getVisibleSections(summary)
-    .map((section) => {
-      const intro = section.intro?.trim()
-        ? `<p style="margin:0 0 10px;color:#334155;">${escapeHtml(section.intro.trim())}</p>`
-        : "";
-      const blocks = getSectionBlocks(section)
-        .map((block) => {
-          if (block.type === "bullets") {
-            return `
+  const renderSection = (section: ReturnType<typeof getVisibleDetailSections>[number]) => {
+    const intro = section.intro?.trim()
+      ? `<p style="margin:0 0 10px;color:#334155;">${escapeHtml(section.intro.trim())}</p>`
+      : "";
+    const blocks = getSectionBlocks(section)
+      .map((block) => {
+        if (block.type === "bullets") {
+          return `
               <ul style="margin:0 0 0 18px;padding:0;color:#334155;">
                 ${block.items.map((item) => `<li style="margin:0 0 6px;">${escapeHtml(item)}</li>`).join("")}
               </ul>
             `;
-          }
+        }
 
-          if (block.type === "keyValue") {
-            return `
+        if (block.type === "keyValue") {
+          return `
               <ul style="margin:0 0 0 18px;padding:0;color:#334155;">
                 ${block.rows
                   .map(
@@ -396,15 +426,15 @@ export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: stri
                   .join("")}
               </ul>
             `;
-          }
+        }
 
-          if (block.type === "note") {
-            return `<p style="margin:0 0 10px;color:#334155;">${escapeHtml(block.text)}</p>`;
-          }
+        if (block.type === "note") {
+          return `<p style="margin:0 0 10px;color:#334155;">${escapeHtml(block.text)}</p>`;
+        }
 
-          return block.groups
-            .map(
-              (group) => `
+        return block.groups
+          .map(
+            (group) => `
                 <div style="margin:0 0 12px;">
                   <div style="font-weight:600;color:#64748b;margin:0 0 6px;">${escapeHtml(group.label)}</div>
                   <ul style="margin:0 0 0 18px;padding:0;color:#334155;">
@@ -412,16 +442,22 @@ export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: stri
                   </ul>
                 </div>
               `
-            )
-            .join("");
-        })
-        .join("");
+          )
+          .join("");
+      })
+      .join("");
 
-      return `
-        <h3 style="font-size:16px;margin:20px 0 8px;color:#334155;">${escapeHtml(section.title)}</h3>
+    return `
+        <h3 style="font-size:16px;margin:20px 0 8px;color:#334155;">${escapeHtml(getSummarySectionDisplayTitle(summary, section))}</h3>
         ${intro}
         ${blocks}
       `;
+  };
+  const aboutSection = getVisibleAboutSection(summary);
+  const aboutSectionHtml = aboutSection ? renderSection(aboutSection) : "";
+  const sections = getVisibleDetailSections(summary)
+    .map((section) => {
+      return renderSection(section);
     })
     .join("");
 
@@ -439,6 +475,7 @@ export function buildSummaryEmailHtml(summary: StructuredSummary, editUrl?: stri
           ? `<p style="margin:0 0 12px;color:#64748b;"><strong>Summary created:</strong> ${escapeHtml(generatedAtText)}</p>`
           : ""
       }
+      ${aboutSectionHtml}
       ${
         overviewLines.length > 0
           ? `<ul style="margin:0 0 16px 18px;padding:0;color:#334155;">${overviewLines

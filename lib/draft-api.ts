@@ -1,7 +1,7 @@
 "use client";
 
 import { getStoredSupabaseSession, getSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { SessionDraft, SummaryFreshness } from "@/lib/types";
+import type { SessionDraft, SummaryFreshness } from "@/lib/types";
 
 type DraftResponse = {
   draft: SessionDraft | null;
