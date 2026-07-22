@@ -1,5 +1,8 @@
 import { EMPTY_SUMMARY } from "@/lib/constants";
-import { getSectionBlocks } from "@/lib/summary-display";
+import {
+  getSummarySectionDisplayTitle,
+  getSectionBlocks
+} from "@/lib/summary-display";
 import { deriveItemsFromBlocks, hydrateStructuredSection } from "@/lib/summary-structured";
 import {
   CaregiverInsight,
@@ -1673,8 +1676,8 @@ export function summaryToPlainText(summary: StructuredSummary) {
   const insightLines = (summary.caregiverInsights ?? [])
     .map((insight) => insight.statement.trim())
     .filter(Boolean);
-  const sectionLines = summary.sections.flatMap((section) => {
-    const lines = [section.title];
+  const linesForSection = (section: SummarySection) => {
+    const lines = [getSummarySectionDisplayTitle(summary, section)];
     if (section.intro?.trim() && !isNoInformationItem(section.intro)) {
       lines.push(section.intro.trim());
     }
@@ -1716,10 +1719,15 @@ export function summaryToPlainText(summary: StructuredSummary) {
     }
 
     return lines;
-  });
+  };
+  const aboutSection = summary.sections.find((section) => /^about(?:\s+.+)?$/i.test(section.title.trim()));
+  const sectionLines = summary.sections
+    .filter((section) => section !== aboutSection)
+    .flatMap(linesForSection);
 
   return [
     summary.title.trim(),
+    ...(aboutSection ? linesForSection(aboutSection) : []),
     summary.overview.trim(),
     ...(insightLines.length > 0 ? ["Caregiver Insights", ...insightLines.map((item) => `- ${item}`)] : []),
     ...sectionLines

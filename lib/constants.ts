@@ -1,4 +1,4 @@
-import { StructuredSummary } from "@/lib/types";
+import type { StructuredSummary } from "@/lib/types";
 
 export const APP_NAME = "Caregiver Handoff";
 

@@ -85,6 +85,7 @@
   ],
   "expectations": {
     "sectionTitles": [
+      "About",
       "Communication",
       "Understanding and Learning",
       "Daily Schedule",
@@ -94,6 +95,16 @@
       "Health & Safety"
     ],
     "sectionChecks": {
+      "About": [
+        {
+          "label": "person-first exploration",
+          "anyOf": [
+            "exploring",
+            "new experiences",
+            "new places"
+          ]
+        }
+      ],
       "Communication": [
         {
           "label": "non-speaking communication",

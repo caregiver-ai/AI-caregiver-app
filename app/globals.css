@@ -19,6 +19,16 @@ body {
     display: none !important;
   }
 
+  .print-document {
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+
   body {
     background: white;
   }
