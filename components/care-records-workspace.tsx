@@ -148,7 +148,7 @@ function RecordForm({
         ) : null}
         {record.fields.map((field, index) => (
           <div
-            key={`${index}-${field.label}`}
+            key={`detail-${index}`}
             className="space-y-3 rounded-2xl border border-border bg-white px-3 py-3"
           >
             <div className="flex items-center justify-between gap-3">
