@@ -13,7 +13,15 @@ import { getSupabaseAuthUserFromRequest } from "@/lib/supabase";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_MODEL = "gpt-4.1";
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
-const ALLOWED_FILE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const PDF_FILE_TYPES = new Set(["application/pdf"]);
+const STANDARD_IMAGE_FILE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const HEIC_FILE_TYPES = new Set([
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence"
+]);
+const SUPPORTED_UPLOAD_EXTENSIONS = new Set([".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"]);
 
 type ResponseContentPart =
   | {
@@ -31,6 +39,14 @@ type ResponseContentPart =
       image_url: string;
       detail: "auto";
     };
+
+type UploadKind = "pdf" | "standard_image" | "heic_image";
+
+type HeicConvert = (options: {
+  buffer: Buffer;
+  format: "JPEG";
+  quality: number;
+}) => Promise<Buffer | ArrayBuffer | Uint8Array>;
 
 function getCareRecordsPrompt() {
   const categoryGuide = CARE_RECORD_CATEGORY_DEFINITIONS.map(
@@ -76,12 +92,43 @@ function extractResponseText(data: unknown) {
     .trim();
 }
 
+function getFileExtension(file: File) {
+  const name = file.name.toLowerCase();
+  const extensionStart = name.lastIndexOf(".");
+
+  return extensionStart >= 0 ? name.slice(extensionStart) : "";
+}
+
+function getUploadKind(file: File): UploadKind | null {
+  const extension = getFileExtension(file);
+
+  if (PDF_FILE_TYPES.has(file.type) || extension === ".pdf") {
+    return "pdf";
+  }
+
+  if (
+    STANDARD_IMAGE_FILE_TYPES.has(file.type) ||
+    extension === ".jpg" ||
+    extension === ".jpeg" ||
+    extension === ".png" ||
+    extension === ".webp"
+  ) {
+    return "standard_image";
+  }
+
+  if (HEIC_FILE_TYPES.has(file.type) || extension === ".heic" || extension === ".heif") {
+    return "heic_image";
+  }
+
+  return null;
+}
+
 function getSourceType(file: File | null): CareRecordSourceType {
   if (!file) {
     return "typed";
   }
 
-  return file.type === "application/pdf" ? "pdf" : "image";
+  return getUploadKind(file) === "pdf" ? "pdf" : "image";
 }
 
 function getSourceLabel(sourceType: CareRecordSourceType, file: File | null) {
@@ -92,11 +139,32 @@ function getSourceLabel(sourceType: CareRecordSourceType, file: File | null) {
   return sourceType === "pdf" ? "Uploaded PDF" : "Uploaded image";
 }
 
-async function buildFileContentPart(file: File): Promise<ResponseContentPart> {
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const base64Data = `data:${file.type};base64,${buffer.toString("base64")}`;
+async function convertHeicToJpeg(buffer: Buffer) {
+  const { default: convert } = (await import("heic-convert")) as { default: HeicConvert };
+  const converted = await convert({
+    buffer,
+    format: "JPEG",
+    quality: 0.92
+  });
 
-  if (file.type === "application/pdf") {
+  if (converted instanceof ArrayBuffer) {
+    return Buffer.from(new Uint8Array(converted));
+  }
+
+  return Buffer.from(converted);
+}
+
+async function buildFileContentPart(file: File): Promise<ResponseContentPart> {
+  const kind = getUploadKind(file);
+  if (!kind) {
+    throw new Error("Upload a PDF, PNG, JPG, WebP, HEIC, or HEIF file.");
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  if (kind === "pdf") {
+    const base64Data = `data:application/pdf;base64,${buffer.toString("base64")}`;
+
     return {
       type: "input_file",
       filename: "care-record.pdf",
@@ -104,6 +172,20 @@ async function buildFileContentPart(file: File): Promise<ResponseContentPart> {
       detail: "low"
     };
   }
+
+  if (kind === "heic_image") {
+    const jpegBuffer = await convertHeicToJpeg(buffer);
+    const base64Data = `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
+
+    return {
+      type: "input_image",
+      image_url: base64Data,
+      detail: "auto"
+    };
+  }
+
+  const imageType = file.type && STANDARD_IMAGE_FILE_TYPES.has(file.type) ? file.type : "image/jpeg";
+  const base64Data = `data:${imageType};base64,${buffer.toString("base64")}`;
 
   return {
     type: "input_image",
@@ -215,9 +297,9 @@ export async function POST(request: Request) {
   }
 
   if (file) {
-    if (!ALLOWED_FILE_TYPES.has(file.type)) {
+    if (!getUploadKind(file)) {
       return NextResponse.json(
-        { error: "Upload a PDF, PNG, JPG, or WebP image." },
+        { error: "Upload a PDF, PNG, JPG, WebP, HEIC, or HEIF file." },
         { status: 400 }
       );
     }

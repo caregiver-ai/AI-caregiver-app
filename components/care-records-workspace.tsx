@@ -633,7 +633,7 @@ export function CareRecordsWorkspace() {
   return (
     <AppShell
       title="Care Records"
-      subtitle="Type information or upload one image/PDF. AI suggests records, and you choose whether approved details are saved for future editing."
+      subtitle="Type information or upload one image/PDF, including iPhone HEIC photos. AI suggests records, and you choose whether approved details are saved for future editing."
     >
       <div className="space-y-6">
         <div className="print-hidden flex flex-col gap-2 sm:flex-row">
@@ -679,7 +679,7 @@ export function CareRecordsWorkspace() {
           <label className="block space-y-2">
             <span className="text-sm font-medium text-slate-700">Upload image or PDF</span>
             <input
-              accept="image/png,image/jpeg,image/webp,application/pdf"
+              accept="image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif,application/pdf"
               className="block w-full rounded-2xl border border-border bg-white px-4 py-3 text-sm text-slate-700 file:mr-3 file:rounded-full file:border-0 file:bg-accentSoft file:px-3 file:py-2 file:text-sm file:font-semibold file:text-accent"
               ref={fileInputRef}
               type="file"
@@ -689,7 +689,11 @@ export function CareRecordsWorkspace() {
               <p className="text-xs text-slate-500">
                 Selected: {file.name} ({Math.ceil(file.size / 1024)} KB)
               </p>
-            ) : null}
+            ) : (
+              <p className="text-xs text-slate-500">
+                Supports PDF, PNG, JPG, WebP, HEIC, and HEIF.
+              </p>
+            )}
           </label>
 
           <label className="flex items-start gap-3 rounded-2xl border border-border bg-white px-4 py-3">
