@@ -147,26 +147,40 @@ function RecordForm({
           </p>
         ) : null}
         {record.fields.map((field, index) => (
-          <div key={`${index}-${field.label}`} className="grid gap-2 sm:grid-cols-[11rem_minmax(0,1fr)_auto]">
-            <input
-              className="rounded-2xl border border-border bg-white px-3 py-2 text-sm outline-none transition focus:border-accent"
-              placeholder="Label"
-              value={field.label}
-              onChange={(event) => updateField(index, { ...field, label: event.target.value })}
-            />
-            <input
-              className="rounded-2xl border border-border bg-white px-3 py-2 text-sm outline-none transition focus:border-accent"
-              placeholder="Value"
-              value={field.value}
-              onChange={(event) => updateField(index, { ...field, value: event.target.value })}
-            />
-            <button
-              className="rounded-2xl border border-border bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-              type="button"
-              onClick={() => removeField(index)}
-            >
-              Remove
-            </button>
+          <div
+            key={`${index}-${field.label}`}
+            className="space-y-3 rounded-2xl border border-border bg-white px-3 py-3"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Detail {index + 1}
+              </p>
+              <button
+                className="rounded-2xl border border-border bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                type="button"
+                onClick={() => removeField(index)}
+              >
+                Remove
+              </button>
+            </div>
+            <label className="block space-y-2">
+              <span className="text-xs font-semibold text-slate-600">Label</span>
+              <input
+                className="w-full rounded-2xl border border-border bg-canvas px-3 py-2 text-sm outline-none transition focus:border-accent"
+                placeholder="Example: Phone/Text"
+                value={field.label}
+                onChange={(event) => updateField(index, { ...field, label: event.target.value })}
+              />
+            </label>
+            <label className="block space-y-2">
+              <span className="text-xs font-semibold text-slate-600">Value</span>
+              <textarea
+                className="min-h-16 w-full resize-y rounded-2xl border border-border bg-canvas px-3 py-2 text-sm leading-6 outline-none transition focus:border-accent"
+                placeholder="Example: 781-555-0142"
+                value={field.value}
+                onChange={(event) => updateField(index, { ...field, value: event.target.value })}
+              />
+            </label>
           </div>
         ))}
       </div>
