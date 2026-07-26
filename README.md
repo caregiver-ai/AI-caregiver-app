@@ -1,18 +1,33 @@
-# Caregiver Handoff
+# Caregiver AI
 
-Caregiver Handoff is a guided intake app that helps family caregivers capture practical care knowledge, save progress across sessions, and produce a caregiver-ready guide in English for the next person supporting the care recipient.
+Preserve what only you know, so it's available whenever it's needed.
 
-## Tech stack
+Caregiver AI is a Next.js prototype for family caregivers. After sign-in, caregivers choose between two separate workspaces:
+
+- **Caregiver Handoff**: for everyday caregiving. A practical guide for providing consistent, person-centered support.
+- **Life Records**: for long-term caregiving. A comprehensive reference for transitions, future planning, and important records.
+
+The two workflows intentionally stay separate because they serve different audiences. Caregiver Handoff can be shared broadly with people providing day-to-day support. Life Records may contain legal, medical, financial, benefits, and administrative information, so it has its own data model and output.
+
+Production: [https://ai-caregiver-app.vercel.app](https://ai-caregiver-app.vercel.app)
+
+## Tech Stack
 
 - Next.js 14 App Router
 - React 18 + TypeScript
 - Tailwind CSS
 - Supabase Auth + Postgres
-- OpenAI API for transcription, translation, and summary generation
-- Resend for summary email delivery
-- Vercel hosting with native Git deployments
+- OpenAI API for transcription, translation, summary generation, and Life Records extraction
+- `pdf-lib` for browser-generated PDF downloads
+- `heic-convert` for HEIC/HEIF image conversion before extraction
+- Resend for Caregiver Handoff email delivery
+- Vercel hosting
 
-## Product flow
+## Product Workflows
+
+### Caregiver Handoff
+
+Caregiver Handoff is the existing guided intake flow. It captures the practical knowledge only a caregiver may know and turns it into a caregiver-ready guide.
 
 1. The caregiver signs in with email and password.
 2. The intake screen collects caregiver details, care recipient details, consent, and preferred site language.
@@ -21,35 +36,8 @@ Caregiver Handoff is a guided intake app that helps family caregivers capture pr
 5. Responses can be typed or recorded with audio.
 6. Audio is transcribed and, for Spanish or Mandarin, normalized into English before entering the summary pipeline.
 7. The caregiver can revisit earlier prompts, edit responses, and continue an in-progress draft later.
-8. The review step generates a caregiver-guide summary, runs QA cleanup, and allows inline editing plus regeneration from the saved answers.
-9. The completion step collects feedback and can email the finalized summary.
-
-## Current summary pipeline
-
-The current pipeline is no longer just a simple rewrite pass. It is a structured artifact pipeline with persistence and QA:
-
-1. Source turns are read from `sessions.draft_json.turns`.
-2. The model captures atomic facts from the questionnaire input. These facts stay atomic so details are not lost.
-3. The app groups related facts into a caregiver-guide layout with section intros, labeled groups, and compact caregiver-ready guidance.
-4. The app normalizes and audits the output for section placement, duplicate/noisy bullets, title quality, visible coverage, and missing critical details.
-5. The server persists:
-   - the rendered summary in `summaries`
-   - atomic facts in `summary_facts`
-   - section item groups in `summary_section_summaries`
-6. Regeneration refreshes these artifacts against the current `source_turns_hash`.
-7. The caregiver can edit the summary before final confirmation.
-
-The current output format is a structured JSON summary with:
-
-- `title`
-- `overview`
-- `sections`
-  - optional section `intro`
-  - grouped section `blocks`
-- `generatedAt`
-- `layoutVersion`
-- `pipelineVersion`
-- `sourceTurnsHash`
+8. The review step generates a structured Caregiver Handoff guide, runs QA cleanup, and allows inline editing plus regeneration from saved answers.
+9. The completion step collects feedback and supports PDF download and email delivery of the finalized handoff.
 
 The caregiver-facing guide uses these sections when supported by the captured facts:
 
@@ -66,24 +54,100 @@ The caregiver-facing guide uses these sections when supported by the captured fa
 - `Health & Safety`
 - `Quick Tips for New Caregivers`
 
-## Features
+### Life Records
 
-- Email/password authentication with resumable drafts
-- Local draft storage plus auth-backed server sync
-- Multilingual UI: English, Spanish, Mandarin
-- Typed and recorded responses
-- OpenAI transcription with English normalization for supported non-English audio
-- Versioned 7-section, 25-question caregiver questionnaire
-- Automatic migration of legacy JSON drafts
-- Structured caregiver-guide generation from grouped facts
-- One-minute recordings with an automatic cutoff chime
-- Summary QA and freshness checks
-- Review, edit, and regenerate flow
-- Completion flow with feedback capture
-- Email delivery of the finalized summary
-- Supabase-backed persistence for sessions, summaries, feedback, facts, and section summaries
+Life Records is a separate workflow for records caregivers rely on during transitions and future planning.
 
-## Local setup
+1. The caregiver types or pastes information, or uploads one image/PDF file for extraction.
+2. Supported uploads are PDF, PNG, JPG/JPEG, WebP, HEIC, and HEIF.
+3. Uploaded files are used only during the extraction request. Original uploaded files are not stored.
+4. AI extracts suggested structured items and places them into Life Records categories.
+5. The caregiver reviews, edits, and approves each suggestion before it becomes part of the output.
+6. `Save approved records for future editing` is checked by default.
+7. If checked, approved records are saved to Supabase and reload with the workspace.
+8. If unchecked, approved records are added only to the current printable document state and are not written to the server.
+9. The page includes a clean Life Records output that can be printed, saved as PDF, or downloaded as a generated PDF.
+
+Life Records categories:
+
+- `Living Situation`
+- `Important People`
+- `Legal Decision Making`
+- `Health Care`
+- `Support Services`
+- `Government Resources`
+- `Financial Resources`
+- `Professional Advisors`
+- `Documents`
+
+`Health Care` explicitly includes insurance. Legacy saved category IDs are normalized by migration and server code:
+
+- `health_insurance` -> `health_care`
+- `support_government` -> `support_services`
+- `financial_advisors` -> `financial_resources`
+
+Life Records v1 is English-only and is not a full document management system.
+
+## Summary Pipeline
+
+Caregiver Handoff uses a structured artifact pipeline with persistence and QA:
+
+1. Source turns are read from `sessions.draft_json.turns`.
+2. The model captures atomic facts from questionnaire input so details are not lost.
+3. The app groups related facts into a caregiver-guide layout with section intros, labeled groups, and compact caregiver-ready guidance.
+4. The app normalizes and audits the output for section placement, duplicate/noisy bullets, title quality, visible coverage, and missing critical details.
+5. The server persists:
+   - the rendered summary in `summaries`
+   - atomic facts in `summary_facts`
+   - section item groups in `summary_section_summaries`
+6. Regeneration refreshes these artifacts against the current `source_turns_hash`.
+7. The caregiver can edit the summary before final confirmation.
+
+The output is a structured JSON summary with:
+
+- `title`
+- `overview`
+- `sections`
+- optional section `intro`
+- grouped section `blocks`
+- `generatedAt`
+- `layoutVersion`
+- `pipelineVersion`
+- `sourceTurnsHash`
+
+## Data Model
+
+Supabase handles authentication and persistence. Browser code does not write directly to Supabase for protected app data; it calls server-side API routes that resolve the authenticated user.
+
+Shared table:
+
+- `users`
+
+Caregiver Handoff tables:
+
+- `sessions`
+- `summaries`
+- `feedback`
+- `summary_facts`
+- `summary_section_summaries`
+
+Life Records tables:
+
+- `care_record_workspaces`
+- `care_record_items`
+
+Life Records shares only `users` with the Caregiver Handoff workflow. It does not write to `sessions`, `summaries`, or the summary artifact tables.
+
+Life Records persistence notes:
+
+- V1 supports one active Life Records workspace per user.
+- `care_record_workspaces.user_id` references `users.id`.
+- `care_record_items.workspace_id` references `care_record_workspaces.id`.
+- Approved saved items store structured fields, notes, source type, source label, and review timestamps.
+- Original uploaded images and PDFs are not stored.
+- Print-only approvals created while `Save approved records for future editing` is unchecked are local to the current browser session.
+
+## Local Setup
 
 1. Install dependencies:
 
@@ -107,7 +171,7 @@ npm run dev
 
 5. Open [http://localhost:3000](http://localhost:3000).
 
-## Required environment variables
+## Required Environment Variables
 
 ```bash
 OPENAI_API_KEY=
@@ -128,37 +192,11 @@ RESEND_FROM_EMAIL=
 
 `SUPABASE_SECRET_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are interchangeable in the current server code. Only one is required.
 
-If `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are missing, the app still runs, but summary email sending is disabled.
+If `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are missing, the app still runs, but Caregiver Handoff email sending is disabled.
+
+If `OPENAI_API_KEY` is missing, Caregiver Handoff summary generation falls back to a lightweight heuristic summary so the app can still run locally. Life Records extraction requires the OpenAI API for AI extraction.
 
 ## Supabase
-
-Supabase handles:
-
-- email/password authentication
-- resumable draft storage
-- session metadata
-- `draft_json` snapshots, including raw turns and saved summaries
-- finalized summary records
-- summary facts and section summaries
-- Care Records workspaces and approved items
-- feedback
-
-Core tables:
-
-- `users`
-- `sessions`
-- `summaries`
-- `feedback`
-- `summary_facts`
-- `summary_section_summaries`
-- `care_record_workspaces`
-- `care_record_items`
-
-Notes:
-
-- The raw source input used by regeneration lives in `sessions.draft_json.turns`.
-- `conversation_turns` still exists in the schema, but the current summary regeneration path reads from `draft_json.turns`.
-- Care Records share only the `users` table with the existing workflow. They do not write to `sessions`, `summaries`, or summary artifact tables.
 
 For a new project:
 
@@ -166,17 +204,26 @@ For a new project:
 2. Apply `supabase/schema.sql`, or run the migrations in `supabase/migrations/`.
 3. Add the Supabase env vars to `.env.local`.
 
-If Supabase is not configured, the app can still keep a local browser draft, but auth-backed resume behavior and shared persistence require Supabase.
+If Supabase is not configured, the app can still keep a local browser draft for Caregiver Handoff, but auth-backed resume behavior and shared persistence require Supabase.
 
-## OpenAI
+GitHub Actions is used for Supabase migrations:
 
-OpenAI handles:
+- `.github/workflows/supabase-migrations.yml`
 
-- audio transcription
-- Spanish and Mandarin speech translation into English
-- caregiver summary generation
+Required GitHub repo secret for migrations:
 
-If `OPENAI_API_KEY` is missing, the summary route falls back to a lightweight heuristic summary so the app can still run locally.
+- `SUPABASE_DB_URL`
+
+Use the Supabase session-pooler Postgres connection string for `SUPABASE_DB_URL`.
+
+For schema changes:
+
+1. Add a new timestamped SQL file under `supabase/migrations/`.
+2. Keep `supabase/schema.sql` aligned with the latest schema snapshot.
+3. Push the migration through the normal Git flow.
+4. GitHub Actions applies the new migration to Supabase.
+
+Changing only `supabase/schema.sql` is not enough for production.
 
 ## Scripts
 
@@ -192,97 +239,66 @@ npm run summary:benchmark
 npm run summary:review-cases
 ```
 
-`care-records:test` checks Care Records category validation, extraction normalization, fallback extraction, and grouping helpers.
+`care-records:test` checks Life Records category validation, extraction normalization, fallback extraction, PDF generation, and grouping helpers.
 
 `summary:test` exercises the questionnaire contract, legacy draft migration, summary routing, and freshness logic directly.
 
 `summary:benchmark` runs the benchmark fixture set against the current server-side summary flow and reports checks for completeness, section placement, duplicate bullets, and transcription noise.
 
-`summary:review-cases` runs the current multi-case review gate against Gavin, Tatiana, Jevon, Joe, Ashley, and the raw Joe Word document. It checks that facts are still captured, grouped guide output is not missing required coverage, duplicate visible bullets stay at zero, and facts do not leak into the wrong visible section.
+`summary:review-cases` runs the current multi-case review gate against Gavin, Tatiana, Jevon, Joe, Ashley, and the raw Joe Word document.
 
-## Deployments
-
-Vercel deploys the app through native Git integration:
-
-- pushes to `main` create production deploys
-- pull requests can create preview deploys
-
-Before production deployment, run:
-
-```bash
-npm run summary:test
-npm run typecheck
-npm run summary:review-cases
-vercel build --prod
-```
-
-Production promotion should still include human review of Spanish and Mandarin translation behavior plus participant-style UAT, including the full one-minute recording flow on iPhone Safari, Android Chrome, and desktop Chrome.
-
-GitHub Actions is used for Supabase migrations:
-
-- `.github/workflows/supabase-migrations.yml`
-
-Required GitHub repo secret for migrations:
-
-- `SUPABASE_DB_URL`
-
-Use the Supabase session-pooler Postgres connection string for `SUPABASE_DB_URL`.
-
-## Database change workflow
-
-For schema changes:
-
-1. Add a new timestamped SQL file under `supabase/migrations/`.
-2. Keep `supabase/schema.sql` aligned with the latest schema snapshot.
-3. Push the migration through the normal Git flow.
-4. GitHub Actions applies the new migration to Supabase.
-
-Changing only `supabase/schema.sql` is not enough for production.
-
-## Key pages and routes
+## Routes
 
 Pages:
 
-- `app/page.tsx`: auth-backed dashboard with the two workflow modules
-- `app/know-my-loved-one/page.tsx`: existing intake, auth fallback, and resume entry
-- `app/reflection/page.tsx`: guided reflection flow
-- `app/review/page.tsx`: summary review and editing
-- `app/complete/page.tsx`: completion, feedback, and email send
-- `app/care-records/page.tsx`: Care Records extraction, review, saved records, and printable output
-- `app/update-password/page.tsx`: password reset completion
+- `/`: auth-backed dashboard with the two workflow modules
+- `/know-my-loved-one`: Caregiver Handoff intake, auth fallback, and resume entry
+- `/reflection`: guided reflection flow
+- `/review`: Caregiver Handoff summary review and editing
+- `/complete`: Caregiver Handoff completion, feedback, PDF download, and email send
+- `/care-records`: Life Records extraction, review, saved records, and printable/PDF output
+- `/update-password`: password reset completion
+
+There is intentionally no combined `/handoff` page in v1. The two outputs remain separate.
 
 API routes:
 
-- `app/api/session/route.ts`: initial session creation
-- `app/api/draft/route.ts`: auth-backed draft load/save
-- `app/api/transcribe/route.ts`: transcription and English normalization
-- `app/api/summary/route.ts`: initial summary generation and persistence
-- `app/api/summary/regenerate/route.ts`: regenerate from saved turns and persisted facts
-- `app/api/summary/save/route.ts`: confirm edited summary and mark the session completed
-- `app/api/summary/email/route.ts`: email the finalized summary
-- `app/api/care-records/route.ts`: load/create the Care Records workspace and save reviewed items
-- `app/api/care-records/extract/route.ts`: extract unsaved Care Records suggestions from text/image/PDF
-- `app/api/care-records/[itemId]/route.ts`: edit or delete saved Care Records
-- `app/api/feedback/route.ts`: save completion feedback
-- `app/api/auth/signup/route.ts`: server-side signup
-- `app/api/auth/confirm-existing/route.ts`: confirm an existing auth user
+- `/api/session`: initial session creation
+- `/api/draft`: auth-backed draft load/save
+- `/api/transcribe`: transcription and English normalization
+- `/api/summary`: initial Caregiver Handoff summary generation and persistence
+- `/api/summary/regenerate`: regenerate from saved turns and persisted facts
+- `/api/summary/save`: confirm edited summary and mark the session completed
+- `/api/summary/email`: email the finalized Caregiver Handoff summary
+- `/api/care-records`: load/create the Life Records workspace and save reviewed items
+- `/api/care-records/extract`: extract unsaved Life Records suggestions from text, image, HEIC/HEIF, or PDF input
+- `/api/care-records/[itemId]`: edit or delete saved Life Records
+- `/api/feedback`: save completion feedback
+- `/api/auth/signup`: server-side signup
+- `/api/auth/confirm-existing`: confirm an existing auth user
 
-Core client components:
+There is intentionally no `/api/handoff` combined-output API in v1.
+
+## Key Files
+
+Client:
 
 - `components/dashboard.tsx`: logged-in module dashboard
-- `components/welcome-form.tsx`: auth, intake, and resume behavior
+- `components/welcome-form.tsx`: Caregiver Handoff auth, intake, and resume behavior
 - `components/reflection-chat.tsx`: guided reflection experience
 - `components/review-editor.tsx`: regenerate, edit, and save summary
-- `components/completion-view.tsx`: final review, feedback, and email send
-- `components/care-records-workspace.tsx`: Care Records input, extraction review, saved records, and printable output
+- `components/completion-view.tsx`: final review, feedback, PDF download, and email send
+- `components/care-records-workspace.tsx`: Life Records input, extraction review, saved records, and printable/PDF output
 
-Core server logic:
+Server and domain logic:
 
-- `lib/care-records.ts`: Care Records categories, types, normalization, and fallback extraction helpers
-- `lib/care-records-server.ts`: Care Records workspace/item persistence helpers
-- `lib/summary-generation.ts`: summary generation, normalization, QA, and artifact creation
+- `lib/care-records.ts`: Life Records categories, types, normalization, and fallback extraction helpers
+- `lib/care-records-server.ts`: Life Records workspace/item persistence helpers
+- `lib/life-records-pdf.ts`: generated Life Records PDF layout
+- `lib/summary-generation.ts`: Caregiver Handoff summary generation, normalization, QA, and artifact creation
 - `lib/summary-audit.ts`: summary audit and repair helpers
 - `lib/summary-persistence.ts`: `summary_facts` and `summary_section_summaries` persistence
+- `lib/summary-pdf.ts`: generated Caregiver Handoff PDF layout
 - `lib/draft-api.ts`: authenticated browser-to-server draft sync
 - `lib/supabase.ts`: server-side Supabase clients and auth token verification
 
@@ -290,3 +306,29 @@ Reference data:
 
 - `benchmarks/summary/fixtures/`: benchmark inputs and expectations
 - `supabase/migrations/`: database migrations
+- `supabase/schema.sql`: current schema snapshot
+
+## Deployment
+
+The linked Vercel project is `ai-caregiver-app`, and production is [https://ai-caregiver-app.vercel.app](https://ai-caregiver-app.vercel.app).
+
+Before production deployment, run:
+
+```bash
+npm run typecheck
+npm run care-records:test
+npm run summary:test
+NEXT_TELEMETRY_DISABLED=1 npx -y node@20 node_modules/next/dist/bin/next build
+```
+
+Recommended manual checks before a submission or demo:
+
+- Existing Caregiver Handoff flow works end to end.
+- Existing draft resume behavior still works.
+- Caregiver Handoff PDF download and email delivery still work.
+- Life Records typed extraction works.
+- Life Records image/PDF/HEIC extraction works without storing the original file.
+- Checked `Save approved records for future editing` persists approved records after reload.
+- Unchecked `Save approved records for future editing` keeps approvals only in the current printable output.
+- Life Records printable/PDF output is readable and grouped by category.
+- `/handoff` and `/api/handoff` return `404`.
