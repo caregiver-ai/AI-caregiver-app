@@ -15,14 +15,46 @@ body {
 }
 
 @media print {
+  @page {
+    margin: 0.65in;
+  }
+
   .print-hidden {
     display: none !important;
   }
 
+  main {
+    max-width: none !important;
+    min-height: auto !important;
+    padding: 0 !important;
+  }
+
+  .app-shell-panel {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+    padding: 0 !important;
+  }
+
   .print-document {
     border: 0 !important;
+    border-radius: 0 !important;
+    background: white !important;
     box-shadow: none !important;
     padding: 0 !important;
+  }
+
+  .life-records-document {
+    color: #334155 !important;
+  }
+
+  .life-records-print-item {
+    border-color: #cbd5e1 !important;
+  }
+
+  .life-records-print-row {
+    grid-template-columns: 10rem minmax(0, 1fr) !important;
   }
 
   .print-avoid-break {

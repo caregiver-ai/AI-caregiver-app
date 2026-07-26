@@ -12,6 +12,7 @@ import {
   normalizeCareRecordSuggestions,
   parseCareRecordExtractionText
 } from "../lib/care-records";
+import { createLifeRecordsPdf } from "../lib/life-records-pdf";
 
 function testCategoryNormalization() {
   assert.equal(normalizeCareRecordCategory("health_care"), "health_care");
@@ -118,14 +119,38 @@ function testFallbackAndGrouping() {
   assert.equal(grouped.find((group) => group.id === "important_people")?.items.length, 1);
 }
 
-function run() {
+async function testLifeRecordsPdfGeneration() {
+  const pdfBytes = await createLifeRecordsPdf(
+    [
+      {
+        id: "test-record",
+        category: "health_care",
+        title: "Primary Care Physician",
+        fields: [
+          { label: "Doctor", value: "Dr. Patel" },
+          { label: "Phone", value: "781-555-1230" }
+        ],
+        notes: "Call for annual physicals and medication questions.",
+        sourceType: "image",
+        sourceLabel: "Uploaded image"
+      }
+    ],
+    "2026-07-24T12:00:00.000Z"
+  );
+
+  assert.ok(pdfBytes.byteLength > 1000);
+  assert.equal(Buffer.from(pdfBytes.slice(0, 4)).toString("utf8"), "%PDF");
+}
+
+async function run() {
   testCategoryNormalization();
   testFieldNormalization();
   testExtractionParsingAndSuggestions();
   testInputNormalization();
   testSavePayloadShape();
   testFallbackAndGrouping();
+  await testLifeRecordsPdfGeneration();
   console.log("Care Records tests passed.");
 }
 
-run();
+void run();

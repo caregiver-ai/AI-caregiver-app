@@ -15,6 +15,7 @@ import {
   getCareRecordCategoryTitle,
   groupCareRecordItemsByCategory
 } from "@/lib/care-records";
+import { APP_NAME } from "@/lib/constants";
 import { authenticatedFetch, getCurrentAuthUser } from "@/lib/draft-api";
 
 type EditableRecord = Omit<CareRecordSuggestion, "tempId">;
@@ -70,6 +71,19 @@ function createPrintOnlyRecord(record: EditableRecord): PrintableCareRecord {
     ...record,
     printOnly: true
   };
+}
+
+function formatLifeRecordsPreparedAt(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  }).format(parsed);
 }
 
 function RecordForm({
@@ -324,12 +338,12 @@ function RecordCard({
   );
 }
 
-function PrintableRecordCard({ item }: { item: PrintableCareRecord }) {
+function PrintableRecordDocumentItem({ item }: { item: PrintableCareRecord }) {
   return (
-    <article className="print-avoid-break space-y-3 rounded-2xl border border-border bg-white px-4 py-4">
+    <article className="life-records-print-item print-avoid-break space-y-3 border-b border-border pb-4 last:border-b-0">
       <div>
-        <h4 className="text-base font-semibold text-ink">{item.title}</h4>
-        <p className="mt-1 text-xs text-slate-500">
+        <h4 className="text-base font-semibold leading-6 text-ink">{item.title}</h4>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
           Source: {item.sourceLabel} ({item.sourceType})
           {item.printOnly ? <span className="print-hidden"> - Not saved for future editing</span> : null}
         </p>
@@ -337,74 +351,124 @@ function PrintableRecordCard({ item }: { item: PrintableCareRecord }) {
       {item.fields.length > 0 ? (
         <dl className="space-y-2 text-sm leading-6 text-slate-700">
           {item.fields.map((field) => (
-            <div key={`${item.id}-${field.label}-${field.value}`} className="rounded-2xl bg-canvas px-4 py-3">
+            <div key={`${item.id}-${field.label}-${field.value}`} className="life-records-print-row grid gap-1 sm:grid-cols-[10rem_minmax(0,1fr)]">
               <dt className="font-semibold text-ink">{field.label}</dt>
-              <dd>{field.value}</dd>
+              <dd className="text-slate-700">{field.value}</dd>
             </div>
           ))}
         </dl>
       ) : null}
       {item.notes ? (
-        <p className="rounded-2xl bg-canvas px-4 py-3 text-sm leading-6 text-slate-700">
-          {item.notes}
-        </p>
+        <div className="life-records-print-row grid gap-1 text-sm leading-6 sm:grid-cols-[10rem_minmax(0,1fr)]">
+          <div className="font-semibold text-ink">Notes</div>
+          <p className="text-slate-700">{item.notes}</p>
+        </div>
       ) : null}
     </article>
   );
 }
 
-function PrintableCareRecordsDocument({ items }: { items: PrintableCareRecord[] }) {
+function PrintableCareRecordsDocument({
+  items,
+  preparedAt,
+  pdfFileName,
+  pdfPreparing,
+  pdfUrl,
+  onDownloadUnavailable
+}: {
+  items: PrintableCareRecord[];
+  preparedAt: string;
+  pdfFileName: string;
+  pdfPreparing: boolean;
+  pdfUrl: string;
+  onDownloadUnavailable: () => void;
+}) {
   const groupedRecords = groupCareRecordItemsByCategory(items);
   const printOnlyCount = items.filter((item) => item.printOnly).length;
+  const preparedAtText = formatLifeRecordsPreparedAt(preparedAt);
 
   return (
-    <section className="print-document space-y-5 rounded-3xl border border-border bg-white px-4 py-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-ink">Care Records</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Legal, health care, financial, support, and administrative records for trusted handoff.
-          </p>
-        </div>
+    <section className="print-document space-y-6 rounded-3xl border border-border bg-white px-4 py-5">
+      <div className="print-hidden flex flex-col gap-2 sm:flex-row sm:justify-end">
         <button
-          className="print-hidden rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+          data-testid="life-records-save-pdf"
           disabled={items.length === 0}
           type="button"
           onClick={() => window.print()}
         >
-          Print / Save PDF
+          Save as PDF
         </button>
+        {items.length > 0 && pdfUrl ? (
+          <a
+            className="rounded-2xl border border-accent px-4 py-3 text-center text-sm font-semibold text-accent transition hover:bg-accent hover:text-white"
+            data-testid="life-records-download-pdf"
+            download={pdfFileName}
+            href={pdfUrl}
+          >
+            Download PDF
+          </a>
+        ) : (
+          <button
+            className="rounded-2xl border border-accent px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+            data-testid="life-records-download-pdf-unavailable"
+            disabled={pdfPreparing}
+            type="button"
+            onClick={onDownloadUnavailable}
+          >
+            {pdfPreparing ? "Preparing PDF..." : "Download PDF"}
+          </button>
+        )}
       </div>
 
-      <p className="rounded-2xl bg-canvas px-4 py-3 text-sm leading-6 text-slate-700">
-        Uploaded files are used only for extraction and are not stored.
-      </p>
+      <div className="life-records-document space-y-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.26em] text-accent">
+            {APP_NAME}
+          </p>
+          <h2 className="mt-3 text-2xl font-semibold text-ink">Life Records</h2>
+          {preparedAtText ? (
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Document prepared: {preparedAtText}
+            </p>
+          ) : null}
+          <p className="mt-3 text-sm leading-6 text-slate-700">
+            Bring together the records caregivers rely on.
+          </p>
+        </div>
 
-      {printOnlyCount > 0 ? (
-        <p className="print-hidden rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-          {printOnlyCount} {printOnlyCount === 1 ? "record is" : "records are"} included for this printout
-          only and will disappear after reload.
+        <p className="text-sm leading-6 text-slate-700">
+          Uploaded files are used only for extraction and are not stored.
         </p>
-      ) : null}
 
-      {items.length === 0 ? (
-        <p className="rounded-2xl bg-canvas px-4 py-3 text-sm leading-6 text-slate-600">
-          No Care Records are ready to print yet.
-        </p>
-      ) : (
-        groupedRecords.map((group) =>
-          group.items.length > 0 ? (
-            <div key={group.id} className="print-avoid-break space-y-3">
-              <h3 className="border-b border-border pb-2 text-sm font-semibold uppercase text-slate-600">
-                {group.title}
-              </h3>
-              {group.items.map((item) => (
-                <PrintableRecordCard key={item.id} item={item} />
-              ))}
-            </div>
-          ) : null
-        )
-      )}
+        {printOnlyCount > 0 ? (
+          <p className="print-hidden rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+            {printOnlyCount} {printOnlyCount === 1 ? "record is" : "records are"} included for this output
+            only and will disappear after reload.
+          </p>
+        ) : null}
+
+        {items.length === 0 ? (
+          <p className="text-sm leading-6 text-slate-600">
+            No Life Records are ready yet.
+          </p>
+        ) : (
+          groupedRecords.map((group) =>
+            group.items.length > 0 ? (
+              <div key={group.id} className="print-avoid-break space-y-3">
+                <h3 className="border-b border-border pb-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  {group.title}
+                </h3>
+                <div className="space-y-4">
+                  {group.items.map((item) => (
+                    <PrintableRecordDocumentItem key={item.id} item={item} />
+                  ))}
+                </div>
+              </div>
+            ) : null
+          )
+        )}
+      </div>
     </section>
   );
 }
@@ -423,6 +487,7 @@ function toEditableRecord(record: CareRecordSuggestion | CareRecordItem): Editab
 export function CareRecordsWorkspace() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pdfUrlRef = useRef("");
   const [items, setItems] = useState<CareRecordItem[]>([]);
   const [suggestions, setSuggestions] = useState<CareRecordSuggestion[]>([]);
   const [printOnlyItems, setPrintOnlyItems] = useState<PrintableCareRecord[]>([]);
@@ -432,15 +497,93 @@ export function CareRecordsWorkspace() {
   const [loading, setLoading] = useState(true);
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pdfPreparing, setPdfPreparing] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState("");
+  const [pdfFileName, setPdfFileName] = useState("life-records.pdf");
   const [editingId, setEditingId] = useState("");
   const [editingRecord, setEditingRecord] = useState<EditableRecord | null>(null);
+  const [documentPreparedAt, setDocumentPreparedAt] = useState(() => new Date().toISOString());
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [pdfStatus, setPdfStatus] = useState("");
   const groupedItems = useMemo(() => groupCareRecordItemsByCategory(items), [items]);
   const printableItems = useMemo<PrintableCareRecord[]>(
     () => [...items, ...printOnlyItems],
     [items, printOnlyItems]
   );
+
+  useEffect(() => {
+    setDocumentPreparedAt(new Date().toISOString());
+  }, [printableItems]);
+
+  useEffect(() => {
+    let active = true;
+    let nextObjectUrl = "";
+
+    if (pdfUrlRef.current) {
+      window.URL.revokeObjectURL(pdfUrlRef.current);
+      pdfUrlRef.current = "";
+    }
+    setPdfUrl("");
+
+    if (printableItems.length === 0) {
+      setPdfPreparing(false);
+      setPdfStatus("");
+      return () => {
+        active = false;
+      };
+    }
+
+    setPdfPreparing(true);
+    setPdfStatus("");
+
+    void (async () => {
+      const { createLifeRecordsPdf, sanitizeLifeRecordsPdfFilename } = await import(
+        "@/lib/life-records-pdf"
+      );
+      const pdfBytes = await createLifeRecordsPdf(printableItems, documentPreparedAt);
+      const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength);
+      new Uint8Array(pdfBuffer).set(pdfBytes);
+      const blob = new Blob([pdfBuffer], { type: "application/pdf" });
+      nextObjectUrl = window.URL.createObjectURL(blob);
+
+      if (!active) {
+        window.URL.revokeObjectURL(nextObjectUrl);
+        return;
+      }
+
+      setPdfFileName(`${sanitizeLifeRecordsPdfFilename("Life Records")}.pdf`);
+      pdfUrlRef.current = nextObjectUrl;
+      setPdfUrl(nextObjectUrl);
+      nextObjectUrl = "";
+    })()
+      .catch(() => {
+        if (active) {
+          setPdfStatus("Unable to prepare the PDF right now.");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setPdfPreparing(false);
+        }
+      });
+
+    return () => {
+      active = false;
+      if (nextObjectUrl) {
+        window.URL.revokeObjectURL(nextObjectUrl);
+      }
+    };
+  }, [documentPreparedAt, printableItems]);
+
+  useEffect(() => {
+    return () => {
+      if (pdfUrlRef.current) {
+        window.URL.revokeObjectURL(pdfUrlRef.current);
+        pdfUrlRef.current = "";
+      }
+    };
+  }, []);
 
   function clearSourceInputs() {
     setText("");
@@ -477,12 +620,12 @@ export function CareRecordsWorkspace() {
       };
 
       if (!response.ok) {
-        throw new Error(data.error ?? "Unable to load Care Records.");
+        throw new Error(data.error ?? "Unable to load Life Records.");
       }
 
       setItems(data.items ?? []);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load Care Records.");
+      setError(loadError instanceof Error ? loadError.message : "Unable to load Life Records.");
     } finally {
       setLoading(false);
     }
@@ -550,7 +693,7 @@ export function CareRecordsWorkspace() {
     if (!saveForFutureEditing) {
       setPrintOnlyItems((current) => [createPrintOnlyRecord(compacted), ...current]);
       removeSuggestion(tempId);
-      setStatus("Care Record added to the printable document. It was not saved for future editing.");
+      setStatus("Life Record added to the printable document. It was not saved for future editing.");
       return;
     }
 
@@ -568,14 +711,14 @@ export function CareRecordsWorkspace() {
       };
 
       if (!response.ok) {
-        throw new Error(data.error ?? "Unable to save Care Record.");
+        throw new Error(data.error ?? "Unable to save Life Record.");
       }
 
       setItems(data.items ?? []);
       removeSuggestion(tempId);
-      setStatus("Care Record saved.");
+      setStatus("Life Record saved.");
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Unable to save Care Record.");
+      setError(saveError instanceof Error ? saveError.message : "Unable to save Life Record.");
     } finally {
       setSaving(false);
     }
@@ -603,15 +746,15 @@ export function CareRecordsWorkspace() {
       };
 
       if (!response.ok || !data.item) {
-        throw new Error(data.error ?? "Unable to update Care Record.");
+        throw new Error(data.error ?? "Unable to update Life Record.");
       }
 
       setItems((current) => current.map((item) => (item.id === data.item?.id ? data.item : item)));
       setEditingId("");
       setEditingRecord(null);
-      setStatus("Care Record updated.");
+      setStatus("Life Record updated.");
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Unable to update Care Record.");
+      setError(saveError instanceof Error ? saveError.message : "Unable to update Life Record.");
     } finally {
       setSaving(false);
     }
@@ -632,22 +775,44 @@ export function CareRecordsWorkspace() {
       };
 
       if (!response.ok) {
-        throw new Error(data.error ?? "Unable to delete Care Record.");
+        throw new Error(data.error ?? "Unable to delete Life Record.");
       }
 
       setItems(data.items ?? []);
-      setStatus("Care Record deleted.");
+      setStatus("Life Record deleted.");
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete Care Record.");
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete Life Record.");
     } finally {
       setSaving(false);
     }
   }
 
+  function handleLifeRecordsDownloadUnavailable() {
+    if (printableItems.length === 0) {
+      setPdfStatus("Add or save at least one reviewed Life Record before downloading a PDF.");
+      return;
+    }
+
+    setPdfStatus("The PDF is still being prepared. Try again in a moment.");
+  }
+
   return (
     <AppShell
-      title="Care Records"
-      subtitle="Type information or upload one image/PDF, including iPhone HEIC photos. AI suggests records, and you choose whether approved details are saved for future editing."
+      title="Life Records"
+      subtitle={
+        <div className="space-y-2">
+          <p className="font-medium text-ink">Bring together the records caregivers rely on.</p>
+          <p>
+            Type information or upload photos, screenshots, images, or PDFs. AI will organize your
+            information into categories for you to review and approve.
+          </p>
+          <p>
+            Examples: Legal Decision Making, Health Care, Support Services, Government Resources,
+            Financial Resources, Professional Advisors, Documents, Living Situation, Important
+            People.
+          </p>
+        </div>
+      }
     >
       <div className="space-y-6">
         <div className="print-hidden flex flex-col gap-2 sm:flex-row">
@@ -722,7 +887,7 @@ export function CareRecordsWorkspace() {
                 Save approved records for future editing
               </span>
               <span className="block text-sm leading-6 text-slate-600">
-                If unchecked, approved records are added only to the printable Care Records document.
+                If unchecked, approved records are added only to the printable Life Records document.
               </span>
             </span>
           </label>
@@ -780,7 +945,7 @@ export function CareRecordsWorkspace() {
             <p className="rounded-2xl bg-canvas px-4 py-3 text-sm text-slate-600">Loading records...</p>
           ) : items.length === 0 ? (
             <p className="rounded-2xl bg-canvas px-4 py-3 text-sm leading-6 text-slate-600">
-              No Care Records have been saved yet.
+              No Life Records have been saved yet.
             </p>
           ) : (
             groupedItems.map((group) =>
@@ -812,7 +977,20 @@ export function CareRecordsWorkspace() {
           )}
         </section>
 
-        <PrintableCareRecordsDocument items={printableItems} />
+        {pdfStatus ? (
+          <div className="print-hidden">
+            <StatusBanner tone="error">{pdfStatus}</StatusBanner>
+          </div>
+        ) : null}
+
+        <PrintableCareRecordsDocument
+          items={printableItems}
+          pdfFileName={pdfFileName}
+          pdfPreparing={pdfPreparing}
+          pdfUrl={pdfUrl}
+          preparedAt={documentPreparedAt}
+          onDownloadUnavailable={handleLifeRecordsDownloadUnavailable}
+        />
       </div>
     </AppShell>
   );

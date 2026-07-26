@@ -1,6 +1,6 @@
 import type { StructuredSummary } from "@/lib/types";
 
-export const APP_NAME = "Caregiver Handoff";
+export const APP_NAME = "Caregiver AI";
 
 export const EMPTY_SUMMARY: StructuredSummary = {
   title: "",

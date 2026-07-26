@@ -179,7 +179,7 @@ export function Dashboard() {
       };
 
       if (!recordsResponse.ok) {
-        throw new Error(recordsData.error ?? "Unable to load Care Records.");
+        throw new Error(recordsData.error ?? "Unable to load Life Records.");
       }
 
       setCareRecords(recordsData.items ?? []);
@@ -362,9 +362,9 @@ export function Dashboard() {
       <section className="w-full rounded-[28px] border border-border bg-white/95 p-6 shadow-card sm:p-8">
         <div className="space-y-3">
           <p className="text-xs font-semibold uppercase tracking-[0.26em] text-accent">
-            {APP_NAME}
+            Workspace dashboard
           </p>
-          <h1 className="text-3xl font-semibold text-ink sm:text-4xl">Caregiver Handoff</h1>
+          <h1 className="text-3xl font-semibold text-ink sm:text-4xl">{APP_NAME}</h1>
           <p className="max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
             Capture what only you know, and organize the records someone else would need.
           </p>
@@ -502,7 +502,7 @@ export function Dashboard() {
               >
                 <div className="space-y-3">
                   <div className="flex items-start justify-between gap-4">
-                    <h2 className="text-xl font-semibold text-ink">Know My Loved One</h2>
+                    <h2 className="text-xl font-semibold text-ink">Caregiver Handoff</h2>
                     <span className="rounded-full bg-accentSoft px-3 py-1 text-xs font-semibold text-accent">
                       {knowStatus}
                     </span>
@@ -523,13 +523,13 @@ export function Dashboard() {
               >
                 <div className="space-y-3">
                   <div className="flex items-start justify-between gap-4">
-                    <h2 className="text-xl font-semibold text-ink">Care Records</h2>
+                    <h2 className="text-xl font-semibold text-ink">Life Records</h2>
                     <span className="rounded-full bg-accentSoft px-3 py-1 text-xs font-semibold text-accent">
                       {careRecordsStatus}
                     </span>
                   </div>
                   <p className="text-sm leading-6 text-slate-600">
-                    Type or upload records and let AI organize details into reviewed categories.
+                    Bring together the records caregivers rely on.
                   </p>
                   <span className="inline-flex text-sm font-semibold text-accent">
                     Open workspace
