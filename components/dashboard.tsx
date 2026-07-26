@@ -361,12 +361,9 @@ export function Dashboard() {
     <main className="mx-auto flex min-h-screen w-full max-w-4xl items-center px-4 py-8 sm:px-6">
       <section className="w-full rounded-[28px] border border-border bg-white/95 p-6 shadow-card sm:p-8">
         <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.26em] text-accent">
-            Workspace dashboard
-          </p>
           <h1 className="text-3xl font-semibold text-ink sm:text-4xl">{APP_NAME}</h1>
           <p className="max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-            Capture what only you know, and organize the records someone else would need.
+            Preserve what only you know, so it&apos;s available whenever it&apos;s needed.
           </p>
         </div>
 
@@ -507,9 +504,11 @@ export function Dashboard() {
                       {knowStatus}
                     </span>
                   </div>
+                  <p className="text-sm font-semibold text-slate-700">
+                    For everyday caregiving
+                  </p>
                   <p className="text-sm leading-6 text-slate-600">
-                    Capture routines, communication, preferences, triggers, strengths, and care
-                    insights.
+                    A practical guide for providing consistent, person-centered support.
                   </p>
                   <span className="inline-flex text-sm font-semibold text-accent">
                     Open workflow
@@ -528,8 +527,12 @@ export function Dashboard() {
                       {careRecordsStatus}
                     </span>
                   </div>
+                  <p className="text-sm font-semibold text-slate-700">
+                    For long-term caregiving
+                  </p>
                   <p className="text-sm leading-6 text-slate-600">
-                    Bring together the records caregivers rely on.
+                    A comprehensive reference for transitions, future planning, and important
+                    records.
                   </p>
                   <span className="inline-flex text-sm font-semibold text-accent">
                     Open workspace

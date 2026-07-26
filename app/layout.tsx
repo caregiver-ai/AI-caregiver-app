@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: APP_NAME,
-  description: "Capture what matters most and turn it into a clear caregiver handoff summary."
+  description: "Preserve what only you know, so it is available whenever it is needed."
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
